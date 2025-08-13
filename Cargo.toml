@@ -5,6 +5,7 @@ authors = ["Geoff Leyland <geoff.leyland@incremental.co.nz>"]
 edition = "2024"
 
 [dependencies]
+git-version = "0.3.9"
 
 [lints.rust]
 future_incompatible = { level = "warn", priority = -1 }
