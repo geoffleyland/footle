@@ -3,11 +3,11 @@
 case $1 in
 
     test)
-        RUST_BACKTRACE=1 cargo test && cargo clippy
+        RUST_BACKTRACE=1 cargo test && cargo run && cargo clippy
         ;;
 
     watch)
-        RUST_BACKTRACE=1 watchexec -w src -w Cargo.toml -c -- "cargo test && cargo clippy"
+        RUST_BACKTRACE=1 watchexec -w src -w Cargo.toml -c -- "cargo test && cargo run && cargo clippy"
         ;;
 
     doc)
