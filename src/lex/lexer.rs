@@ -131,6 +131,7 @@ impl<S: Source> Lexer<S> {
         if let Some((c, start)) = self.lookahead(0) {
             match c {
                 'a'..='z' | 'A'..='Z' | '_'     => self.identifier(),
+                '0'..='9'                       => self.number(),
 
                 // Math Operators
                 '+'                             => self.char_token(Plus, start),
@@ -248,6 +249,44 @@ impl<S: Source> Lexer<S> {
             eat_until!(self, '\n' | '\r');
             self.token(Token::Comment, start)
         }
+    }
+
+
+//-------------------------------------------------------------------------------------------------
+
+    /// Lex a number and convert it to a float.
+    fn number(&mut self) -> LexerResult {
+        // Read the part before any fractional part
+        let (_, start) = start_token!(self, '0'..='9');
+        eat_all!(self, '0'..='9');
+
+        // Read the part after the fraction if there is one
+        let point_problem = if eat_one!(self, '.').is_some() {
+            let digits = eat_all!(self, '0'..='9');
+            // If there are no digits after a decimal point, we don't like that.
+            digits == 0
+        } else { false };
+
+        // Read the part after the exponent if tehre is one.
+        let bad_exponent = if eat_one!(self, 'e' | 'E').is_some() {
+            eat_one!(self, '+' | '-');
+            // If there are no digits after the `e`, it's a bad exponent.
+            eat_all!(self, '0'..='9') == 0
+        } else { false };
+
+        // If the number continues with identifier letters, that's a problem too.
+        let bad_suffix = eat_all!(self, '0'..='9' | 'a'..='z' | 'A'..='Z' | '_') > 0;
+
+        if bad_suffix | point_problem | bad_exponent {
+            let message =
+                if point_problem        { "expected at least one digit after decimal point" }
+                else if bad_exponent    { "expected at least one digit in exponent" }
+                else                    { "invalid suffix for number literal" };
+            return self.error(message, start);
+        }
+
+        let v = self.token_text(start).parse().unwrap();
+        self.token(Token::Number(v), start)
     }
 }
 
@@ -513,6 +552,41 @@ and with a newline #) continues #) elsewhere"),
                 Identifier("everyone".to_string()),
                 Identifier("elsewhere".to_string()),
             ]);
+    }
+
+
+//-------------------------------------------------------------------------------------------------
+/// Number tests
+
+    fn expect_number(s: &str, expected: f64) {
+        let t = Lexer::new(s).next_token();
+        if let (Ok(Token::Number(obtained)), ..) = t {
+            assert_eq!(obtained, expected);
+        } else {
+            panic!("Expected a `Number({expected})`, got {:?}", t.0);
+        }
+    }
+
+
+    #[test]
+    fn test_numbers() {
+        expect_number("3", 3.0);
+        expect_number("3.0", 3.0);
+        expect_number("314159", 314159.0);
+        expect_number("3.14159", 3.14159);
+        expect_number("314159e-5", 3.14159);
+        expect_number("0.314159e1", 3.14159);
+        expect_number("0.314159e+1", 3.14159);
+        expect_number("0.314159e+11", 31415900000.0);
+        expect_number("31415926535897932384626", 31415926535897932300000.0);
+        expect_number("31415926535897932384626.0", 31415926535897932300000.0);
+
+        // Error messages
+        expect_error("0.", "expected at least one digit after decimal point");
+        expect_error("0ea", "expected at least one digit in exponent");
+        expect_error("1a", "invalid suffix for number literal");
+        expect_error("1.a", "expected at least one digit after decimal point");
+        expect_error("1.0a", "invalid suffix for number literal");
     }
 }
 

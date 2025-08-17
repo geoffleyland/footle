@@ -3,9 +3,10 @@ use std::fmt;
 
 //-------------------------------------------------------------------------------------------------
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Token {
     Identifier(String),
+    Number(f64),
 
     // Math Operators
     Plus,
@@ -50,6 +51,7 @@ impl std::fmt::Display for Token {
         use Token::*;
         match self {
             Identifier(v)                   => write!(f, "{v}"),
+            Number(v)                       => write!(f, "{v}"),
 
             // Math operators
             Plus                            => write!(f, "+"),
