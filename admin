@@ -7,7 +7,7 @@ case $1 in
         ;;
 
     watch)
-        RUST_BACKTRACE=1 watchexec -w src -w Cargo.toml -c -- "cargo test && cargo run -- -t test-cases && cargo clippy"
+        RUST_BACKTRACE=1 watchexec -w src -w test-cases -w Cargo.toml -c -- "cargo test && cargo run -- -t test-cases && cargo clippy"
         ;;
 
     doc)
@@ -17,5 +17,9 @@ case $1 in
     count-lines)
         tokei
         ;;
+
+    **)
+        cargo run -q -- ${1:-test-cases/simple.txt}
+    ;;
 
 esac

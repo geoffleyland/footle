@@ -1,0 +1,9 @@
+local a, b = 1, 2
+return a + b
+
+#( expected statements
+
+    local a, b = 1, 2
+    return (a + b)
+
+#)

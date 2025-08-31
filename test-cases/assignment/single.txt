@@ -1,0 +1,9 @@
+local a = 1
+return a
+
+#( expected statements
+
+    local a = 1
+    return a
+
+#)
