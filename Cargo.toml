@@ -6,6 +6,7 @@ edition = "2024"
 
 [dependencies]
 git-version = "0.3.9"
+argh = "0.1.13"
 
 [lints.rust]
 future_incompatible = { level = "warn", priority = -1 }

@@ -1,6 +1,6 @@
+mod lexer;
 mod scanner;
 mod token;
-mod lexer;
 
-pub use lexer::Lexer;
+pub use lexer::{Lexer, LexerResult};
 pub use token::Token;
