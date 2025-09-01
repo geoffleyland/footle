@@ -48,6 +48,7 @@ macro_rules! eat_until {
         let mut count = 0;
         loop {
             let tk = $self.lookahead(0);
+            if tk == None { break }
             if let Some(($char_match, _)) = tk { break; }
             $( $f(tk.0); )?
             $self.advance();
@@ -187,7 +188,10 @@ impl<S: Source> Lexer<S> {
                 }
 
                 // Anything else is an error.
-                _                               => self.error(&format!("unexpected character '{c}'"), start)
+                _ => {
+                    self.advance();
+                    self.error(&format!("unexpected character '{c}'"), start)
+                }
             }
         } else { self.token(Eof, self.scanner.pos()) }
     }
@@ -468,6 +472,7 @@ mod test {
 
     #[test]
     fn test_single_line_comment() {
+        expect_token("# Comment", Token::Eof);
         assert_eq!(collect_lex("Hello # comment\nworld"),
             vec!(
                 Token::Identifier("Hello".to_string()),
@@ -587,6 +592,7 @@ and with a newline #) continues #) elsewhere"),
         expect_error("1a", "invalid suffix for number literal");
         expect_error("1.a", "expected at least one digit after decimal point");
         expect_error("1.0a", "invalid suffix for number literal");
+        expect_error(".1", "unexpected character '.'");
     }
 }
 

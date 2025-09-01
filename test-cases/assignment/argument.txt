@@ -1,0 +1,9 @@
+argument a, b
+return a, b
+
+#( expected statements
+
+    argument a, b
+    return a, b
+
+#)
