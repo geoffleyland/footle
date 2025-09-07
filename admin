@@ -19,7 +19,7 @@ case $1 in
         ;;
 
     **)
-        cargo run -q -- ${1:-test-cases/simple.txt}
+        cargo run -q -- ${1:-test-cases/blocks/simple.txt}
     ;;
 
 esac

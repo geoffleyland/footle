@@ -77,9 +77,10 @@ fn run_file(file_name: &str) -> Result<(), Box<dyn Error>> {
     let (stmts, errors, source_map) = ast::parse(file_name, source.as_str());
 
     if errors.is_empty() {
+        let style = core::SourceStyle::new(2, 40, false, &source_map);
         println!("\nStatements from '{file_name}':");
         for stmt in &stmts {
-            println!("{stmt}");
+            println!("{}", stmt.styled(1, &style));
         }
     } else {
         println!("\nErrors from '{file_name}':");

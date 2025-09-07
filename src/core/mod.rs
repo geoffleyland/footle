@@ -11,4 +11,4 @@ pub use nonempty::Nev;
 pub use operators::BinaryOperator;
 pub use parse_error::{ErrorPart, ParseError};
 pub use source::{LineMap, Source, SourceMap, Span};
-pub use style::{IndentedStyle, LineStyle, Styleable};
+pub use style::{IndentedStyle, LineStyle, SourceStyle, Styleable};

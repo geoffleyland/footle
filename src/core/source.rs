@@ -133,6 +133,14 @@ impl<S: Source> SourceMap<S> {
     pub fn show_span<T: Into<Span>>(&self, span: T, colour: bool) -> SpanToShow<'_, S> {
         SpanToShow { map: self, span: span.into(), colour }
     }
+
+    pub fn line_span_from_span(&self, span: Span) -> (usize, Span) {
+        self.map.line_span_from_span(span)
+    }
+
+    pub fn span(&self, span: Span) -> &str {
+        self.source.span(span)
+    }
 }
 
 
