@@ -1,0 +1,21 @@
+local a, b = 1, 2
+c = a < b
+d = a > b
+e = a <= b
+f = a >= b
+g = a == b
+h = a != b
+return c, d, e, f, g, h
+
+#( expected statements
+
+    local a, b = 1, 2
+    c = (a < b)
+    d = (a > b)
+    e = (a <= b)
+    f = (a >= b)
+    g = (a == b)
+    h = (a != b)
+    return c, d, e, f, g, h
+
+#)
