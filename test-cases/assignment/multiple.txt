@@ -9,3 +9,10 @@ return a + b
     return (a + b)
 
 #)
+
+#( expected vir
+
+    local I0 = 3
+    return I0
+
+#)

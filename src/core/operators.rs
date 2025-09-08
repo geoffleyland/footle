@@ -40,6 +40,7 @@ impl BinaryOperator {
         }
     }
 
+
     fn as_str(&self) -> &str {
         use BinaryOperator::*;
         match self {
@@ -57,6 +58,44 @@ impl BinaryOperator {
             LessEqual                   => "<=",
             GreaterThan                 => ">",
             GreaterEqual                => ">=",
+        }
+    }
+
+
+    #[allow(clippy::float_cmp)]
+    pub fn eval_constants(self, lhs: f64, rhs: f64) -> f64 {
+        use BinaryOperator::*;
+        match self {
+            // Math operators
+            Add                             => lhs + rhs,
+            Subtract                        => lhs - rhs,
+            Multiply                        => lhs * rhs,
+            Divide                          => lhs / rhs,
+            Power                           => f64::powf(lhs, rhs),
+
+            // Comparison operators
+            Equal                           => if lhs == rhs { 1.0 } else { 0.0 },
+            NotEqual                        => if lhs == rhs { 0.0 } else { 1.0 },
+            LessThan                        => if lhs < rhs  { 1.0 } else { 0.0 },
+            LessEqual                       => if lhs <= rhs { 1.0 } else { 0.0 },
+            GreaterThan                     => if lhs > rhs  { 1.0 } else { 0.0 },
+            GreaterEqual                    => if lhs >= rhs { 1.0 } else { 0.0 },
+        }
+    }
+
+
+    pub const fn is_commutable(self) -> bool {
+        use BinaryOperator::*;
+        matches!(self, Add | Multiply | Equal | NotEqual)
+    }
+
+
+    pub const fn should_reverse(self) -> Option<Self> {
+        use BinaryOperator::*;
+        match self {
+            GreaterThan                     => Some(LessEqual),
+            GreaterEqual                    => Some(LessThan),
+            _                               => None,
         }
     }
 }

@@ -7,3 +7,11 @@ return a, b
     return a, b
 
 #)
+
+#( expected vir
+
+    argument I0
+    argument I1
+    return I0, I1
+
+#)

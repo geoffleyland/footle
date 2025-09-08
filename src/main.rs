@@ -12,6 +12,7 @@ use git_version::git_version;
 mod ast;
 mod core;
 mod lex;
+mod vir;
 
 use core::Styleable;
 
@@ -87,6 +88,23 @@ fn run_file(file_name: &str) -> Result<(), Box<dyn Error>> {
         for e in errors {
             print!("{}", e.show_in_source(&source_map));
         }
+        return Err("Syntax errors".into())
+    }
+
+    let (vir_stmts, vir_errors) = vir::run(&stmts);
+    if vir_errors.is_empty() {
+        let instrs = vir::instructions(&vir_stmts);
+        let style = core::SourceStyle::new(2, 40, false, &source_map);
+        println!("\nVIR instructions from '{file_name}':");
+        for instr in &instrs {
+            println!("{}", instr.styled(1, &style));
+        }
+    } else {
+        println!("\nErrors from '{file_name}':");
+        for e in vir_errors {
+            print!("{}", e.show_in_source(&source_map));
+        }
+        return Err("Syntax errors".into())
     }
 
     Ok(())
@@ -180,7 +198,7 @@ fn find_tests(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<(), Box<dyn Error>
 fn run_test(path: &Path) -> Result<(), Box<dyn Error>> {
     let expected = read_test_file(path)?;
 
-    for key in ["source", "statements"] {
+    for key in ["source", "statements", "vir"] {
         let source = expected.get(key).unwrap_or(&vec![]).join("\n");
         test_lines(&path.to_string_lossy(), key, &source, &expected)?;
     }
@@ -215,11 +233,13 @@ fn test_lines(
     expected: &HashMap<String, Vec<String>>,
 ) -> Result<(), Box<dyn Error>> {
     let (stmts, errors, _) = ast::parse(file_name, source);
-    let error_strings: Vec<_> = errors.iter().map(|e| format!("{e}")).collect();
 
     let mut checking = input == "source";
     if checking {
-        compare_lines(&error_strings, expected.get("errors").unwrap_or(&vec![]), input, "errors")?;
+        if input == "source" { // only check errors the first time around
+            let error_strings: Vec<_> = errors.iter().map(|e| format!("{e}")).collect();
+            compare_lines(&error_strings, expected.get("errors").unwrap_or(&vec![]), input, "errors")?;
+        }
         if expected.contains_key("errors") {
             return Ok(());
         }
@@ -227,8 +247,26 @@ fn test_lines(
 
     checking |= input == "statements";
     if checking && expected.contains_key("statements") {
-        let string_statements = statements_to_strings(&stmts);
-        compare_lines(&string_statements, &expected["statements"], input, "statements")?;
+        let string_stmts = stmts_to_strings(&stmts);
+        compare_lines(&string_stmts, &expected["statements"], input, "statements")?;
+    }
+
+    let (vir_stmts, vir_errors) = vir::run(&stmts);
+    checking |= input == "vir";
+    if checking {
+        if input == "source" { // only check errors the first time around
+            let error_strings: Vec<_> = vir_errors.iter().map(|e| format!("{e}")).collect();
+            compare_lines(&error_strings, expected.get("vir-errors").unwrap_or(&vec![]), input, "vir-errors")?;
+        }
+        if expected.contains_key("vir-errors") {
+            return Ok(());
+        }
+    }
+
+    if checking && expected.contains_key("vir") {
+        let vir_instrs = vir::instructions(&vir_stmts);
+        let string_instrs = stmts_to_strings(&vir_instrs);
+        compare_lines(&string_instrs, &expected["vir"], input, "vir")?;
     }
 
     Ok(())
@@ -254,11 +292,11 @@ fn compare_lines(
 }
 
 
-fn statements_to_strings(stmts: &[ast::Stmt]) -> Vec<String> {
+fn stmts_to_strings<S: core::Styleable>(stmts: &[S]) -> Vec<String> {
     let style = core::IndentedStyle::new(2);
     stmts
         .iter()
-        .map(|stmt| format!("{}", stmt.styled(1, &style)))
+        .map(|stmt| format!("{}", stmt.styled(0, &style)))
         .collect::<Vec<String>>()
         .join("\n")
         .split('\n')

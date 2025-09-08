@@ -1,16 +1,18 @@
-local a = 1
+mutable local a = 1
+a = 2
 return a
 
 #( expected statements
 
-    local a = 1
+    mutable local a = 1
+    a = 2
     return a
 
 #)
 
 #( expected vir
 
-    local I0 = 1
+    local I0 = 2
     return I0
 
 #)

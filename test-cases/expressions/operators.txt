@@ -1,19 +1,19 @@
 local a, b = 1, 2
-c = a + b
-d = a - b
-e = a * b
-f = a / b
-g = a ^ b
+local c = a + b
+local d = a - b
+local e = a * b
+local f = a / b
+local g = a ^ b
 return c, d, e, f, g
 
 #( expected statements
 
     local a, b = 1, 2
-    c = (a + b)
-    d = (a - b)
-    e = (a * b)
-    f = (a / b)
-    g = (a ^ b)
+    local c = (a + b)
+    local d = (a - b)
+    local e = (a * b)
+    local f = (a / b)
+    local g = (a ^ b)
     return c, d, e, f, g
 
 #)

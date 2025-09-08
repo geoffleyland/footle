@@ -12,6 +12,18 @@ pub enum Declaration {
 }
 
 
+impl Declaration {
+    pub const fn is_mutable(self) -> bool {
+        matches!(self, Self::MutableLocal)
+    }
+
+
+    pub const fn is_declaring(self) -> bool {
+        !matches!(self, Self::Undeclared)
+    }
+}
+
+
 impl std::fmt::Display for Declaration {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use Declaration::*;
