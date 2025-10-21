@@ -293,7 +293,7 @@ impl<S: Source> Parser<S> {
         rhs:                                &Nev<Result<Expr, Span>>) -> Result<(), ()> {
         for (maybe_name, span) in lhs.iter().skip(rhs.len()) {
             let message = maybe_name.as_ref()
-                .map_or("no right-hand-side value for this left-hand-side".to_string(),
+                .map_or_else(|| "no right-hand-side value for this left-hand-side".to_string(),
                     |name| { format!("no right-hand-side value for '{name}'") });
             let rhs_span = rhs.first().as_ref().map_or_else(|s| s, |e| e.span())
                 .union(rhs.last().as_ref().map_or_else(|s| s, |e| e.span()));

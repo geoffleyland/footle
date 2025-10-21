@@ -98,7 +98,7 @@ impl<S: Source> Lexer<S> {
 
 
     fn token_end(&mut self) -> usize {
-        self.lookahead(0).map_or(self.scanner.pos(), |(_, pos)| pos)
+        self.lookahead(0).map_or_else(|| self.scanner.pos(), |(_, pos)| pos)
     }
 
 
