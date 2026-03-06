@@ -68,7 +68,7 @@ fn write_version() {
 
 /// Compile and run a single file
 ///
-/// Read in the file specified, and parse it!
+/// Read in the file specified, and process it!
 fn run_file(file_name: &str) -> Result<(), Box<dyn Error>> {
     eprintln!("Opening '{file_name}'");
     let source =
@@ -76,9 +76,9 @@ fn run_file(file_name: &str) -> Result<(), Box<dyn Error>> {
     println!("Contents of '{file_name}':\n  {}", source.lines().collect::<Vec<_>>().join("\n  "));
 
     let (stmts, errors, source_map) = ast::parse(file_name, source.as_str());
+    let style = core::SourceStyle::new(2, 40, false, &source_map);
 
     if errors.is_empty() {
-        let style = core::SourceStyle::new(2, 40, false, &source_map);
         println!("\nStatements from '{file_name}':");
         for stmt in &stmts {
             println!("{}", stmt.styled(1, &style));
@@ -94,7 +94,6 @@ fn run_file(file_name: &str) -> Result<(), Box<dyn Error>> {
     let (vir_stmts, vir_errors) = vir::run(&stmts);
     if vir_errors.is_empty() {
         let instrs = vir::instructions(&vir_stmts);
-        let style = core::SourceStyle::new(2, 40, false, &source_map);
         println!("\nVIR instructions from '{file_name}':");
         for instr in &instrs {
             println!("{}", instr.styled(1, &style));
@@ -182,19 +181,15 @@ fn find_tests(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<(), Box<dyn Error>
 /// A magical, own-dogfood eating tester.
 /// Read the code, which is broken into sections:
 ///  * source - whatever comes at the start - the program
-///  * errors - inside an #( expected errors .... #) block comment - expected
-///    errors, if any
-///  * statements - inside #( expected statements ... #) - expected
-///    pretty-printed statements
+///  * errors - inside an #( expected errors .... #) block comment - expected errors, if any
+///  * statements - inside #( expected statements ... #) - expected pretty-printed statements
 ///
-/// The clever thing is that all the excess stuff is block comments, so the
-/// files are still legitimate programs.
-/// First, parse the code.  If there are errors, check they match the expected
-/// errors. If there are no errors (and that's what we wanted), check the
-/// statements match expectations. If that worked, take the output from the
-/// parser (actually, the expected output, but we already checked they're the
-/// same), and run it back through the parser, checking that we get the
-/// same result as before.
+/// The clever thing is that all the excess stuff is block comments, so the files are still
+/// legitimate programs.
+/// First, parse the code.  If there are errors, check they match the expected errors. If there are
+/// no errors (and that's what we wanted), check the statements match expectations. If that worked,
+/// take the output from the parser (actually, the expected output, but we already checked they're
+/// the same), and run it back through the parser, checking that we get the same result as before.
 fn run_test(path: &Path) -> Result<(), Box<dyn Error>> {
     let expected = read_test_file(path)?;
 
@@ -236,10 +231,8 @@ fn test_lines(
 
     let mut checking = input == "source";
     if checking {
-        if input == "source" { // only check errors the first time around
             let error_strings: Vec<_> = errors.iter().map(|e| format!("{e}")).collect();
             compare_lines(&error_strings, expected.get("errors").unwrap_or(&vec![]), input, "errors")?;
-        }
         if expected.contains_key("errors") {
             return Ok(());
         }
@@ -292,16 +285,21 @@ fn compare_lines(
 }
 
 
+/// Turn a list of statements into a list of strings
+///
+/// Statements can be multi-line (e.g. block assignments), so we format each one and split on
+/// newlines to get a flat list of non-empty lines for comparison.
 fn stmts_to_strings<S: core::Styleable>(stmts: &[S]) -> Vec<String> {
     let style = core::IndentedStyle::new(2);
     stmts
         .iter()
-        .map(|stmt| format!("{}", stmt.styled(0, &style)))
-        .collect::<Vec<String>>()
-        .join("\n")
-        .split('\n')
-        .map(std::string::ToString::to_string)
-        .filter(|s| !s.is_empty())
+        .flat_map(|stmt| {
+            format!("{}", stmt.styled(0, &style))
+                .lines()
+                .filter(|l| !l.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
         .collect()
 }
 
