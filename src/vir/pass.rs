@@ -147,7 +147,7 @@ pub fn instructions(stmts: &[vir::Stmt]) -> Vec<vir::Instr> {
                     emit_expr(expr, &mut instrs, &mut address_map);
                 }
                 let addresses = exprs.iter()
-                    .map(|e| address_map[&e.index()]).collect::<Vec<_>>().try_into().unwrap();
+                    .map(|e| address_map[&e.pool_index()]).collect::<Vec<_>>().try_into().unwrap();
                 instrs.push(vir::Instr{
                     kind: vir::InstrKind::Return(addresses), address: instrs.len(), span: stmt.span});
             }
@@ -158,18 +158,18 @@ pub fn instructions(stmts: &[vir::Stmt]) -> Vec<vir::Instr> {
 
 
 fn emit_expr(expr: &vir::Expr, instrs: &mut Vec<vir::Instr>, address_map: &mut HashMap<usize, usize>) {
-    if !address_map.contains_key(&expr.index()) {
+    if !address_map.contains_key(&expr.pool_index()) {
         if let vir::ExprKind::Binary(_, lhs, rhs) = expr.kind() {
             emit_expr(lhs, instrs, address_map);
             emit_expr(rhs, instrs, address_map);
         }
         let address = instrs.len();
-        address_map.insert(expr.index(), address);
+        address_map.insert(expr.pool_index(), address);
         let kind = match expr.kind() {
             vir::ExprKind::Number(v) => vir::InstrKind::Number(*v),
             vir::ExprKind::Identifier(..) => vir::InstrKind::Argument,
             vir::ExprKind::Binary(op, lhs, rhs) =>
-                vir::InstrKind::Binary(*op, address_map[&lhs.index()], address_map[&rhs.index()])
+                vir::InstrKind::Binary(*op, address_map[&lhs.pool_index()], address_map[&rhs.pool_index()])
         };
         instrs.push(vir::Instr{kind, address, span: *expr.span()});
     }

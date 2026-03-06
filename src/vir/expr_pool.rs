@@ -55,7 +55,7 @@ impl ExprPool {
 
         } else if !matches!(rhs.kind(), ExprKind::Number(_))
                 && op.is_commutable()
-                && rhs.index() < lhs.index() {
+                && rhs.pool_index() < lhs.pool_index() {
             // Both operands are variables/expressions - get the lowest-indexed one first.
             reverse = !reverse;
         }

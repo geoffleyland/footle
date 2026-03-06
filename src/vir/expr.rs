@@ -63,17 +63,17 @@ impl Eq for ExprKind {}
 #[derive(Debug, Clone)]
 pub struct ExprEntry {
     kind:                                   ExprKind,
-    index:                                  usize,
+    pool_index:                             usize,
     span:                                   Span,
 }
 
 
 impl ExprEntry {
-    pub fn new(kind: ExprKind, index: usize, span: Span) -> Self {
-        Self{kind, index, span}
+    pub fn new(kind: ExprKind, pool_index: usize, span: Span) -> Self {
+        Self{kind, pool_index, span}
     }
     pub fn kind(&self) -> &ExprKind         { &self.kind }
-    pub fn index(&self) -> usize            { self.index }
+    pub fn pool_index(&self) -> usize       { self.pool_index }
     pub fn span(&self) -> &Span             { &self.span }
 }
 
@@ -91,7 +91,7 @@ impl Expr {
         Self { entry }
     }
     pub fn kind(&self) -> &ExprKind         { self.entry.kind() }
-    pub fn index(&self) -> usize            { self.entry.index() }
+    pub fn pool_index(&self) -> usize       { self.entry.pool_index() }
     pub fn span(&self) -> &Span             { self.entry.span() }
 }
 
