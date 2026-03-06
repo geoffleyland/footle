@@ -1,0 +1,34 @@
+argument a
+local b = 1
+local c = a + b
+local d = a - b
+local e = a * b
+local f = a / b
+local g = a ^ b
+return c, d, e, f, g
+
+#( expected statements
+
+  argument a
+  local b = 1
+  local c = (a + b)
+  local d = (a - b)
+  local e = (a * b)
+  local f = (a / b)
+  local g = (a ^ b)
+  return c, d, e, f, g
+
+#)
+
+#( expected vir
+
+  argument I0
+  local I1 = 1
+  local I2 = I0 + I1
+  local I3 = I0 - I1
+  local I4 = I0 * I1
+  local I5 = I0 / I1
+  local I6 = I0 ^ I1
+  return I2, I3, I4, I5, I6
+
+#)
