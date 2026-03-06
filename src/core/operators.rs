@@ -93,8 +93,8 @@ impl BinaryOperator {
     pub const fn should_reverse(self) -> Option<Self> {
         use BinaryOperator::*;
         match self {
-            GreaterThan                     => Some(LessEqual),
-            GreaterEqual                    => Some(LessThan),
+            GreaterThan                     => Some(LessThan),
+            GreaterEqual                    => Some(LessEqual),
             _                               => None,
         }
     }
@@ -130,6 +130,27 @@ impl TryFrom<Token> for BinaryOperator {
 
 impl std::fmt::Display for BinaryOperator {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { f.write_str(self.as_str()) }
+}
+
+//-------------------------------------------------------------------------------------------------
+
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_should_reverse() {
+        // a > b  ≡  b < a  (not b <= a)
+        assert_eq!(1.0_f64 > 2.0, BinaryOperator::LessThan.eval_constants(2.0, 1.0) != 0.0);
+        assert_eq!(2.0_f64 > 1.0, BinaryOperator::LessThan.eval_constants(1.0, 2.0) != 0.0);
+        assert_eq!(1.0_f64 > 1.0, BinaryOperator::LessThan.eval_constants(1.0, 1.0) != 0.0);
+
+        // a >= b  ≡  b <= a  (not b < a)
+        assert_eq!(1.0_f64 >= 2.0, BinaryOperator::LessEqual.eval_constants(2.0, 1.0) != 0.0);
+        assert_eq!(2.0_f64 >= 1.0, BinaryOperator::LessEqual.eval_constants(1.0, 2.0) != 0.0);
+        assert_eq!(1.0_f64 >= 1.0, BinaryOperator::LessEqual.eval_constants(1.0, 1.0) != 0.0);
+    }
 }
 
 //-------------------------------------------------------------------------------------------------

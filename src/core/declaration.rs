@@ -27,12 +27,11 @@ impl Declaration {
 impl std::fmt::Display for Declaration {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use Declaration::*;
-        let declaration = match self {
-            Local                   => &format!("{} ", Token::Local),
-            MutableLocal            => &format!("{} {} ", Token::Mutable, Token::Local),
-            Undeclared              => "",
-        };
-        write!(f, "{declaration}")
+        match self {
+            Local                   => write!(f, "{} ", Token::Local),
+            MutableLocal            => write!(f, "{} {} ", Token::Mutable, Token::Local),
+            Undeclared              => Ok(()),
+        }
     }
 }
 

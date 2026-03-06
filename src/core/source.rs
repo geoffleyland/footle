@@ -18,11 +18,11 @@ impl Span {
     pub const fn start(&self) -> usize { self.start }
     pub const fn end(self) -> usize { self.end }
     pub const fn len(&self) -> usize { self.end - self.start }
-    pub const fn sub(&self, other: &Self) -> usize { self.start.saturating_sub(other.start) }
     pub const fn first(&self) -> Self { Self { start: self.start, end: self.start } }
     pub fn union(&self, other: &Self) -> Self {
         Self { start: self.start.min(other.start), end: self.end.max(other.end) }
     }
+    const fn offset_from(&self, other: &Self) -> usize { self.start.saturating_sub(other.start) }
 }
 
 
@@ -164,12 +164,12 @@ impl<S: Source> std::fmt::Display for SpanToShow<'_, S> {
         let linenumlen = format!("{line_number}").len();
         let line = self.map.source.span(line_span);
         writeln!(f, "{}{}-->{} {}:{}:{}",
-                " ".repeat(linenumlen), blue, stop, self.map.file_name, line_number, self.span.sub(&line_span) + 1)?;
+                " ".repeat(linenumlen), blue, stop, self.map.file_name, line_number, self.span.offset_from(&line_span) + 1)?;
         writeln!(f, "{}{} |{}", " ".repeat(linenumlen), blue, stop)?;
         writeln!(f, "{line_number}{blue} |{stop}  {line}")?;
         writeln!(f, "{}{} |{}  {}{}{}{}",
                 " ".repeat(linenumlen), blue, stop,
-                " ".repeat(self.span.sub(&line_span)), yellow,
+                " ".repeat(self.span.offset_from(&line_span)), yellow,
                 "^".repeat(max(1, self.span.len())), stop)
     }
 }
