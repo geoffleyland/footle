@@ -27,7 +27,7 @@ impl fmt::Display for ExprKind {
 
 #[derive(Debug, Clone)]
 pub struct Expr {
-    pub kind:                                       ExprKind,
+    kind:                                           ExprKind,
     span:                                           Span,
 }
 
