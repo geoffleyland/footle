@@ -1,14 +1,28 @@
 #!/bin/sh
 
+TEST_DIR=test-cases/
+TEST_FILE=test-cases/arguments/operators.txt
+
 case $1 in
 
     test)
-        RUST_BACKTRACE=1 cargo test && cargo run -- -t test-cases && cargo clippy
+        RUST_BACKTRACE=1 cargo test && cargo run -- -t ${2:-$TEST_DIR} && cargo clippy
         ;;
 
     watch)
-        RUST_BACKTRACE=1 watchexec -w src -w test-cases -w Cargo.toml -c -- "cargo test && cargo run -- -t test-cases && cargo clippy"
+        case $2 in
+
+            test)
+                RUST_BACKTRACE=1 watchexec -w src -w ${3:-$TEST_DIR} -w Cargo.toml -c -- "cargo test && cargo run -q -- --test ${3:-$TEST_DIR} && cargo clippy"
+                ;;
+
+            **)
+                watchexec -w src -w ${2:-$TEST_FILE} -w Cargo.toml -c -- cargo run -q -- ${2:-$TEST_FILE}
+                ;;
+
+        esac
         ;;
+
 
     doc)
         cargo doc --open
@@ -19,7 +33,7 @@ case $1 in
         ;;
 
     **)
-        cargo run -q -- ${1:-test-cases/blocks/simple.txt}
+        cargo run -q -- ${1:-$TEST_FILE}
     ;;
 
 esac
