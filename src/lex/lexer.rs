@@ -30,11 +30,9 @@ macro_rules! eat_one {
 
 
 macro_rules! eat_all {
-    ( $self: expr, $char_match: pat $(, $f: expr)? ) => {{
+    ( $self: expr, $char_match: pat ) => {{
         let mut count = 0;
-        #[allow(unused)] // if there's no $f, tk doesn't get used
-        while let Some(tk @ ($char_match, _)) = $self.lookahead(0) {
-            $( $f(tk.0); )?
+        while let Some(($char_match, _)) = $self.lookahead(0) {
             $self.advance();
             count += 1;
         }
@@ -44,13 +42,12 @@ macro_rules! eat_all {
 
 
 macro_rules! eat_until {
-    ( $self: expr, $char_match: pat $(, $f: expr )? ) => {{
+    ( $self: expr, $char_match: pat ) => {{
         let mut count = 0;
         loop {
             let tk = $self.lookahead(0);
             if tk == None { break }
             if let Some(($char_match, _)) = tk { break; }
-            $( $f(tk.0); )?
             $self.advance();
             count += 1;
         }
