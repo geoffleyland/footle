@@ -31,7 +31,7 @@ struct Pass {
 
 
 impl Pass {
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
             stmts:              vec![],
             symbols:            SymbolTable::new(),
@@ -42,7 +42,7 @@ impl Pass {
 
     fn push_error(&mut self, error: ParseError) { self.errors.push(error); }
 
-    pub fn transform_stmt(&mut self, stmt: &ast::Stmt) {
+    fn transform_stmt(&mut self, stmt: &ast::Stmt) {
         match &stmt.kind {
             ast::StmtKind::Arguments(names) => {
                 for (name, span) in names {
@@ -108,7 +108,7 @@ impl Pass {
     }
 
 
-    pub fn transform_expr(&mut self, expr: &ast::Expr) -> Result<vir::Expr, ()> {
+    fn transform_expr(&mut self, expr: &ast::Expr) -> Result<vir::Expr, ()> {
         match expr.kind() {
             ast::ExprKind::Number(value) => {
                 Ok(self.exprs.number(*value, *expr.span()))
@@ -149,7 +149,7 @@ pub fn instructions(stmts: &[vir::Stmt]) -> Vec<vir::Instr> {
                 let addresses = exprs.iter()
                     .map(|e| address_map[&e.index()]).collect::<Vec<_>>().try_into().unwrap();
                 instrs.push(vir::Instr{
-                    kind: vir::InstrKind::Return(addresses), address: instrs.len() + 1, span: stmt.span});
+                    kind: vir::InstrKind::Return(addresses), address: instrs.len(), span: stmt.span});
             }
         }
     }
@@ -167,7 +167,7 @@ fn emit_expr(expr: &vir::Expr, instrs: &mut Vec<vir::Instr>, address_map: &mut H
         address_map.insert(expr.index(), address);
         let kind = match expr.kind() {
             vir::ExprKind::Number(v) => vir::InstrKind::Number(*v),
-            vir::ExprKind::Identifier(..) => vir::InstrKind::Argument(),
+            vir::ExprKind::Identifier(..) => vir::InstrKind::Argument,
             vir::ExprKind::Binary(op, lhs, rhs) =>
                 vir::InstrKind::Binary(*op, address_map[&lhs.index()], address_map[&rhs.index()])
         };

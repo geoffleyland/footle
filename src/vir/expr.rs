@@ -1,4 +1,3 @@
-use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
@@ -52,18 +51,6 @@ impl PartialEq for ExprKind {
 impl Eq for ExprKind {}
 
 
-impl fmt::Display for ExprKind {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use ExprKind::*;
-        match self {
-            Binary(op, lhs, rhs)            => write!(f, "({lhs} {op} {rhs})"),
-            Number(value)                   => write!(f, "{value}"),
-            Identifier(binding)             => write!(f, "{binding}"),
-        }
-    }
-}
-
-
 //-------------------------------------------------------------------------------------------------
 
 /// What we intern when we intern an Expression.
@@ -106,13 +93,6 @@ impl Expr {
     pub fn kind(&self) -> &ExprKind         { self.entry.kind() }
     pub fn index(&self) -> usize            { self.entry.index() }
     pub fn span(&self) -> &Span             { self.entry.span() }
-}
-
-
-impl fmt::Display for Expr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.kind().fmt(f)
-    }
 }
 
 

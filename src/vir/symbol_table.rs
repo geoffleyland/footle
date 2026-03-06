@@ -36,12 +36,8 @@ impl SymbolTable {
 
 
     pub fn insert(&mut self, mutable: bool, name: &str, span: Span, values: Vec<Expr>) {
-        // println!("SymbolTable::insert({self:p}, {name})");
-        let name_version = self.variables.iter().rev().find(|v| v.matches(name))
-            .map_or(1, |v| v.next_name_version());
-        let v = Rc::new(Variable::new(mutable, name, name_version, span, self.scope_depth, values));
+        let v = Rc::new(Variable::new(mutable, name, span, self.scope_depth, values));
         self.variables.push(v);
-        // println!("SymbolTable::insert({self:p}, {name}): {self:?}");
     }
 
 
@@ -56,10 +52,8 @@ impl SymbolTable {
     /// Clear out all the versions of variables that were assigned in this scope, and return a list
     /// of all variables from parent scopes that were assigned to, and their final version.
     pub fn pop_scope(&mut self) -> Vec<(Rc<Variable>, Span, Vec<Expr>)> {
-        // println!("SymbolTable::pop_scope({self:p})");
         self.scope_depth -= 1;
         self.variables.retain(|v| v.live_at(self.scope_depth));
-        // println!("SymbolTable::pop_scope({self:p}): {self:?}");
         self.variables.iter_mut()
             .filter_map(|v| v.pop_scope(self.scope_depth + 1)
                 .map(|(span, values)| (v.clone(), span, values)))
