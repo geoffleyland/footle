@@ -13,7 +13,7 @@ macro_rules! start_token {
         if let Some((c, start)) = $self.lookahead(0) {
             $( debug_assert!(matches!(c, $char_match)); )?
             $self.advance();
-            (c, start)
+            start
         } else { panic!("internal compiler error: expected token, got None"); }
     }};
 }
@@ -201,7 +201,7 @@ impl<S: Source> Lexer<S> {
     /// Identifiers start with a letter or underscore, and continue with letters, numbers and
     /// underscores.
     fn identifier(&mut self) -> LexerResult {
-        let (_, start) = start_token!(self, 'a'..='z' | 'A'..='Z' | '_');
+        let start = start_token!(self, 'a'..='z' | 'A'..='Z' | '_');
         eat_all!(self, 'a'..='z' | 'A'..='Z' | '_' | '0'..='9');
         let word = self.token_text(start);
         self.token(match_reserved_word(&word).unwrap_or(Token::Identifier(word)), start)
@@ -213,7 +213,7 @@ impl<S: Source> Lexer<S> {
     /// Single-line comments start with `#` and go to the end of the line.
     /// Multi-line comments start with `#(` and end with `#)`, and can be nested.
     fn comment(&mut self) -> LexerResult {
-        let (_, start) = start_token!(self, '#');
+        let start = start_token!(self, '#');
         if eat_one!(self, '(').is_some() {
             // Multi-line comment
             let mut depth = 1;
@@ -252,7 +252,7 @@ impl<S: Source> Lexer<S> {
     /// Lex a number and convert it to a float.
     fn number(&mut self) -> LexerResult {
         // Read the part before any fractional part
-        let (_, start) = start_token!(self, '0'..='9');
+        let start = start_token!(self, '0'..='9');
         eat_all!(self, '0'..='9');
 
         // Read the part after the fraction if there is one
