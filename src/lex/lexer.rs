@@ -200,12 +200,6 @@ impl<S: Source> Lexer<S> {
     ///
     /// Identifiers start with a letter or underscore, and continue with letters, numbers and
     /// underscores.
-    /// They can also contain an `@`, and after than have to have digits, an underscore and digits.
-    /// This is a kind of silly trick we use so that we can read code with variable names
-    /// decorated with name and value versions, and then re-output code that looks the same.
-    /// Later on (in the parser) we enforce that only immutable variables can contain an `@`.
-    /// User code shouldn't contain at identifier with an `@`, only re-generated code gets to do
-    /// that.
     fn identifier(&mut self) -> LexerResult {
         let (_, start) = start_token!(self, 'a'..='z' | 'A'..='Z' | '_');
         eat_all!(self, 'a'..='z' | 'A'..='Z' | '_' | '0'..='9');
