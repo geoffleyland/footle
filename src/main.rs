@@ -213,8 +213,11 @@ fn read_test_file(path: &Path) -> Result<HashMap<String, Vec<String>>, Box<dyn E
     for line in BufReader::new(file).lines().map_while(Result::ok) {
         if let Some(raw_mode) = line.strip_prefix("#( expected") {
             mode = raw_mode.trim().to_lowercase();
+            expected.entry(mode.clone()).or_default();
         } else if !line.is_empty() && (mode == "source" || !line.starts_with("#)")) {
             expected.entry(mode.clone()).or_default().push(line);
+        } else if mode != "source" && line.starts_with("#)") {
+            mode = "source".to_string();
         }
     }
     Ok(expected)
