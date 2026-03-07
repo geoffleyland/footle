@@ -11,7 +11,7 @@ use super::variable::Binding;
 pub enum ExprKind {
     Binary(BinaryOperator, Expr, Expr),
     Number(f64),
-    Identifier(Rc<Binding>),
+    Argument(Rc<Binding>),
 }
 
 
@@ -26,7 +26,7 @@ impl Hash for ExprKind {
             Self::Number(value) => {
                 value.to_bits().hash(state);
             }
-            Self::Identifier(binding) => {
+            Self::Argument(binding) => {
                 Rc::as_ptr(binding).hash(state);
             }
         }
@@ -41,7 +41,7 @@ impl PartialEq for ExprKind {
                 op1 == op2 && Rc::ptr_eq(&lhs1.entry, &lhs2.entry) && Rc::ptr_eq(&rhs1.entry, &rhs2.entry)
             }
             (Self::Number(value1), Self::Number(value2)) => { value1 == value2 }
-            (Self::Identifier(version1), Self::Identifier(version2)) => {
+            (Self::Argument(version1), Self::Argument(version2)) => {
                 Rc::ptr_eq(version1, version2)
             }
             _ => false

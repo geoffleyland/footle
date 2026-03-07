@@ -70,8 +70,8 @@ impl ExprPool {
     }
 
 
-    pub fn identifier(&mut self, binding: Rc<Binding>, span: Span) -> Expr {
-        self.intern(ExprKind::Identifier(binding), span)
+    pub fn argument(&mut self, binding: Rc<Binding>, span: Span) -> Expr {
+        self.intern(ExprKind::Argument(binding), span)
     }
 }
 

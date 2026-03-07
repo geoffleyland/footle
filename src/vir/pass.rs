@@ -133,8 +133,9 @@ impl Pass {
                     if binding.values().len() == 1 {
                         Ok(binding.values()[0].clone())
                     } else {
+                        // A binding with no values is an argument
                         let span = binding.assignment_span();
-                        Ok(self.exprs.identifier(binding, span))
+                        Ok(self.exprs.argument(binding, span))
                     }
                 } else {
                     parse_error!(self, format!("cannot find value '{name}' in this scope"), *expr.span());
@@ -182,7 +183,7 @@ fn emit_expr(expr: &vir::Expr, instrs: &mut Vec<vir::Instr>, address_map: &mut H
         address_map.insert(expr.pool_index(), address);
         let kind = match expr.kind() {
             vir::ExprKind::Number(v) => vir::InstrKind::Number(*v),
-            vir::ExprKind::Identifier(..) => vir::InstrKind::Argument,
+            vir::ExprKind::Argument(..) => vir::InstrKind::Argument,
             vir::ExprKind::Binary(op, lhs, rhs) =>
                 vir::InstrKind::Binary(*op, address_map[&lhs.pool_index()], address_map[&rhs.pool_index()])
         };
