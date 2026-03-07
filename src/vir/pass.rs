@@ -10,20 +10,35 @@ use crate::parse_error;
 
 //-------------------------------------------------------------------------------------------------
 
-pub fn run(stmts: &[ast::Stmt]) -> (Vec<vir::Stmt>, Vec<ParseError>) {
+pub struct Block {
+    stmts:                  Vec<vir::Stmt>,
+}
+
+
+impl Block {
+    fn new() -> Self {
+        Self { stmts: vec![] }
+    }
+    pub fn stmts(&self) -> &[vir::Stmt] { &self.stmts }
+}
+
+
+//-------------------------------------------------------------------------------------------------
+
+pub fn run(stmts: &[ast::Stmt]) -> (Block, Vec<ParseError>) {
     let mut p = Pass::new();
 
     for stmt in stmts {
         p.transform_stmt(stmt);
     }
-    (p.stmts, p.errors)
+    (p.block, p.errors)
 }
 
 
 //-------------------------------------------------------------------------------------------------
 
 struct Pass {
-    stmts:                      Vec<vir::Stmt>,
+    block:                      Block,
     symbols:                    SymbolTable,
     exprs:                      ExprPool,
     errors:                     Vec<ParseError>,
@@ -33,7 +48,7 @@ struct Pass {
 impl Pass {
     fn new() -> Self {
         Self {
-            stmts:              vec![],
+            block:              Block::new(),
             symbols:            SymbolTable::new(),
             exprs:              ExprPool::new(),
             errors:             vec![],
@@ -54,7 +69,7 @@ impl Pass {
                     .map(|expr| self.transform_expr(expr).ok())
                     .collect::<Option<Vec<_>>>();
                 if let Some(exprs) = maybe_exprs {
-                    self.stmts.push(vir::Stmt::return_stmt(exprs.try_into().unwrap(), stmt.span));
+                    self.block.stmts.push(vir::Stmt::return_stmt(exprs.try_into().unwrap(), stmt.span));
                 }
             }
             ast::StmtKind::Assignment(assignment) => {
@@ -137,10 +152,10 @@ impl Pass {
 }
 
 
-pub fn instructions(stmts: &[vir::Stmt]) -> Vec<vir::Instr> {
+pub fn instructions(block: &Block) -> Vec<vir::Instr> {
     let mut instrs = vec![];
     let mut address_map = HashMap::<usize, usize>::new();
-    for stmt in stmts {
+    for stmt in &block.stmts {
         match &stmt.kind {
             vir::StmtKind::Return(exprs) => {
                 for expr in exprs {
