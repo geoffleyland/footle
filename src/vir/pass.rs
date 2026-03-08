@@ -10,7 +10,7 @@ use crate::parse_error;
 //-------------------------------------------------------------------------------------------------
 
 pub struct Block {
-    arguments:              Vec<vir::Expr>,
+    arguments:              Vec<vir::Expr>, // Only contains vir::ExprKind::Arguments.
     stmts:                  Vec<vir::Stmt>,
 }
 
@@ -152,6 +152,9 @@ impl Pass {
 pub fn instructions(block: &Block) -> Vec<vir::Instr> {
     let mut instrs = vec![];
     let mut address_map = HashMap::<usize, usize>::new();
+    for expr in &block.arguments {
+        emit_expr(expr, &mut instrs, &mut address_map);
+    }
     for stmt in &block.stmts {
         match &stmt.kind {
             vir::StmtKind::Return(exprs) => {
