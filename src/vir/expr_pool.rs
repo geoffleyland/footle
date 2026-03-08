@@ -4,7 +4,6 @@ use std::rc::Rc;
 
 use crate::core::{BinaryOperator, Span};
 use super::expr::{ExprKind, ExprEntry, Expr};
-use super::variable::Binding;
 
 
 //-------------------------------------------------------------------------------------------------
@@ -70,8 +69,8 @@ impl ExprPool {
     }
 
 
-    pub fn argument(&mut self, binding: Rc<Binding>, span: Span) -> Expr {
-        self.intern(ExprKind::Argument(binding), span)
+    pub fn argument(&mut self, index: usize, span: Span) -> Expr {
+        self.intern(ExprKind::Argument(index), span)
     }
 }
 

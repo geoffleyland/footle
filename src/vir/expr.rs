@@ -2,7 +2,6 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use crate::core::{BinaryOperator, Span};
-use super::variable::Binding;
 
 
 //-------------------------------------------------------------------------------------------------
@@ -11,7 +10,7 @@ use super::variable::Binding;
 pub enum ExprKind {
     Binary(BinaryOperator, Expr, Expr),
     Number(f64),
-    Argument(Rc<Binding>),
+    Argument(usize),
 }
 
 
@@ -26,8 +25,8 @@ impl Hash for ExprKind {
             Self::Number(value) => {
                 value.to_bits().hash(state);
             }
-            Self::Argument(binding) => {
-                Rc::as_ptr(binding).hash(state);
+            Self::Argument(index) => {
+                index.hash(state);
             }
         }
     }
@@ -41,9 +40,7 @@ impl PartialEq for ExprKind {
                 op1 == op2 && Rc::ptr_eq(&lhs1.entry, &lhs2.entry) && Rc::ptr_eq(&rhs1.entry, &rhs2.entry)
             }
             (Self::Number(value1), Self::Number(value2)) => { value1 == value2 }
-            (Self::Argument(version1), Self::Argument(version2)) => {
-                Rc::ptr_eq(version1, version2)
-            }
+            (Self::Argument(index1), Self::Argument(index2)) => { index1 == index2 }
             _ => false
         }
     }

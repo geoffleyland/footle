@@ -11,13 +11,14 @@ use crate::parse_error;
 //-------------------------------------------------------------------------------------------------
 
 pub struct Block {
+    arguments:              Vec<vir::Expr>,
     stmts:                  Vec<vir::Stmt>,
 }
 
 
 impl Block {
     fn new() -> Self {
-        Self { stmts: vec![] }
+        Self { arguments: vec![], stmts: vec![] }
     }
     pub fn stmts(&self) -> &[vir::Stmt] { &self.stmts }
 }
@@ -61,7 +62,9 @@ impl Pass {
         match &stmt.kind {
             ast::StmtKind::Arguments(names) => {
                 for (name, span) in names {
-                    self.symbols.insert(false, name, *span, vec![]);
+                    let expr = self.exprs.argument(self.block.arguments.len(), *span);
+                    self.symbols.insert(false, name, *span, vec![expr.clone()]);
+                    self.block.arguments.push(expr);
                 }
             }
             ast::StmtKind::Return(exprs) => {
@@ -129,18 +132,12 @@ impl Pass {
                 Ok(self.exprs.number(*value, *expr.span()))
             }
             ast::ExprKind::Identifier(name) => {
-                if let Some(binding) = self.symbols.find(name) {
-                    if binding.values().len() == 1 {
-                        Ok(binding.values()[0].clone())
-                    } else {
-                        // A binding with no values is an argument
-                        let span = binding.assignment_span();
-                        Ok(self.exprs.argument(binding, span))
-                    }
-                } else {
+                self.symbols.find(name).map_or_else(|| {
                     parse_error!(self, format!("cannot find value '{name}' in this scope"), *expr.span());
                     Err(())
-                }
+                },
+                    // FIXME: will need phi node handling when if/else is added
+                    |binding| Ok(binding.values()[0].clone()))
             }
             ast::ExprKind::Binary(op, lhs, rhs) => {
                 let span = lhs.span().union(rhs.span());
