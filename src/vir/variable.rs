@@ -10,7 +10,7 @@ use super::expr::Expr;
 pub struct Binding {
     assignment_span:                        Span,
     assignment_scope:                       usize,
-    values:                                 Vec<Expr>,
+    values:                                 Nev<Expr>,
 }
 
 
@@ -18,13 +18,13 @@ impl Binding {
     fn new(
         assignment_span:                    Span,
         assignment_scope:                   usize,
-        values:                             Vec<Expr>) -> Self {
+        values:                             Nev<Expr>) -> Self {
         Self{ assignment_span, assignment_scope, values}
     }
 
     fn assignment_scope(&self) -> usize     { self.assignment_scope }
     pub fn assignment_span(&self) -> Span   { self.assignment_span }
-    pub fn values(&self) -> &[Expr]         { &self.values }
+    pub fn values(&self) -> &Nev<Expr>      { &self.values }
 }
 
 
@@ -45,7 +45,7 @@ impl Variable {
             name:                           &str,
             declaration_span:               Span,
             declaration_scope:              usize,
-            values:                         Vec<Expr>) -> Self {
+            values:                         Nev<Expr>) -> Self {
         Self{mutable, name: name.into(), declaration_span,
             versions: RefCell::new(Nev::new(Rc::new(Binding::new(declaration_span,
                 declaration_scope, values))))
@@ -61,7 +61,7 @@ impl Variable {
     pub fn matches(&self, n: &str) -> bool  { self.name() == n }
     pub fn live_at(&self, s: usize) -> bool { self.declaration_scope() <= s }
 
-    pub fn try_push(&self, scope_depth: usize, span: Span, values: Vec<Expr>) -> Result<(), ()> {
+    pub fn try_push(&self, scope_depth: usize, span: Span, values: Nev<Expr>) -> Result<(), ()> {
         if self.mutable {
             let binding = Binding::new(span, scope_depth, values);
             self.versions.borrow_mut().push(Rc::new(binding));
@@ -69,12 +69,12 @@ impl Variable {
         } else { Err(()) }
     }
 
-    pub fn pop_scope(&self, scope_index: usize) -> Option<(Span, Vec<Expr>)> {
+    pub fn pop_scope(&self, scope_index: usize) -> Option<(Span, Nev<Expr>)> {
         let cv = self.versions.borrow().last().clone();
         if cv.assignment_scope() == scope_index {
             self.versions.borrow_mut().retain(|v| v.assignment_scope < scope_index)
                 .expect("internal compiler error: no value versions left for live variable");
-            Some((cv.assignment_span(), cv.values().to_vec()))
+            Some((cv.assignment_span(), cv.values().clone()))
         } else { None }
     }
 }

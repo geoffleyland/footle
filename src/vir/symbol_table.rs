@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::core::Span;
+use crate::core::{Nev, Span};
 use super::expr::Expr;
 use super::variable::{Binding, Variable};
 
@@ -35,7 +35,7 @@ impl SymbolTable {
     pub fn scope_depth(&self) -> usize      { self.scope_depth }
 
 
-    pub fn insert(&mut self, mutable: bool, name: &str, span: Span, values: Vec<Expr>) {
+    pub fn insert(&mut self, mutable: bool, name: &str, span: Span, values: Nev<Expr>) {
         let v = Rc::new(Variable::new(mutable, name, span, self.scope_depth, values));
         self.variables.push(v);
     }
@@ -51,7 +51,7 @@ impl SymbolTable {
     ///
     /// Clear out all the versions of variables that were assigned in this scope, and return a list
     /// of all variables from parent scopes that were assigned to, and their final version.
-    pub fn pop_scope(&mut self) -> Vec<(Rc<Variable>, Span, Vec<Expr>)> {
+    pub fn pop_scope(&mut self) -> Vec<(Rc<Variable>, Span, Nev<Expr>)> {
         self.scope_depth -= 1;
         self.variables.retain(|v| v.live_at(self.scope_depth));
         self.variables.iter_mut()
@@ -61,7 +61,7 @@ impl SymbolTable {
     }
 
 
-    pub fn try_push(&mut self, name: &str, span: Span, values: Vec<Expr>) -> Result<(), AssignmentError> {
+    pub fn try_push(&mut self, name: &str, span: Span, values: Nev<Expr>) -> Result<(), AssignmentError> {
         if let Some(v) = self.variables.iter_mut().rev().find(|v| v.matches(name)) {
             v.try_push(self.scope_depth, span, values).map_err(
                 |()| AssignmentError::Immutable(v.declaration_span()))

@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
 use crate::core::ParseError;
-use crate::ast;
-use crate::vir;
+use crate::{ast, vir, nev};
 use super::symbol_table::{AssignmentError, SymbolTable};
 use super::expr_pool::ExprPool;
 use crate::parse_error;
@@ -63,7 +62,7 @@ impl Pass {
             ast::StmtKind::Arguments(names) => {
                 for (name, span) in names {
                     let expr = self.exprs.argument(self.block.arguments.len(), *span);
-                    self.symbols.insert(false, name, *span, vec![expr.clone()]);
+                    self.symbols.insert(false, name, *span, nev![expr.clone()]);
                     self.block.arguments.push(expr);
                 }
             }
@@ -103,9 +102,9 @@ impl Pass {
                     if let Ok(v) = value {
                         if assignment.declaration.is_declaring() {
                             self.symbols.insert(assignment.declaration.is_mutable(), name, *span,
-                                vec![v]);
+                                nev![v]);
                         } else {
-                            match self.symbols.try_push(name, *span, vec![v]) {
+                            match self.symbols.try_push(name, *span, nev![v]) {
                                 Err(AssignmentError::NoSuchVariable) => {
                                     parse_error!(self,
                                         format!("cannot find value '{name}' in this scope"), *span);

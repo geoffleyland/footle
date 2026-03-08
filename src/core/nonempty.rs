@@ -8,7 +8,7 @@
 
 use std::ops::Deref;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Nev<T> {
     v:          Vec<T>,
 }
@@ -71,11 +71,11 @@ impl<T> Deref for Nev<T> {
 macro_rules! nev {
     () => {compile_error!("A nev cannot be empty")};
     ($h:expr, $( $x:expr ),* $(,)?) => {{
-        let mut v = $crate::nonempty::Nev::new($h);
+        let mut v = $crate::core::Nev::new($h);
         $( v.push($x); )*
         v
     }};
     ($h:expr) => {
-        $crate::nonempty::Nev::new($h)
+        $crate::core::Nev::new($h)
     }
 }
