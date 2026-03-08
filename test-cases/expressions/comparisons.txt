@@ -19,3 +19,11 @@ return c, d, e, f, g, h
     return c, d, e, f, g, h
 
 #)
+
+#( expected vir
+
+  local I0 = 1
+  local I1 = 0
+  return I0, I1, I0, I1, I1, I0
+
+#)

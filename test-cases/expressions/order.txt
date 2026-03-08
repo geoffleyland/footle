@@ -13,3 +13,12 @@ return d, e, f
     return d, e, f
 
 #)
+
+#( expected vir
+
+  local I0 = 7
+  local I1 = 5
+  local I2 = 9
+  return I0, I1, I2
+
+#)
