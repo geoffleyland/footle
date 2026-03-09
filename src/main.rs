@@ -91,9 +91,9 @@ fn run_file(file_name: &str) -> Result<(), Box<dyn Error>> {
         return Err("Syntax errors".into())
     }
 
-    let (vir_stmts, vir_errors) = vir::run(&stmts);
+    let (vir_bloc, vir_errors) = vir::run(&stmts);
     if vir_errors.is_empty() {
-        let instrs = vir::instructions(&vir_stmts);
+        let instrs = vir::instructions(&vir_bloc);
         println!("\nVIR instructions from '{file_name}':");
         for instr in &instrs {
             println!("{}", instr.styled(1, &style));
@@ -226,33 +226,33 @@ fn read_test_file(path: &Path) -> Result<HashMap<String, Vec<String>>, Box<dyn E
 
 fn test_lines(
     file_name: &str,
-    input: &str,
+    section: &str,
     source: &str,
     expected: &HashMap<String, Vec<String>>,
 ) -> Result<(), Box<dyn Error>> {
     let (stmts, errors, _) = ast::parse(file_name, source);
 
-    let mut checking = input == "source";
+    let mut checking = section == "source";
     if checking {
             let error_strings: Vec<_> = errors.iter().map(|e| format!("{e}")).collect();
-            compare_lines(&error_strings, expected.get("errors").unwrap_or(&vec![]), input, "errors")?;
+        compare_lines(&error_strings, expected.get("errors").unwrap_or(&vec![]), section, "errors")?;
         if expected.contains_key("errors") {
             return Ok(());
         }
     }
 
-    checking |= input == "statements";
+    checking |= section == "statements";
     if checking && expected.contains_key("statements") {
         let string_stmts = stmts_to_strings(&stmts);
-        compare_lines(&string_stmts, &expected["statements"], input, "statements")?;
+        compare_lines(&string_stmts, &expected["statements"], section, "statements")?;
     }
 
     let (vir_stmts, vir_errors) = vir::run(&stmts);
-    checking |= input == "vir";
+    checking |= section == "vir";
     if checking {
-        if input == "source" { // only check errors the first time around
+        if section == "source" { // only check errors the first time around
             let error_strings: Vec<_> = vir_errors.iter().map(|e| format!("{e}")).collect();
-            compare_lines(&error_strings, expected.get("vir-errors").unwrap_or(&vec![]), input, "vir-errors")?;
+            compare_lines(&error_strings, expected.get("vir-errors").unwrap_or(&vec![]), section, "vir-errors")?;
         }
         if expected.contains_key("vir-errors") {
             return Ok(());
@@ -262,7 +262,7 @@ fn test_lines(
     if checking && expected.contains_key("vir") {
         let vir_instrs = vir::instructions(&vir_stmts);
         let string_instrs = stmts_to_strings(&vir_instrs);
-        compare_lines(&string_instrs, &expected["vir"], input, "vir")?;
+        compare_lines(&string_instrs, &expected["vir"], section, "vir")?;
     }
 
     Ok(())
