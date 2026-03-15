@@ -13,6 +13,7 @@ mod ast;
 mod core;
 mod lex;
 mod vir;
+mod codegen;
 
 use core::Styleable;
 
@@ -105,6 +106,8 @@ fn run_file(file_name: &str) -> Result<(), Box<dyn Error>> {
         }
         return Err("Syntax errors".into())
     }
+
+    codegen::run(&vir_bloc);
 
     Ok(())
 }
@@ -234,7 +237,7 @@ fn test_lines(
 
     let mut checking = section == "source";
     if checking {
-            let error_strings: Vec<_> = errors.iter().map(|e| format!("{e}")).collect();
+        let error_strings: Vec<_> = errors.iter().map(|e| format!("{e}")).collect();
         compare_lines(&error_strings, expected.get("errors").unwrap_or(&vec![]), section, "errors")?;
         if expected.contains_key("errors") {
             return Ok(());
