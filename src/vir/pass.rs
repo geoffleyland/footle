@@ -19,6 +19,7 @@ impl Block {
     fn new() -> Self {
         Self { arguments: vec![], stmts: vec![] }
     }
+    pub fn arguments(&self) -> &[vir::Expr] { &self.arguments }
     pub fn stmts(&self) -> &[vir::Stmt] { &self.stmts }
 }
 
@@ -148,6 +149,9 @@ impl Pass {
     }
 }
 
+
+//-------------------------------------------------------------------------------------------------
+// Text output support
 
 pub fn instructions(block: &Block) -> Vec<vir::Instr> {
     let mut instrs = vec![];

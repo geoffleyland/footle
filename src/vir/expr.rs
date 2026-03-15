@@ -37,7 +37,9 @@ impl PartialEq for ExprKind {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Binary(op1, lhs1, rhs1), Self::Binary(op2, lhs2, rhs2)) => {
-                op1 == op2 && Rc::ptr_eq(&lhs1.entry, &lhs2.entry) && Rc::ptr_eq(&rhs1.entry, &rhs2.entry)
+                op1 == op2 &&
+                Rc::ptr_eq(&lhs1.entry, &lhs2.entry) &&
+                Rc::ptr_eq(&rhs1.entry, &rhs2.entry)
             }
             (Self::Number(value1), Self::Number(value2)) => { value1 == value2 }
             (Self::Argument(index1), Self::Argument(index2)) => { index1 == index2 }
