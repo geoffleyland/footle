@@ -76,7 +76,7 @@ fn run_file(file_name: &str) -> Result<(), Box<dyn Error>> {
     println!("Contents of '{file_name}':\n  {}", source.lines().collect::<Vec<_>>().join("\n  "));
 
     let (stmts, errors, source_map) = ast::parse(file_name, source.as_str());
-    let style = core::SourceStyle::new(2, 40, false, &source_map);
+    let style = core::SourceStyle::new(2, 40, true, &source_map);
 
     if errors.is_empty() {
         println!("\nStatements from '{file_name}':");
@@ -91,9 +91,9 @@ fn run_file(file_name: &str) -> Result<(), Box<dyn Error>> {
         return Err("Syntax errors".into())
     }
 
-    let (vir_bloc, vir_errors) = vir::run(&stmts);
+    let (vir_block, vir_errors) = vir::run(&stmts);
     if vir_errors.is_empty() {
-        let instrs = vir::instructions(&vir_bloc);
+        let instrs = vir::instructions(&vir_block);
         println!("\nVIR instructions from '{file_name}':");
         for instr in &instrs {
             println!("{}", instr.styled(1, &style));
