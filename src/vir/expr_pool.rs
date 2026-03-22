@@ -69,8 +69,8 @@ impl ExprPool {
     }
 
 
-    pub fn argument(&mut self, index: usize, span: Span) -> Expr {
-        self.intern(ExprKind::Argument(index), span)
+    pub fn argument(&mut self, index: usize, name: &str, span: Span) -> Expr {
+        self.intern(ExprKind::Argument(index, name.to_string()), span)
     }
 }
 
