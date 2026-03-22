@@ -7,9 +7,10 @@ use typed_arena::Arena;
 use enumset::EnumSet;
 use bit_set::BitSet;
 
-use crate::core::BinaryOperator;
+use crate::core::{BinaryOperator, Span, Styleable, LineStyle};
 use crate::vir;
-use super::machine;
+use super::isa;
+use super::sys;
 
 //-------------------------------------------------------------------------------------------------
 
@@ -43,15 +44,8 @@ impl fmt::Display for Operand<'_> {
 
 #[derive(Debug, Clone)]
 enum ValueDef {
-    Instr(&'static machine::Code),
-    Argument
-}
-
-impl ValueDef {
-    fn instr(
-        code:                               &'static machine::Code) -> Self {
-        Self::Instr(code)
-    }
+    Instr(&'static isa::Code),
+    Argument(usize, String),
 }
 
 impl fmt::Display for ValueDef {
@@ -59,7 +53,7 @@ impl fmt::Display for ValueDef {
         use ValueDef::*;
         match self {
             Instr(code)                     => write!(f, "{}", code.name),
-            Argument                        => write!(f, "ARGUMENT"),
+            Argument(i, name)               => write!(f, "ARGUMENT r{i} ({name})"),
         }
     }
 }
@@ -73,11 +67,7 @@ struct Value<'arena> {
     def:                                    ValueDef,
     operands:                               Vec<Operand<'arena>>,
     operand_registers:                      Option<Vec<u8>>,
-    entry_register:                         OnceCell<u8>,
-    exit_register:                          OnceCell<u8>,
-    register:                               OnceCell<u8>,
-
-    // span:                                   Span,
+    span:                                   Span,
 }
 
 impl<'arena> Value<'arena> {
@@ -85,21 +75,15 @@ impl<'arena> Value<'arena> {
         address:                            usize,
         def:                                ValueDef,
         operands:                           Vec<Operand<'arena>>,
-        operand_registers:                  Option<Vec<u8>>) -> Self {
-        Self { address, def, operands, operand_registers,
-            entry_register:                 OnceCell::new(),
-            exit_register:                  OnceCell::new(),
-            register:                       OnceCell::new(),
-        }
+        operand_registers:                  Option<Vec<u8>>,
+        span:                               Span) -> Self {
+        Self { address, def, operands, operand_registers, span }
     }
 
 
-    fn code(&self) -> Option<&'static machine::Code> {
+    fn code(&self) -> Option<&'static isa::Code> {
         if let ValueDef::Instr(code) = &self.def { Some(code) } else { None }
     }
-
-    fn set_entry_register(&self, reg: u8)   { self.entry_register.set(reg).expect("Internal Compiler Error: entry register set twice"); }
-    fn set_exit_register(&self, reg: u8)    { self.exit_register.set(reg).expect("Internal Compiler Error: exit register set twice"); }
 
     fn latency(&self) -> u8                 { self.code().map_or(0, |c| c.latency) }
     fn has_output(&self) -> bool            { self.code().is_some_and(|c| c.has_output) }
@@ -113,45 +97,41 @@ impl fmt::Display for Value<'_> {
                 .map(ToString::to_string)
                 .collect::<Vec<_>>()
                 .join(" "))
-
     }
 }
 
 
 //-------------------------------------------------------------------------------------------------
 
+#[derive(Debug, Copy, Clone)]
+struct Constant {
+    value:                                  f64,
+    span:                                   Span
+}
+
 struct Block<'arena> {
+    arguments:                              Vec<&'arena Value<'arena>>,
     values:                                 Vec<&'arena Value<'arena>>,
-    constants:                              Vec<f64>,
+    constants:                              Vec<Constant>,
     operand_map:                            HashMap<usize, Operand<'arena>>,
 }
 
 impl Block<'_> {
     fn new() -> Self {
-        Self { values: vec![], constants: vec![], operand_map: HashMap::new() }
+        Self { arguments: vec![], values: vec![], constants: vec![], operand_map: HashMap::new() }
     }
 }
 
 
 //-------------------------------------------------------------------------------------------------
 
-pub fn run(block: &vir::Block) {
+pub fn run(block: &vir::Block) -> fn(f64) -> f64 {
     let arena = Arena::<Value>::new();
-    let Block { values, constants, .. } = emit_instrs(&arena, block);
+    let Block { arguments, values, constants, .. } = emit_instrs(&arena, block);
     let code = schedule_instrs(&values);
-    allocate_registers(&values, &code);
-
-    for (i, c) in constants.iter().enumerate() { println!("K{i}: {c}"); }
-    for v in &code {
-        println!("{v} ({}{})",
-            v.register.get().map_or_else(String::new, |r| format!("r{r}<-")),
-            v.operands.iter().map(|o| match o {
-                Operand::Value(v) => format!("r{}", v.register.get().unwrap()),
-                Operand::Constant(i) => format!("K{i}"),
-            }).collect::<Vec<_>>().join(" "));
-    }
-
-    emit_machine_code(&code, &constants);
+    let registers = allocate_registers(&arguments, &values, &code);
+    let assembler = emit_assembler(&code, &constants, &registers);
+    emit_binary(&assembler)
 }
 
 
@@ -160,28 +140,24 @@ pub fn run(block: &vir::Block) {
 
 fn emit_instrs<'arena>(arena: &'arena Arena<Value<'arena>>, input: &vir::Block) -> Block<'arena> {
     let mut block = Block::new();
-    for (i, arg) in input.arguments().iter().enumerate() {
-        let op = emit_expr(arena, &mut block, arg);
-        if let Some(v) = op.value() { v.set_entry_register(u8::try_from(i).unwrap()); }
+    for arg in input.arguments() {
+        emit_expr(arena, &mut block, arg);
     }
     for stmt in input.stmts() {
         match &stmt.kind {
             vir::StmtKind::Return(exprs) => {
                 let operands =
-                    exprs.iter().enumerate().map(|(i, expr)| {
-                        let op = emit_expr(arena, &mut block, expr);
-                        if let Some(v) = op.value() { v.set_exit_register(u8::try_from(i).unwrap()); }
-                        op
-                    }).collect::<Vec<_>>();
+                    exprs.iter().map(|expr| { emit_expr(arena, &mut block, expr) }).collect::<Vec<_>>();
 
                 // RETURN doesn't produce a value you can use, so add it to the instructions, but
                 // not to the operand_map.
                 let operand_registers = (0..u8::try_from(operands.len()).unwrap()).collect::<Vec<u8>>();
                 let ret = arena.alloc(Value::new(
                     block.values.len(),
-                    ValueDef::instr(&machine::RET),
+                    ValueDef::Instr(&isa::RET),
                     operands,
-                    Some(operand_registers)));
+                    Some(operand_registers),
+                    stmt.span));
                 block.values.push(ret);
             }
         }
@@ -198,20 +174,22 @@ fn emit_expr<'arena>(
         operand
     } else {
         match expr.kind() {
-            vir::ExprKind::Argument(..) => {
-                insert_value(arena, block, expr.pool_index(), vec![], ValueDef::Argument)
+            vir::ExprKind::Argument(index, name) => {
+                let (value, operand) = insert_value(arena, block, expr.pool_index(), vec![], ValueDef::Argument(*index, name.clone()), *expr.span());
+                block.arguments.push(value);
+                operand
             }
             vir::ExprKind::Number(v) => {
-                block.constants.push(*v);
+                block.constants.push(Constant{ value: *v, span: *expr.span() });
                 insert_value(arena, block, expr.pool_index(), vec![Operand::Constant(block.constants.len() - 1)],
-                    ValueDef::instr(&machine::LDR))
+                    ValueDef::Instr(&isa::LDR), *expr.span()).1
             }
             vir::ExprKind::Binary(op, lhs, rhs) => {
                 let machine_instr = match op {
-                    BinaryOperator::Add             => &machine::FADD,
-                    BinaryOperator::Subtract        => &machine::FSUB,
-                    BinaryOperator::Multiply        => &machine::FMUL,
-                    BinaryOperator::Divide          => &machine::FDIV,
+                    BinaryOperator::Add             => &isa::FADD,
+                    BinaryOperator::Subtract        => &isa::FSUB,
+                    BinaryOperator::Multiply        => &isa::FMUL,
+                    BinaryOperator::Divide          => &isa::FDIV,
 
 //                    BinaryOperator::Power           => &machine::FADD,
 
@@ -225,7 +203,7 @@ fn emit_expr<'arena>(
                     // BinaryOperator::GreaterEqual    => &machine::FADD,
                 };
                 let operands = vec![emit_expr(arena, block, lhs), emit_expr(arena, block, rhs)];
-                insert_value(arena, block, expr.pool_index(), operands, ValueDef::instr(machine_instr))
+                insert_value(arena, block, expr.pool_index(), operands, ValueDef::Instr(machine_instr), *expr.span()).1
             }
         }
     }
@@ -237,28 +215,18 @@ fn insert_value<'arena>(
     block:                                  &mut Block<'arena>,
     pool_index:                             usize,
     operands:                               Vec<Operand<'arena>>,
-    def:                                    ValueDef) -> Operand<'arena> {
-    let value = arena.alloc(Value::new(block.values.len(), def, operands, None));
+    def:                                    ValueDef,
+    span:                                   Span) -> (&'arena Value<'arena>, Operand<'arena>)  {
+    let value = arena.alloc(Value::new(block.values.len(), def, operands, None, span));
     block.values.push(value);
     let operand = Operand::Value(value);
     block.operand_map.insert(pool_index, operand);
-    operand
+    (value, operand)
 }
 
 
 //-------------------------------------------------------------------------------------------------
 // Instruction Scheduling
-
-fn compute_depth<'arena>(values: &[&'arena Value<'arena>], users: &[Vec<usize>], depths: &mut [usize], address: usize) -> usize {
-    if depths[address] != usize::MAX { return depths[address] }
-    let depth = values[address].latency() as usize +
-        users[address].iter()
-            .map(|&user_address| compute_depth(values, users, depths, user_address))
-            .max().unwrap_or(0);
-    depths[address] = depth;
-    depth
-}
-
 
 fn schedule_instrs<'arena>(values: &'arena [&Value<'arena>]) -> Vec<&'arena Value<'arena>> {
     // Count how many operands (that need scheduling, arguments are always available) each
@@ -296,7 +264,7 @@ fn schedule_instrs<'arena>(values: &'arena [&Value<'arena>]) -> Vec<&'arena Valu
         .collect();
 
     while code.len() < expected_length {
-        let mut free_units: EnumSet<machine::Unit> = EnumSet::all();
+        let mut free_units: EnumSet<isa::Unit> = EnumSet::all();
 
         while let Some(&best_instr) = ready_instrs.iter()
             .filter(|i| i.code().unwrap().try_pick_unit(free_units).is_some())
@@ -349,27 +317,32 @@ fn schedule_instrs<'arena>(values: &'arena [&Value<'arena>]) -> Vec<&'arena Valu
 }
 
 
-//-------------------------------------------------------------------------------------------------
-// Register Allocation
-
-fn set_register(value: &Value<'_>, r: u8, interfering_values: &[BitSet], available_registers: &mut [u32]) {
-    let mri = machine::REGISTER_INDEX[r as usize];
-    let mri_bits = 1 << mri;
-    available_registers[value.address] = mri_bits;
-    value.register.set(r).expect("internal compiler error: trying to set a register twice");
-    for address in &interfering_values[value.address] {
-        available_registers[address] &= !mri_bits;
-    }
+fn compute_depth<'arena>(values: &[&'arena Value<'arena>], users: &[Vec<usize>], depths: &mut [usize], address: usize) -> usize {
+    if depths[address] != usize::MAX { return depths[address] }
+    let depth = values[address].latency() as usize +
+        users[address].iter()
+            .map(|&user_address| compute_depth(values, users, depths, user_address))
+            .max().unwrap_or(0);
+    depths[address] = depth;
+    depth
 }
 
 
-fn allocate_registers<'arena>(values: &[&Value<'arena>], code: &[&Value<'arena>]) {
+//-------------------------------------------------------------------------------------------------
+// Register Allocation
+
+fn allocate_registers<'arena>(
+    arguments: &[&Value<'arena>],
+    values: &[&Value<'arena>],
+    code: &[&Value<'arena>]) -> Vec<u8> {
+    let mut registers: Vec<OnceCell<u8>> = vec![OnceCell::new(); values.len()];
+
     // Find which values interfere with which.
     let mut live_values = BitSet::new();
     let mut interfering_values = vec![BitSet::new(); values.len()];
     for value in code.iter().rev() {
         live_values.remove(value.address);
-        for op in &value. operands {
+        for op in &value.operands {
             let Operand::Value(v) = op else { continue };
             live_values.insert(v.address);
         }
@@ -379,145 +352,239 @@ fn allocate_registers<'arena>(values: &[&Value<'arena>], code: &[&Value<'arena>]
     }
 
     let mut available_registers = vec![0xFFFF_FFFFu32; values.len()];
-    // Put all the arguments in their entry registers
-    for value in values {
-        if let Some(&r) = value.entry_register.get() {
-            let mri = machine::REGISTER_INDEX[r as usize];
-            assert!((available_registers[value.address] >> mri) & 1 == 1, "internal compiler error: entry register not available");
-            set_register(value, r, &interfering_values, &mut available_registers);
+    for (r, value) in arguments.iter().enumerate() {
+        set_register(value, u8::try_from(r).unwrap(), &registers, &interfering_values, &mut available_registers);
+    }
+
+    // Scan instructions for any register constraints
+    for value in code {
+        if let Some(operand_registers) = &value.operand_registers {
+            for (op, &r) in value.operands.iter().zip(operand_registers) {
+                if let Operand::Value(v) = op {
+                    if registers[v.address].get().is_some() { continue; }
+                    let mri = isa::REGISTER_INDEX[r as usize];
+                    let r2 = if (available_registers[v.address] >> mri) & 1 == 1 { r }
+                        else {
+                            let mri2 = available_registers[v.address].trailing_zeros();
+                            isa::REGISTER_ORDER[mri2 as usize]
+                        };
+                    set_register(v, r2, &registers, &interfering_values, &mut available_registers);
+                } else {
+                    panic!("internal compiler error: register constraint on constant");
+                }
+            }
         }
     }
 
-    for value in values {
-        if value.register.get().is_some() { continue; }
-        let Some(&r) = value.exit_register.get() else { continue; };
-        let mri = machine::REGISTER_INDEX[r as usize];
-        let r2 = if (available_registers[value.address] >> mri) & 1 == 1 { r }
-        else {
-            let mri2 = available_registers[value.address].trailing_zeros();
-            machine::REGISTER_ORDER[mri2 as usize]
-        };
-        set_register(value, r2, &interfering_values, &mut available_registers);
+    for value in code {
+        if registers[value.address].get().is_some() || !value.has_output() { continue; }
+        let mri = available_registers[value.address].trailing_zeros();
+        let r = isa::REGISTER_ORDER[mri as usize];
+        set_register(value, r, &registers, &interfering_values, &mut available_registers);
     }
 
-    for value in values {
-        if value.register.get().is_some() || !value.has_output() { continue; }
-        let mri = available_registers[value.address].trailing_zeros();
-        let r = machine::REGISTER_ORDER[mri as usize];
-        set_register(value, r, &interfering_values, &mut available_registers);
+    registers.iter_mut().map(|c| c.take().unwrap_or(0xFFu8)).collect::<Vec<_>>()
+}
+
+
+fn set_register(value: &Value<'_>, r: u8, registers: &[OnceCell<u8>], interfering_values: &[BitSet], available_registers: &mut [u32]) {
+    let mri = isa::REGISTER_INDEX[r as usize];
+    let mri_bits = 1 << mri;
+    available_registers[value.address] = mri_bits;
+    registers[value.address].set(r).expect("internal compiler error: trying to set a register twice");
+    for address in &interfering_values[value.address] {
+        available_registers[address] &= !mri_bits;
     }
 }
 
 
 //-------------------------------------------------------------------------------------------------
-// Actual machine code!
+// Assembler!
 
-fn emit_machine_code(code: &[&Value<'_>], constants: &[f64]) {
-    let raw_code_len = measure_machine_code(code);
-    // Pad out to 8-byte alignment
-    let constant_start = raw_code_len + usize::from(raw_code_len.is_multiple_of(2));
-    let total_code_size_bytes = constant_start * 4 + 8 * constants.len();
+enum AssemblyOperand {
+    Register(u8),
+    Constant(usize),
+}
 
-    let code_ptr = unsafe { alloc_jit(total_code_size_bytes) };
-
-    println!("RAW CODE LEN {raw_code_len} {code_ptr:?}");
-    write_machine_code(code, constants, code_ptr, total_code_size_bytes, constant_start);
-
-    let add_one: fn(f64) -> f64 = unsafe { mem::transmute(code_ptr) };
-    let result = add_one(42.0);
-    println!("f(42) = {result}");
+struct AssemblyInstr {
+    code:                   &'static isa::Code,
+    operands:               Vec<AssemblyOperand>,
+    span:                   Span,
 }
 
 
-fn measure_machine_code(code: &[&Value<'_>]) -> usize {
-    let mut len = 0usize;
-    for value in code {
-        let ValueDef::Instr(..) = &value.def else { continue };
-        len += 1;
+pub struct AssemblyBlock {
+    assembler:              Vec<AssemblyInstr>,
+    constants:              Vec<Constant>,
+}
+
+
+fn emit_assembler(schedule: &[&Value<'_>], constants: &[Constant], registers: &[u8]) -> AssemblyBlock{
+    let mut assembler = Vec::new();
+    for value in schedule {
+        let ValueDef::Instr(code) = &value.def else { continue };
 
         // Count FMOVs for any operands that need to be in specific registers
         if let Some(required_regs) = &value.operand_registers {
             for (op, &required) in value.operands.iter().zip(required_regs) {
                 let Operand::Value(v) = op else { continue };
-                let actual = *v.register.get().unwrap();
-                if actual != required { len += 1; }
+                let actual = registers[v.address];
+                if actual != required {
+                    assembler.push(AssemblyInstr{
+                        code: &isa::FMOV,
+                        operands: vec![
+                            AssemblyOperand::Register(required),
+                            AssemblyOperand::Register(actual)
+                        ],
+                        span: value.span
+                    });
+                }
             }
         }
+
+        let operands = code.has_output
+            .then(|| AssemblyOperand::Register(registers[value.address]))
+            .into_iter()
+            .chain(value.operands.iter().map(|op| match op {
+                Operand::Value(v)    => AssemblyOperand::Register(registers[v.address]),
+                Operand::Constant(i) => AssemblyOperand::Constant(*i),
+            }))
+        .collect();
+        assembler.push(AssemblyInstr{ code, operands, span: value.span });
     }
-    len
+
+    AssemblyBlock{ assembler, constants: constants.into() }
 }
 
+//-------------------------------------------------------------------------------------------------
+// Binary!
 
-fn write_machine_code(code: &[&Value<'_>], constants: &[f64], code_ptr: *mut u32, total_code_size_bytes: usize, constant_start_words: usize) {
+fn emit_binary(block: &AssemblyBlock) -> fn(f64) -> f64 {
+    let raw_code_len_words = block.assembler.len();
+    let constant_start_words = raw_code_len_words + usize::from(raw_code_len_words.is_multiple_of(2));
+    let total_code_size_bytes = constant_start_words * 4 + 8 * block.constants.len();
+
+    let code_ptr = unsafe { sys::alloc_jit(total_code_size_bytes) };
     let output = unsafe {
-        pthread_jit_write_protect_np(0);  // enable writing
-
         std::slice::from_raw_parts_mut(
             code_ptr,
             total_code_size_bytes / 4
         )};
 
-    let mut index = 0;
-    for value in code {
-        let ValueDef::Instr(machine_code) = &value.def else { continue };
+    unsafe { sys::start_jit_compile(); }
 
-        // Count FMOVs for any operands that need to be in specific registers
-        if let Some(required_regs) = &value.operand_registers {
-            for (op, &required) in value.operands.iter().zip(required_regs) {
-                let Operand::Value(v) = op else { continue };
-                let actual = *v.register.get().unwrap();
-                if actual != required {
-                    output[index] = (machine::FMOV.encode)(&[u32::from(required), u32::from(actual)]);
-                    index += 1;
-                }
-            }
-        }
-
-        let dest = u32::from(value.register.get().copied().unwrap_or(0));
-        let regs: Vec<u32> = std::iter::once(dest)
-            .chain(value.operands.iter().map(|op| match op {
-                Operand::Value(v)    => u32::from(*v.register.get().unwrap()),
-                Operand::Constant(i) => u32::try_from((constant_start_words - index) * 4 + (*i * 8)).unwrap(),
-            }))
-        .collect();
-        output[index] = (machine_code.encode)(&regs);
-        index += 1;
+    for (address, instr) in block.assembler.iter().enumerate() {
+        let operands = instr.operands.iter().map(|op| {
+            match op {
+                AssemblyOperand::Register(i)            => u32::from(*i),
+                AssemblyOperand::Constant(i)            => u32::try_from((constant_start_words - address) * 4 + (*i * 8)).unwrap(),
+            }}).collect::<Vec<_>>();
+        output[address] = (instr.code.encode)(&operands);
     }
 
-    index = constant_start_words;
-    for c in constants {
-        let bits = c.to_bits();
+    let mut index = constant_start_words;
+    for c in &block.constants {
+        let bits = c.value.to_bits();
         output[index] = (bits & 0xFFFF_FFFF) as u32;
         index += 1;
         output[index] = (bits >> 32) as u32;
         index += 1;
     }
 
-    unsafe {
-        pthread_jit_write_protect_np(1);
-        sys_icache_invalidate(code_ptr.cast(), total_code_size_bytes);
-    }
+    unsafe { sys::finish_jit_compile(code_ptr, total_code_size_bytes) }
+    unsafe { mem::transmute(code_ptr) }
 }
 
 
 //-------------------------------------------------------------------------------------------------
-// Apple Silicon Memory Management
+// Text output for the scheduler
 
-use libc::{mmap, pthread_jit_write_protect_np,
-        MAP_ANON, MAP_JIT, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE, MAP_FAILED};
-
-unsafe extern "C" {
-    fn sys_icache_invalidate(start: *mut std::ffi::c_void, size: usize);
+enum InstrOperand {
+    Constant(usize),
+    Instr(usize)
+}
+struct Instr {
+    address:                                usize,
+    opcode:                                 String,
+    operands:                               Vec<InstrOperand>,
+    span:                                   Span,
 }
 
-unsafe fn alloc_jit(size: usize) -> *mut u32 {
-    let ptr = unsafe { mmap(
-        std::ptr::null_mut(),
-        size,
-        PROT_READ | PROT_WRITE | PROT_EXEC,
-        MAP_PRIVATE | MAP_ANON | MAP_JIT,
-        -1, 0,
-    ) };
-    assert!(ptr != MAP_FAILED, "mmap failed");
-    ptr.cast()
+pub struct Schedule {
+    arguments:                              Vec<(usize, Span)>,
+    instrs:                                 Vec<Instr>,
+    constants:                              Vec<Constant>,
+}
+
+impl Styleable for Schedule {
+    fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
+        for (i, span) in &self.arguments {
+            writer.writeln(f, indent, Some(*span), &format!("I{i}: argument"))?;
+        }
+        for i in &self.instrs {
+            let operands = i.operands.iter().map(|o|
+                match o {
+                    InstrOperand::Constant(i)   => format!("K{i}"),
+                    InstrOperand::Instr(i)      => format!("I{i}")
+                }).collect::<Vec<_>>();
+            writer.writeln(f, indent, Some(i.span), &format!("I{}: {} {}", i.address, i.opcode,
+                operands.join(" ")))?;
+        }
+        for (i, c) in self.constants.iter().enumerate() {
+            writer.writeln (f, indent, Some(c.span), &format!("K{i}: {:?}", c.value))?;
+        }
+        Ok(())
+    }
+}
+
+pub fn schedule(block: &vir::Block) -> Schedule {
+    let arena = Arena::<Value>::new();
+    let Block { arguments, values, constants, .. } = emit_instrs(&arena, block);
+    let code = schedule_instrs(&values);
+
+    let arguments = arguments.iter().map(|a| (a.address, a.span)).collect::<Vec<_>>();
+    let instrs = code.iter().map(|c|
+        Instr{
+            address:        c.address,
+            opcode:         c.code().unwrap().name.to_string(),
+            operands:       c.operands.iter().map(|o|
+                match o {
+                    Operand::Constant(i)        => InstrOperand::Constant(*i),
+                    Operand::Value(v)           => InstrOperand::Instr(v.address)
+                }).collect(),
+            span:           c.span})
+        .collect();
+
+    Schedule{ arguments, instrs, constants }
+}
+
+
+//-------------------------------------------------------------------------------------------------
+// Text output for assembler
+
+pub fn assemble(block: &vir::Block) -> AssemblyBlock {
+    let arena = Arena::<Value>::new();
+    let Block { arguments, values, constants, .. } = emit_instrs(&arena, block);
+    let code = schedule_instrs(&values);
+    let registers = allocate_registers(&arguments, &values, &code);
+    emit_assembler(&code, &constants, &registers)
+}
+
+
+impl Styleable for AssemblyBlock {
+    fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
+        for i in &self.assembler {
+            let operands = i.operands.iter().map(|o|
+                match o {
+                    AssemblyOperand::Constant(i)   => format!("K{i}"),
+                    AssemblyOperand::Register(i)   => format!("d{i}")
+                }).collect::<Vec<_>>();
+            writer.writeln(f, indent, Some(i.span), &format!("{} {}", i.code.name,
+                operands.join(" ")))?;
+        }
+        for (i, c) in self.constants.iter().enumerate() {
+            writer.writeln (f, indent, Some(c.span), &format!("K{i}: {:?}", c.value))?;
+        }
+        Ok(())
+    }
 }

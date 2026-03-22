@@ -16,3 +16,26 @@ return a + 1
   return I2
 
 #)
+
+#( expected schedule
+
+  I0: argument
+  I1: LDR K0
+  I2: FADD I0 I1
+  I3: RET I2
+  K0: 1.0
+
+#)
+
+#( expected assembler
+
+  LDR d16 K0
+  FADD d0 d0 d16
+  RET d0
+  K0: 1.0
+
+#)
+
+#( expected result
+  43.0
+#)

@@ -1,4 +1,5 @@
 mod pass;
-mod machine;
+mod isa;
+mod sys;
 
-pub use pass::run;
+pub use pass::{run, schedule, assemble};

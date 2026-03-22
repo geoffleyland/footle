@@ -107,7 +107,18 @@ fn run_file(file_name: &str) -> Result<(), Box<dyn Error>> {
         return Err("Syntax errors".into())
     }
 
-    codegen::run(&vir_bloc);
+    let schedule = codegen::schedule(&vir_block);
+    println!("\nScheduled instructions from '{file_name}':");
+    println!("{}", schedule.styled(1, &style));
+
+    let assembler = codegen::assemble(&vir_block);
+    println!("\nAssembly instructions from '{file_name}':");
+    println!("{}", assembler.styled(1, &style));
+
+    let func = codegen::run(&vir_block);
+    let result = func(42.0);
+    println!("\nResult from '{file_name}':");
+    println!("  f(42.0) = {result:?}");
 
     Ok(())
 }
@@ -186,6 +197,12 @@ fn find_tests(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<(), Box<dyn Error>
 ///  * source - whatever comes at the start - the program
 ///  * errors - inside an #( expected errors .... #) block comment - expected errors, if any
 ///  * statements - inside #( expected statements ... #) - expected pretty-printed statements
+///  * schedule - inside #( expected schedule ... #) - expected scheduler output - no longer
+///    written as machine-readable code, though.
+///  * assembler - inside #( expected assembler ... #) - assembler output - maybe one day readable
+///    by a proper assembler?
+///  * result - inside #( expected result ... #) - if the code is a single-argument function with
+///    one result, the result of calling f(42.0)
 ///
 /// The clever thing is that all the excess stuff is block comments, so the files are still
 /// legitimate programs.
@@ -266,6 +283,30 @@ fn test_lines(
         let vir_instrs = vir::instructions(&vir_stmts);
         let string_instrs = stmts_to_strings(&vir_instrs);
         compare_lines(&string_instrs, &expected["vir"], section, "vir")?;
+    }
+
+    // Once we get to the scheduling and assembler passes, we only do that for the source pass
+    // (since we're already proving that the other passes all give the same output, and because
+    // we can't feed the output of these passes back into the compiler), and we only do it if the
+    // expected output is present (because the compiler is being implemented bit by bit and if
+    // we run something NYI, we get an NYI and a panic.)
+    if expected.contains_key("schedule") && section == "source" {
+        let schedule = codegen::schedule(&vir_stmts);
+        let schedule_strings = stmts_to_strings(&[schedule]);
+        compare_lines(&schedule_strings, &expected["schedule"], section, "schedule")?;
+    }
+
+    if expected.contains_key("assembler") && section == "source" {
+        let assembler = codegen::assemble(&vir_stmts);
+        let assembler_strings = stmts_to_strings(&[assembler]);
+        compare_lines(&assembler_strings, &expected["assembler"], section, "assembler")?;
+    }
+
+    if expected.contains_key("result") && section == "source" {
+        let func = codegen::run(&vir_stmts);
+        let result = func(42.0);
+        let result_strings = vec![format!("{result:?}")];
+        compare_lines(&result_strings, &expected["result"], section, "result")?;
     }
 
     Ok(())
