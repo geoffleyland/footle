@@ -409,7 +409,7 @@ enum AssemblyOperand {
 struct AssemblyInstr {
     code:                   &'static isa::Code,
     operands:               Vec<AssemblyOperand>,
-    span:                   Span,
+    span:                   Option<Span>,
 }
 
 
@@ -436,7 +436,7 @@ fn emit_assembler(schedule: &[&Value<'_>], constants: &[Constant], registers: &[
                             AssemblyOperand::Register(required),
                             AssemblyOperand::Register(actual)
                         ],
-                        span: value.span
+                        span: None
                     });
                 }
             }
@@ -450,11 +450,42 @@ fn emit_assembler(schedule: &[&Value<'_>], constants: &[Constant], registers: &[
                 Operand::Constant(i) => AssemblyOperand::Constant(*i),
             }))
         .collect();
-        assembler.push(AssemblyInstr{ code, operands, span: value.span });
+        assembler.push(AssemblyInstr{ code, operands, span: Some(value.span) });
     }
 
     AssemblyBlock{ assembler, constants: constants.into() }
 }
+
+
+// fn emit_glue(arguments: usize, return_values: usize) {
+//         assembler.push(AssemblyInstr{
+//             code: &isa::MOV(r0 to r16)
+//         });
+
+//     set mut assembler = Vec::new();
+//     for i in 0..arguments {
+//         assembler.push(AssemblyInstr{
+//             code: &isa::LDR_RELATIVE_TO_R16
+//             operands: vec![
+//                 AssemblyOperand::Register(r16),
+//                 AssemblyOperand::Register(i),
+//                 AssemblyOperand::Offset(i*4),
+//             ],
+//             Span: no span
+//         });
+//     }
+
+//     assembler.push(AssemblyInstr{
+//         code: &isa::STP,
+//         operands[],
+//         Span: no span
+//         }
+//     })
+
+//     assembler.push(AssemblyInstr{
+//         BL
+//     })
+// }
 
 //-------------------------------------------------------------------------------------------------
 // Binary!
@@ -579,7 +610,7 @@ impl Styleable for AssemblyBlock {
                     AssemblyOperand::Constant(i)   => format!("K{i}"),
                     AssemblyOperand::Register(i)   => format!("d{i}")
                 }).collect::<Vec<_>>();
-            writer.writeln(f, indent, Some(i.span), &format!("{} {}", i.code.name,
+            writer.writeln(f, indent, i.span, &format!("{} {}", i.code.name,
                 operands.join(" ")))?;
         }
         for (i, c) in self.constants.iter().enumerate() {
