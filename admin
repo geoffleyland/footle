@@ -17,7 +17,7 @@ case $1 in
                 ;;
 
             **)
-                watchexec -w src -w ${2:-$TEST_FILE} -w Cargo.toml -c -- cargo run -q -- ${2:-$TEST_FILE}
+                RUST_BACKTRACE=1 watchexec -w src -w ${2:-$TEST_FILE} -w Cargo.toml -c -- cargo run -q -- ${2:-$TEST_FILE}
                 ;;
 
         esac
