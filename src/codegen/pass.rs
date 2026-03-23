@@ -401,6 +401,22 @@ fn set_register(value: &Value<'_>, r: u8, registers: &[OnceCell<u8>], interferin
 //-------------------------------------------------------------------------------------------------
 // Assembler!
 
+macro_rules! asm_op {
+    (Register($r:expr))     => { AssemblyOperand::Register($r) };
+    (Constant($i:expr))     => { AssemblyOperand::Constant($i) };
+}
+
+macro_rules! assemble {
+    ($vec:expr, $span:expr, $op:ident, $($operand:tt $operand_arg:expr),*) => {
+        $vec.push(AssemblyInstr {
+            code: &isa::$op,
+            span: $span,
+            operands: vec![$(asm_op!($operand($operand_arg))),*],
+        })
+    }
+}
+
+
 enum AssemblyOperand {
     Register(u8),
     Constant(usize),
@@ -430,14 +446,7 @@ fn emit_assembler(schedule: &[&Value<'_>], constants: &[Constant], registers: &[
                 let Operand::Value(v) = op else { continue };
                 let actual = registers[v.address];
                 if actual != required {
-                    assembler.push(AssemblyInstr{
-                        code: &isa::FMOV,
-                        operands: vec![
-                            AssemblyOperand::Register(required),
-                            AssemblyOperand::Register(actual)
-                        ],
-                        span: None
-                    });
+                    assemble!(assembler, None, FMOV, Register(required), Register(actual));
                 }
             }
         }
