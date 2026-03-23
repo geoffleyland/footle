@@ -437,6 +437,13 @@ pub struct AssemblyBlock {
 
 fn emit_assembler(schedule: &[&Value<'_>], constants: &[Constant], registers: &[u8]) -> AssemblyBlock{
     let mut assembler = Vec::new();
+    emit_function(schedule, registers, &mut assembler);
+
+    AssemblyBlock{ assembler, constants: constants.into() }
+}
+
+
+fn emit_function(schedule: &[&Value<'_>], registers: &[u8], assembler: &mut Vec<AssemblyInstr>) {
     for value in schedule {
         let ValueDef::Instr(code) = &value.def else { continue };
 
@@ -461,9 +468,8 @@ fn emit_assembler(schedule: &[&Value<'_>], constants: &[Constant], registers: &[
         .collect();
         assembler.push(AssemblyInstr{ code, operands, span: Some(value.span) });
     }
-
-    AssemblyBlock{ assembler, constants: constants.into() }
 }
+
 
 
 // fn emit_glue(arguments: usize, return_values: usize) {
