@@ -8,13 +8,14 @@ use bit_set::BitSet;
 
 use crate::core::{BinaryOperator, Span, Styleable, LineStyle};
 use crate::vir;
+use super::assembler;
 use super::binary;
 use super::isa;
 
 //-------------------------------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy)]
-enum Operand<'arena> {
+pub(super) enum Operand<'arena> {
     Constant(usize),
     Value(&'arena Value<'arena>),
 }
@@ -42,7 +43,7 @@ impl fmt::Display for Operand<'_> {
 //-------------------------------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
-enum ValueDef {
+pub(super) enum ValueDef {
     Instr(&'static isa::Code),
     Argument(usize, String),
 }
@@ -61,12 +62,12 @@ impl fmt::Display for ValueDef {
 //-------------------------------------------------------------------------------------------------
 
 #[derive(Debug)]
-struct Value<'arena> {
-    address:                                usize,
-    def:                                    ValueDef,
-    operands:                               Vec<Operand<'arena>>,
-    operand_registers:                      Option<Vec<u8>>,
-    span:                                   Span,
+pub (super) struct Value<'arena> {
+    pub(super) address:                     usize,
+    pub(super) def:                         ValueDef,
+    pub(super) operands:                    Vec<Operand<'arena>>,
+    pub(super) operand_registers:           Option<Vec<u8>>,
+    pub(super) span:                        Span,
 }
 
 impl<'arena> Value<'arena> {
@@ -104,8 +105,8 @@ impl fmt::Display for Value<'_> {
 
 #[derive(Debug, Copy, Clone)]
 pub (super) struct Constant {
-    pub (super) value:                      f64,
-    span:                                   Span
+    pub(super) value:                       f64,
+    pub(super) span:                        Span
 }
 
 struct Block<'arena> {
@@ -129,7 +130,7 @@ pub fn run(block: &vir::Block) -> fn(f64) -> f64 {
     let Block { arguments, values, constants, .. } = emit_instrs(&arena, block);
     let code = schedule_instrs(&values);
     let registers = allocate_registers(&arguments, &values, &code);
-    let assembler = emit_assembler(&code, &constants, &registers);
+    let assembler = assembler::emit(&code, &constants, &registers);
     binary::emit(&assembler)
 }
 
@@ -398,80 +399,6 @@ fn set_register(value: &Value<'_>, r: u8, registers: &[OnceCell<u8>], interferin
 
 
 //-------------------------------------------------------------------------------------------------
-// Assembler!
-
-macro_rules! asm_op {
-    (Register($r:expr))     => { AssemblyOperand::Register($r) };
-    (Constant($i:expr))     => { AssemblyOperand::Constant($i) };
-}
-
-macro_rules! assemble {
-    ($vec:expr, $span:expr, $op:ident $(, $($operand:tt $operand_arg:expr),*)?) => {
-        $vec.push(AssemblyInstr {
-            code: &isa::$op,
-            span: $span,
-            operands: vec![$($(asm_op!($operand($operand_arg))),*)?],
-        })
-    }
-}
-
-
-pub (super) enum AssemblyOperand {
-    Register(u8),
-    Constant(usize),
-}
-
-
-pub (super) struct AssemblyInstr {
-    pub (super) code:               &'static isa::Code,
-    pub (super) operands:           Vec<AssemblyOperand>,
-    span:                           Option<Span>,
-}
-
-
-pub struct AssemblyBlock {
-    pub (super) assembler:          Vec<AssemblyInstr>,
-    pub (super) constants:          Vec<Constant>,
-}
-
-
-fn emit_assembler(schedule: &[&Value<'_>], constants: &[Constant], registers: &[u8]) -> AssemblyBlock{
-    let mut assembler = Vec::new();
-    emit_function(schedule, registers, &mut assembler);
-
-    AssemblyBlock{ assembler, constants: constants.into() }
-}
-
-
-fn emit_function(schedule: &[&Value<'_>], registers: &[u8], assembler: &mut Vec<AssemblyInstr>) {
-    for value in schedule {
-        let ValueDef::Instr(code) = &value.def else { continue };
-
-        // Count FMOVs for any operands that need to be in specific registers
-        if let Some(required_regs) = &value.operand_registers {
-            for (op, &required) in value.operands.iter().zip(required_regs) {
-                let Operand::Value(v) = op else { continue };
-                let actual = registers[v.address];
-                if actual != required {
-                    assemble!(assembler, None, FMOV, Register(required), Register(actual));
-                }
-            }
-        }
-
-        let operands = code.has_output
-            .then(|| AssemblyOperand::Register(registers[value.address]))
-            .into_iter()
-            .chain(value.operands.iter().map(|op| match op {
-                Operand::Value(v)    => AssemblyOperand::Register(registers[v.address]),
-                Operand::Constant(i) => AssemblyOperand::Constant(*i),
-            }))
-        .collect();
-        assembler.push(AssemblyInstr{ code, operands, span: Some(value.span) });
-    }
-}
-
-
-//-------------------------------------------------------------------------------------------------
 // Text output for the scheduler
 
 enum InstrOperand {
@@ -537,29 +464,13 @@ pub fn schedule(block: &vir::Block) -> Schedule {
 //-------------------------------------------------------------------------------------------------
 // Text output for assembler
 
-pub fn assemble(block: &vir::Block) -> AssemblyBlock {
+pub fn assemble(block: &vir::Block) -> assembler::Block {
     let arena = Arena::<Value>::new();
     let Block { arguments, values, constants, .. } = emit_instrs(&arena, block);
     let code = schedule_instrs(&values);
     let registers = allocate_registers(&arguments, &values, &code);
-    emit_assembler(&code, &constants, &registers)
+    assembler::emit(&code, &constants, &registers)
 }
 
 
-impl Styleable for AssemblyBlock {
-    fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
-        for i in &self.assembler {
-            let operands = i.operands.iter().map(|o|
-                match o {
-                    AssemblyOperand::Constant(i)   => format!("K{i}"),
-                    AssemblyOperand::Register(i)   => format!("d{i}")
-                }).collect::<Vec<_>>();
-            writer.writeln(f, indent, i.span, &format!("{} {}", i.code.name,
-                operands.join(" ")))?;
-        }
-        for (i, c) in self.constants.iter().enumerate() {
-            writer.writeln (f, indent, Some(c.span), &format!("K{i}: {:?}", c.value))?;
-        }
-        Ok(())
-    }
-}
+//-------------------------------------------------------------------------------------------------

@@ -1,11 +1,13 @@
 use std::mem;
-use super::pass;
+
+use super::pass::Constant;
+use super::assembler;
 use super::sys;
 
 
 //-------------------------------------------------------------------------------------------------
 
-pub fn emit(block: &pass::AssemblyBlock) -> fn(f64) -> f64 {
+pub fn emit(block: &assembler::Block) -> fn(f64) -> f64 {
     let instr_words = block.assembler.len();
     let constant_start_words = instr_words + usize::from(instr_words.is_multiple_of(2));
     let total_code_size_bytes = constant_start_words * 4 + 8 * block.constants.len();
@@ -23,8 +25,8 @@ pub fn emit(block: &pass::AssemblyBlock) -> fn(f64) -> f64 {
 }
 
 
-fn encode_instrs(assembler: &[pass::AssemblyInstr], words: &mut [u32], constant_start_words: usize) {
-    use pass::AssemblyOperand::*;
+fn encode_instrs(assembler: &[assembler::Instr], words: &mut [u32], constant_start_words: usize) {
+    use assembler::Operand::*;
     for (address, instr) in assembler.iter().enumerate() {
         let operands = instr.operands.iter().map(|op| {
             match op {
@@ -36,7 +38,7 @@ fn encode_instrs(assembler: &[pass::AssemblyInstr], words: &mut [u32], constant_
 }
 
 
-fn encode_constants(constants: &[pass::Constant], words: &mut [u32], constant_start_words: usize) {
+fn encode_constants(constants: &[Constant], words: &mut [u32], constant_start_words: usize) {
     let mut index = constant_start_words;
     for c in constants {
         let bits = c.value.to_bits();

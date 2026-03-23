@@ -1,4 +1,6 @@
 mod pass;
+mod assembler;
+mod binary;
 mod isa;
 mod sys;
 
