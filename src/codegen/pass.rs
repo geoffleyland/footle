@@ -407,11 +407,11 @@ macro_rules! asm_op {
 }
 
 macro_rules! assemble {
-    ($vec:expr, $span:expr, $op:ident, $($operand:tt $operand_arg:expr),*) => {
+    ($vec:expr, $span:expr, $op:ident $(, $($operand:tt $operand_arg:expr),*)?) => {
         $vec.push(AssemblyInstr {
             code: &isa::$op,
             span: $span,
-            operands: vec![$(asm_op!($operand($operand_arg))),*],
+            operands: vec![$($(asm_op!($operand($operand_arg))),*)?],
         })
     }
 }
