@@ -32,7 +32,7 @@ impl Code {
 pub(super) static FADD: Code = Code {
     name:                   "FADD",
     has_output:             true,
-    encode:                 |regs| 0x1E60_2800 | (regs[2] << 16) | (regs[1] << 5) | regs[0],
+    encode:                 |operands| 0x1E60_2800 | (operands[2] << 16) | (operands[1] << 5) | operands[0],
     latency:                1,
     units:                  enum_set!(Unit::FP11 | Unit::FP12 | Unit::FP13 | Unit::FP14),
 };
@@ -40,7 +40,7 @@ pub(super) static FADD: Code = Code {
 pub(super) static FSUB: Code = Code {
     name:                   "FSUB",
     has_output:             true,
-    encode:                 |regs| 0x1E60_3800 | (regs[2] << 16) | (regs[1] << 5) | regs[0],
+    encode:                 |operands| 0x1E60_3800 | (operands[2] << 16) | (operands[1] << 5) | operands[0],
     latency:                1,
     units:                  enum_set!(Unit::FP11 | Unit::FP12 | Unit::FP13 | Unit::FP14),
 };
@@ -48,7 +48,7 @@ pub(super) static FSUB: Code = Code {
 pub(super) static FMUL: Code = Code {
     name:                   "FMUL",
     has_output:             true,
-    encode:                 |regs| 0x1E60_0800 | (regs[2] << 16) | (regs[1] << 5) | regs[0],
+    encode:                 |operands| 0x1E60_0800 | (operands[2] << 16) | (operands[1] << 5) | operands[0],
     latency:                4,
     units:                  enum_set!(Unit::FP11 | Unit::FP12 | Unit::FP13 | Unit::FP14),
 };
@@ -56,7 +56,7 @@ pub(super) static FMUL: Code = Code {
 pub(super) static FDIV: Code = Code {
     name:                   "FDIV",
     has_output:             true,
-    encode:                 |regs| 0x1E60_1800 | (regs[2] << 16) | (regs[1] << 5) | regs[0],
+    encode:                 |operands| 0x1E60_1800 | (operands[2] << 16) | (operands[1] << 5) | operands[0],
     latency:                10,
     units:                  enum_set!(Unit::FP14),
 };
@@ -64,15 +64,15 @@ pub(super) static FDIV: Code = Code {
 pub(super) static FMOV: Code = Code {
     name:                   "FMOV",
     has_output:             true,
-    encode:                 |regs| 0x1E60_4000 | (regs[1] << 5) | regs[0],
+    encode:                 |operands| 0x1E60_4000 | (operands[1] << 5) | operands[0],
     latency:                2,
     units:                  enum_set!(Unit::FP11 | Unit::FP12 | Unit::FP13 | Unit::FP14),
 };
 
-pub(super) static LDR: Code = Code {
+pub(super) static LDR_PC_F64: Code = Code {
     name:                   "LDR",
     has_output:             true,
-    encode:                 |regs| 0x5C00_0000 | ((regs[1] >> 2) << 5) | regs[0],
+    encode:                 |operands| 0x5C00_0000 | ((operands[1] >> 2) << 5) | operands[0],
     latency:                10,
     units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
 };

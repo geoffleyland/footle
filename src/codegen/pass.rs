@@ -182,7 +182,7 @@ fn emit_expr<'arena>(
             vir::ExprKind::Number(v) => {
                 block.constants.push(Constant{ value: *v, span: *expr.span() });
                 insert_value(arena, block, expr.pool_index(), vec![Operand::Constant(block.constants.len() - 1)],
-                    ValueDef::Instr(&isa::LDR), *expr.span()).1
+                    ValueDef::Instr(&isa::LDR_PC_F64), *expr.span()).1
             }
             vir::ExprKind::Binary(op, lhs, rhs) => {
                 let machine_instr = match op {
