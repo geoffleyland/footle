@@ -500,39 +500,49 @@ fn emit_assembler(schedule: &[&Value<'_>], constants: &[Constant], registers: &[
 // Binary!
 
 fn emit_binary(block: &AssemblyBlock) -> fn(f64) -> f64 {
-    let raw_code_len_words = block.assembler.len();
-    let constant_start_words = raw_code_len_words + usize::from(raw_code_len_words.is_multiple_of(2));
+    let instr_words = block.assembler.len();
+    let constant_start_words = instr_words + usize::from(instr_words.is_multiple_of(2));
     let total_code_size_bytes = constant_start_words * 4 + 8 * block.constants.len();
 
-    let code_ptr = unsafe { sys::alloc_jit(total_code_size_bytes) };
-    let output = unsafe {
-        std::slice::from_raw_parts_mut(
-            code_ptr,
-            total_code_size_bytes / 4
-        )};
+    let code_ptr = sys::alloc_jit(total_code_size_bytes);
+    let words = jit_as_words_mut(code_ptr, total_code_size_bytes);
 
-    unsafe { sys::start_jit_compile(); }
+    sys::start_jit_compile();
 
-    for (address, instr) in block.assembler.iter().enumerate() {
+    encode_instrs(&block.assembler, words, constant_start_words);
+    encode_constants(&block.constants, words, constant_start_words);
+
+    sys::finish_jit_compile(code_ptr, total_code_size_bytes);
+    unsafe { mem::transmute(code_ptr) }
+}
+
+
+fn encode_instrs(assembler: &[AssemblyInstr], words: &mut [u32], constant_start_words: usize) {
+    for (address, instr) in assembler.iter().enumerate() {
         let operands = instr.operands.iter().map(|op| {
             match op {
                 AssemblyOperand::Register(i)            => u32::from(*i),
                 AssemblyOperand::Constant(i)            => u32::try_from((constant_start_words - address) * 4 + (*i * 8)).unwrap(),
             }}).collect::<Vec<_>>();
-        output[address] = (instr.code.encode)(&operands);
+        words[address] = (instr.code.encode)(&operands);
     }
+}
 
+
+fn encode_constants(constants: &[Constant], words: &mut [u32], constant_start_words: usize) {
     let mut index = constant_start_words;
-    for c in &block.constants {
+    for c in constants {
         let bits = c.value.to_bits();
-        output[index] = (bits & 0xFFFF_FFFF) as u32;
+        words[index] = (bits & 0xFFFF_FFFF) as u32;
         index += 1;
-        output[index] = (bits >> 32) as u32;
+        words[index] = (bits >> 32) as u32;
         index += 1;
     }
+}
 
-    unsafe { sys::finish_jit_compile(code_ptr, total_code_size_bytes) }
-    unsafe { mem::transmute(code_ptr) }
+
+fn jit_as_words_mut<'a>(ptr: *mut u32, size_bytes: usize) -> &'a mut [u32] {
+    unsafe { std::slice::from_raw_parts_mut(ptr, size_bytes / 4) }
 }
 
 
