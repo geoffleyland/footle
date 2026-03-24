@@ -43,20 +43,25 @@ pub struct Block {
     pub(super) instrs:              Vec<Instr>,
     pub(super) glue_start_words:    usize,
     pub(super) constants:           Vec<Constant>,
+    pub(super) argument_count:      u8,
+    pub(super) return_count:        u8,
 }
 
 
 //-------------------------------------------------------------------------------------------------
 
-pub(super) fn emit(arguments: &[&Value<'_>], schedule: &[&Value<'_>], constants: &[Constant], registers: &[u8]) -> Block{
+pub(super) fn emit(
+    schedule:                       &[&Value<'_>],
+    constants:                      &[Constant],
+    registers:                      &[u8],
+    argument_count:                 u8,
+    return_count:                   u8) -> Block{
     let mut instrs = Vec::new();
     emit_function(schedule, registers, &mut instrs);
     let glue_start_words = instrs.len();
-    let argument_count = u8::try_from(arguments.len())
-        .expect("internal compiler error: too many arguments");
-    emit_glue(argument_count, 1, &mut instrs);
+    emit_glue(argument_count, return_count, &mut instrs);
 
-    Block{ instrs, glue_start_words, constants: constants.into() }
+    Block{ instrs, glue_start_words, constants: constants.into(), argument_count, return_count }
 }
 
 

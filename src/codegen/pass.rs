@@ -12,10 +12,13 @@ use super::binary;
 
 pub fn run(block: &vir::Block) -> binary::CompiledFn {
     let arena = Arena::<scheduler::Value>::new();
-    let scheduler::Block { arguments, values, constants, .. } = scheduler::lower_vir(&arena, block);
+    let scheduler::Block { arguments, values, constants, return_count, .. } = scheduler::lower_vir(&arena, block);
+    let argument_count = u8::try_from(arguments.len())
+        .expect("internal compiler error: too many arguments");
     let schedule = scheduler::schedule(&values);
     let registers = scheduler::allocate_registers(&arguments, &values, &schedule);
-    let assembler = assembler::emit(&arguments, &schedule, &constants, &registers);
+    let assembler = assembler::emit(&schedule, &constants, &registers,
+        argument_count, return_count);
     binary::emit(&assembler)
 }
 
@@ -93,10 +96,12 @@ pub fn schedule(block: &vir::Block) -> Schedule {
 
 pub fn assemble(block: &vir::Block) -> assembler::Block {
     let arena = Arena::<scheduler::Value>::new();
-    let scheduler::Block { arguments, values, constants, .. } = scheduler::lower_vir(&arena, block);
+    let scheduler::Block { arguments, values, constants, return_count, .. } = scheduler::lower_vir(&arena, block);
+        let argument_count = u8::try_from(arguments.len())
+        .expect("internal compiler error: too many arguments");
     let schedule = scheduler::schedule(&values);
     let registers = scheduler::allocate_registers(&arguments, &values, &schedule);
-    assembler::emit(&arguments, &schedule, &constants, &registers)
+    assembler::emit(&schedule, &constants, &registers, argument_count, return_count)
 }
 
 

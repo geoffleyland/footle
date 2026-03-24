@@ -113,12 +113,14 @@ pub(super) struct Block<'arena> {
     pub(super) arguments:                   Vec<&'arena Value<'arena>>,
     pub(super) values:                      Vec<&'arena Value<'arena>>,
     pub(super) constants:                   Vec<Constant>,
+    pub(super) return_count:                u8,
     operand_map:                            HashMap<usize, Operand<'arena>>,
 }
 
 impl Block<'_> {
     fn new() -> Self {
-        Self { arguments: vec![], values: vec![], constants: vec![], operand_map: HashMap::new() }
+        Self { arguments: vec![], values: vec![], constants: vec![], return_count: 0,
+            operand_map: HashMap::new() }
     }
 }
 
@@ -149,6 +151,7 @@ pub(super) fn lower_vir<'arena>(arena: &'arena Arena<Value<'arena>>, input: &vir
                     Some(operand_registers),
                     stmt.span));
                 block.values.push(ret);
+                block.return_count = operand_count;
             }
         }
     }
