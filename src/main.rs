@@ -308,21 +308,44 @@ fn test_lines(
         compare_lines(&assembler_strings, &expected["assembler"], section, "assembler")?;
     }
 
-    if (expected.contains_key("disassembler") || expected.contains_key("result")) && section == "source" {
+    if (expected.contains_key("disassembler") || expected.contains_key("results")) && section == "source" {
         let func = codegen::run(&vir_stmts);
 
         if expected.contains_key("disassembler") {
             compare_lines(&codegen::disassemble(&func), &expected["disassembler"], section, "disassembler")?;
         }
 
-        if expected.contains_key("result") {
-            let mut results = vec![0.0];
-            func.call(&[42.0], &mut results);
-            let result = results[0];
-            let result_strings = vec![format!("{result:?}")];
-            compare_lines(&result_strings, &expected["result"], section, "result")?;
+        if expected.contains_key("results") {
+            test_results(&func, &expected["results"], section)?;
         }
     }
+
+    Ok(())
+}
+
+fn test_results(func: &codegen::CompiledFn, expected: &[String], section: &str) -> Result<(), Box<dyn Error>> {
+    let mut actual_strings = vec![];
+    for line in expected {
+        let Some((inputs_str, outputs_str)) = line.split_once("->") else {
+            return Err(format!("invalid result line: {line:?}").into());
+        };
+        let inputs = inputs_str.split_whitespace()
+            .map(str::parse::<f64>)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("invalid input in {line:?}: {e}"))?;
+        let expected_outputs = outputs_str.split_whitespace()
+            .map(str::parse::<f64>)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("invalid output in {line:?}: {e}"))?;
+
+        let mut actual_outputs = vec![0.0f64; expected_outputs.len()];
+        func.call(&inputs, &mut actual_outputs);
+
+        actual_strings.push(format!("{} -> {}",
+            inputs.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(" "),
+            actual_outputs.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(" ")));
+    }
+    compare_lines(&actual_strings, expected, section, "results")?;
 
     Ok(())
 }

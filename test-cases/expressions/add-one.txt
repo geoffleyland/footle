@@ -58,6 +58,10 @@ return a + 1
 
 #)
 
-#( expected result
-  43.0
+#( expected results
+
+  1 -> 2
+  2 -> 3
+  3 -> 4
+
 #)
