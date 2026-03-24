@@ -75,7 +75,7 @@ pub fn schedule(block: &vir::Block) -> Schedule {
     let instrs = schedule.iter().map(|c|
         Instr{
             address:        c.address,
-            opcode:         c.code().unwrap().name.to_string(),
+            opcode:         c.code().expect("internal compiler error: instruction without opcode").name.to_string(),
             operands:       c.operands.iter().map(|o|
                 match o {
                     scheduler::Operand::Constant(i)     => InstrOperand::Constant(*i),

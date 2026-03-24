@@ -139,7 +139,9 @@ pub(super) fn lower_vir<'arena>(arena: &'arena Arena<Value<'arena>>, input: &vir
 
                 // RETURN doesn't produce a value you can use, so add it to the instructions, but
                 // not to the operand_map.
-                let operand_registers = (0..u8::try_from(operands.len()).unwrap()).collect::<Vec<u8>>();
+                let operand_count = u8::try_from(operands.len())
+                    .expect("internal compiler error: too many return values");
+                let operand_registers = (0..operand_count).collect::<Vec<_>>();
                 let ret = arena.alloc(Value::new(
                     block.values.len(),
                     ValueDef::Instr(&isa::RET),
@@ -255,7 +257,7 @@ pub(super) fn schedule<'arena>(values: &'arena [&Value<'arena>]) -> Vec<&'arena 
         let mut free_units: EnumSet<isa::Unit> = EnumSet::all();
 
         while let Some(&best_instr) = ready_instrs.iter()
-            .filter(|i| i.code().unwrap().try_pick_unit(free_units).is_some())
+            .filter(|i| i.code().expect("internal compiler error: instruction without opcode").try_pick_unit(free_units).is_some())
             .max_by_key(|i| {
                 let critical_path_depth = depths[i.address];
                 let on_critical_path = critical_path_depth >= current_critical_path_depth;
@@ -268,10 +270,11 @@ pub(super) fn schedule<'arena>(values: &'arena [&Value<'arena>]) -> Vec<&'arena 
             ready_instrs.retain(|&i| std::ptr::from_ref(i) != std::ptr::from_ref(best_instr));
 
             // Pick a unit we think is going to run this instruction and reserve it.
-            free_units -= best_instr.code().unwrap().try_pick_unit(free_units).unwrap();
+            free_units -= best_instr.code().expect("internal compiler error: instruction without opcode")
+                .try_pick_unit(free_units).expect("internal compiler error: not enough registers");
 
             // Mark that the results of this instruction will be ready in the appropriate cycle.
-            let ready_cycle: usize = cycle + best_instr.latency() as usize;
+            let ready_cycle = cycle + usize::from(best_instr.latency());
             if results_by_cycle.len() <= ready_cycle {
                 results_by_cycle.resize_with(ready_cycle+1, Vec::new);
             }
@@ -307,7 +310,7 @@ pub(super) fn schedule<'arena>(values: &'arena [&Value<'arena>]) -> Vec<&'arena 
 
 fn compute_depth<'arena>(values: &[&'arena Value<'arena>], users: &[Vec<usize>], depths: &mut [usize], address: usize) -> usize {
     if depths[address] != usize::MAX { return depths[address] }
-    let depth = values[address].latency() as usize +
+    let depth = usize::from(values[address].latency()) +
         users[address].iter()
             .map(|&user_address| compute_depth(values, users, depths, user_address))
             .max().unwrap_or(0);
@@ -340,8 +343,8 @@ pub(super) fn allocate_registers<'arena>(
     }
 
     let mut available_registers = vec![0xFFFF_FFFFu32; values.len()];
-    for (r, value) in arguments.iter().enumerate() {
-        set_register(value, u8::try_from(r).unwrap(), &registers, &interfering_values, &mut available_registers);
+    for (r, value) in (0u8..).zip(arguments) {
+        set_register(value, r, &registers, &interfering_values, &mut available_registers);
     }
 
     // Scan instructions for any register constraints
@@ -350,7 +353,7 @@ pub(super) fn allocate_registers<'arena>(
             for (op, &r) in value.operands.iter().zip(operand_registers) {
                 if let Operand::Value(v) = op {
                     if registers[v.address].get().is_some() { continue; }
-                    let mri = isa::REGISTER_INDEX[r as usize];
+                    let mri = isa::REGISTER_INDEX[usize::from(r)];
                     let r2 = if (available_registers[v.address] >> mri) & 1 == 1 { r }
                         else {
                             let mri2 = available_registers[v.address].trailing_zeros();
@@ -376,7 +379,7 @@ pub(super) fn allocate_registers<'arena>(
 
 
 fn set_register(value: &Value<'_>, r: u8, registers: &[OnceCell<u8>], interfering_values: &[BitSet], available_registers: &mut [u32]) {
-    let mri = isa::REGISTER_INDEX[r as usize];
+    let mri = isa::REGISTER_INDEX[usize::from(r)];
     let mri_bits = 1 << mri;
     available_registers[value.address] = mri_bits;
     registers[value.address].set(r).expect("internal compiler error: trying to set a register twice");

@@ -52,7 +52,9 @@ pub(super) fn emit(arguments: &[&Value<'_>], schedule: &[&Value<'_>], constants:
     let mut instrs = Vec::new();
     emit_function(schedule, registers, &mut instrs);
     let glue_start_words = instrs.len();
-    emit_glue(arguments.len(), 1, &mut instrs);
+    let argument_count = u8::try_from(arguments.len())
+        .expect("internal compiler error: too many arguments");
+    emit_glue(argument_count, 1, &mut instrs);
 
     Block{ instrs, glue_start_words, constants: constants.into() }
 }
@@ -86,7 +88,7 @@ fn emit_function(schedule: &[&Value<'_>], registers: &[u8], instrs: &mut Vec<Ins
 }
 
 
-fn emit_glue(arguments: usize, return_values: usize, assembler: &mut Vec<Instr>) {
+fn emit_glue(argument_count: u8, return_count: u8, assembler: &mut Vec<Instr>) {
     // Move the input buffer pointer to R16, since we're about to overwrite r0 with the first
     // argument to the function we're calling
     assemble!(assembler, None, MOV_I64, Register(16), Register(0));
@@ -96,7 +98,7 @@ fn emit_glue(arguments: usize, return_values: usize, assembler: &mut Vec<Instr>)
     assemble!(assembler, None, STP_PRE_I64, Register(1), Register(30), Register(31), Offset(-16));
 
     // Put the arguments in the right place on the stack
-    for i in 0u8..u8::try_from(arguments).expect("internal compiler error: too many arguments") {
+    for i in 0..argument_count {
         assemble!(assembler, None, LDR_REG_F64, Register(i), Register(16), Offset(i32::from(i) * 8));
     }
 
@@ -108,7 +110,7 @@ fn emit_glue(arguments: usize, return_values: usize, assembler: &mut Vec<Instr>)
     // Load the output buffer in to r16 and the return address to the appropriate spot
     assemble!(assembler, None, LDP_POST_I64, Register(16), Register(30), Register(31), Offset(16));
 
-    for i in 0u8..u8::try_from(return_values).expect("internal compiler error: too many return values") {
+    for i in 0..return_count {
         assemble!(assembler, None, STR_REG_F64, Register(i), Register(16), Offset(i32::from(i) * 8));
     }
 

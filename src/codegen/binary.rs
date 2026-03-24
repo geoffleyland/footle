@@ -63,7 +63,8 @@ fn encode_instrs(instrs: &[assembler::Instr], words: &mut [u32], constant_start_
         let operands = instr.operands.iter().map(|op| {
             match op {
                 Register(i)             => u32::from(*i),
-                Constant(i)             => u32::try_from((constant_start_words - address) * 4 + (*i * 8)).unwrap(),
+                Constant(i)             => u32::try_from((constant_start_words - address) * 4 + (*i * 8))
+                                            .expect("internal compiler error: constant offset too large"),
                 Offset(o)               => o.cast_unsigned(),
             }}).collect::<Vec<_>>();
         words[address] = (instr.code.encode)(&operands);
@@ -75,8 +76,10 @@ fn encode_constants(constants: &[Constant], words: &mut [u32], constant_start_wo
     let mut index = constant_start_words;
     for c in constants {
         let bits = c.value.to_bits();
+        // Just get the bottom 32 bits
         words[index] = (bits & 0xFFFF_FFFF) as u32;
         index += 1;
+        // And the top 32 bits
         words[index] = (bits >> 32) as u32;
         index += 1;
     }
