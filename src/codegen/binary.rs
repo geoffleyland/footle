@@ -8,18 +8,23 @@ use super::sys;
 //-------------------------------------------------------------------------------------------------
 
 pub struct CompiledFn {
-    ptr:                *mut u32,
-    size:               usize,
-    pub func:           fn(f64) -> f64,
+    ptr:                            *mut u32,
+    size:                           usize,
+    pub(super) instruction_count:   usize,
+    func:                           fn(f64) -> f64,
 }
 
 
 impl CompiledFn {
-    fn new(ptr: *mut u32, size: usize) -> CompiledFn {
-        Self { ptr, size, func: unsafe { mem::transmute(ptr) } }
+    fn new(ptr: *mut u32, size: usize, instruction_count: usize) -> Self {
+        Self { ptr, size, instruction_count, func: unsafe { mem::transmute(ptr) } }
     }
 
     pub fn func(&self) -> fn(f64) -> f64        { self.func }
+
+    pub(super) fn bytes(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts_mut(self.ptr.cast::<u8>(), self.size) }
+    }
 }
 
 
@@ -47,7 +52,7 @@ pub fn emit(block: &assembler::Block) -> CompiledFn {
 
     sys::finish_jit_compile(ptr, total_code_size_bytes);
 
-    CompiledFn::new(ptr, total_code_size_bytes)
+    CompiledFn::new(ptr, total_code_size_bytes, instr_words)
 }
 
 

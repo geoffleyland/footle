@@ -116,6 +116,10 @@ fn run_file(file_name: &str) -> Result<(), Box<dyn Error>> {
     println!("{}", assembler.styled(1, &style));
 
     let func = codegen::run(&vir_block);
+
+    println!("\nDisassembly from '{file_name}':");
+    for line in codegen::disassemble(&func) { println!("  {line}"); }
+
     let result = func.func()(42.0);
     println!("\nResult from '{file_name}':");
     println!("  f(42.0) = {result:?}");
@@ -302,11 +306,18 @@ fn test_lines(
         compare_lines(&assembler_strings, &expected["assembler"], section, "assembler")?;
     }
 
-    if expected.contains_key("result") && section == "source" {
+    if (expected.contains_key("disassembler") || expected.contains_key("result")) && section == "source" {
         let func = codegen::run(&vir_stmts);
-        let result = func.func()(42.0);
-        let result_strings = vec![format!("{result:?}")];
-        compare_lines(&result_strings, &expected["result"], section, "result")?;
+
+        if expected.contains_key("disassembler") {
+            compare_lines(&codegen::disassemble(&func), &expected["disassembler"], section, "disassembler")?;
+        }
+
+        if expected.contains_key("result") {
+            let result = func.func()(42.0);
+            let result_strings = vec![format!("{result:?}")];
+            compare_lines(&result_strings, &expected["result"], section, "result")?;
+        }
     }
 
     Ok(())

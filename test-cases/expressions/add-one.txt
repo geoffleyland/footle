@@ -36,6 +36,14 @@ return a + 1
 
 #)
 
+#( expected disassembler
+
+  0x1000: ldr d16, #0x100c
+  0x1004: fadd d0, d0, d16
+  0x1008: ret
+
+#)
+
 #( expected result
   43.0
 #)
