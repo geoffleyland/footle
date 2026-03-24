@@ -15,7 +15,7 @@ pub fn run(block: &vir::Block) -> binary::CompiledFn {
     let scheduler::Block { arguments, values, constants, .. } = scheduler::lower_vir(&arena, block);
     let schedule = scheduler::schedule(&values);
     let registers = scheduler::allocate_registers(&arguments, &values, &schedule);
-    let assembler = assembler::emit(&schedule, &constants, &registers);
+    let assembler = assembler::emit(&arguments, &schedule, &constants, &registers);
     binary::emit(&assembler)
 }
 
@@ -96,7 +96,7 @@ pub fn assemble(block: &vir::Block) -> assembler::Block {
     let scheduler::Block { arguments, values, constants, .. } = scheduler::lower_vir(&arena, block);
     let schedule = scheduler::schedule(&values);
     let registers = scheduler::allocate_registers(&arguments, &values, &schedule);
-    assembler::emit(&schedule, &constants, &registers)
+    assembler::emit(&arguments, &schedule, &constants, &registers)
 }
 
 

@@ -9,6 +9,7 @@ use super::isa;
 macro_rules! asm_op {
     (Register($r:expr))     => { Operand::Register($r) };
     (Constant($i:expr))     => { Operand::Constant($i) };
+    (Offset($o:expr))       => { Operand::Offset($o) };
 }
 
 macro_rules! assemble {
@@ -27,6 +28,7 @@ macro_rules! assemble {
 pub(super) enum Operand {
     Register(u8),
     Constant(usize),
+    Offset(i32),
 }
 
 
@@ -39,17 +41,20 @@ pub(super) struct Instr {
 
 pub struct Block {
     pub(super) instrs:              Vec<Instr>,
+    pub(super) glue_start_words:    usize,
     pub(super) constants:           Vec<Constant>,
 }
 
 
 //-------------------------------------------------------------------------------------------------
 
-pub(super) fn emit(schedule: &[&Value<'_>], constants: &[Constant], registers: &[u8]) -> Block{
+pub(super) fn emit(arguments: &[&Value<'_>], schedule: &[&Value<'_>], constants: &[Constant], registers: &[u8]) -> Block{
     let mut instrs = Vec::new();
     emit_function(schedule, registers, &mut instrs);
+    let glue_start_words = instrs.len();
+    emit_glue(arguments.len(), 1, &mut instrs);
 
-    Block{ instrs, constants: constants.into() }
+    Block{ instrs, glue_start_words, constants: constants.into() }
 }
 
 
@@ -81,6 +86,36 @@ fn emit_function(schedule: &[&Value<'_>], registers: &[u8], instrs: &mut Vec<Ins
 }
 
 
+fn emit_glue(arguments: usize, return_values: usize, assembler: &mut Vec<Instr>) {
+    // Move the input buffer pointer to R16, since we're about to overwrite r0 with the first
+    // argument to the function we're calling
+    assemble!(assembler, None, MOV_I64, Register(16), Register(0));
+
+    // Move the output buffer and the return address to the stack, since the're about to get
+    // overwritten and we need them later
+    assemble!(assembler, None, STP_PRE_I64, Register(1), Register(30), Register(31), Offset(-16));
+
+    // Put the arguments in the right place on the stack
+    for i in 0u8..u8::try_from(arguments).expect("internal compiler error: too many arguments") {
+        assemble!(assembler, None, LDR_REG_F64, Register(i), Register(16), Offset(i32::from(i) * 8));
+    }
+
+    // Call our function
+    assemble!(assembler, None, BL,
+        Offset(-4 * i32::try_from(assembler.len())
+            .expect("internal compiler error: function too long for jump")));
+
+    // Load the output buffer in to r16 and the return address to the appropriate spot
+    assemble!(assembler, None, LDP_POST_I64, Register(16), Register(30), Register(31), Offset(16));
+
+    for i in 0u8..u8::try_from(return_values).expect("internal compiler error: too many return values") {
+        assemble!(assembler, None, STR_REG_F64, Register(i), Register(16), Offset(i32::from(i) * 8));
+    }
+
+    assemble!(assembler, None, RET);
+}
+
+
 //-------------------------------------------------------------------------------------------------
 // Text output for assembler
 
@@ -94,6 +129,7 @@ impl Styleable for Block {
                 match o {
                     Operand::Constant(i)    => format!("K{i}"),
                     Operand::Register(i)    => format!("d{i}"),
+                    Operand::Offset(o)      => format!("#{o}"),
                 }).collect::<Vec<_>>();
             writer.writeln(f, indent, i.span, &format!("{} {}", i.code.name,
                 operands.join(" ")))?;

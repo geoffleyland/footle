@@ -32,15 +32,29 @@ return a + 1
   LDR d16 K0
   FADD d0 d0 d16
   RET d0
+  MOV d16 d0
+  STP d1 d30 d31 #-16
+  LDR d0 d16 #0
+  BL #-24
+  LDP d16 d30 d31 #16
+  STR d0 d16 #0
+  RET
   K0: 1.0
 
 #)
 
 #( expected disassembler
 
-  0x1000: ldr d16, #0x100c
+  0x1000: ldr d16, #0x102c
   0x1004: fadd d0, d0, d16
   0x1008: ret
+  0x100c: mov x16, x0
+  0x1010: stp x1, x30, [sp, #-0x10]!
+  0x1014: ldr d0, [x16]
+  0x1018: bl #0x1000
+  0x101c: ldp x16, x30, [sp], #0x10
+  0x1020: str d0, [x16]
+  0x1024: ret
 
 #)
 

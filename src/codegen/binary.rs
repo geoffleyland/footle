@@ -11,19 +11,20 @@ pub struct CompiledFn {
     ptr:                            *mut u32,
     size:                           usize,
     pub(super) instruction_count:   usize,
-    func:                           fn(f64) -> f64,
+    func:                           fn(*const f64, *mut f64),
 }
 
 
 impl CompiledFn {
-    fn new(ptr: *mut u32, size: usize, instruction_count: usize) -> Self {
-        Self { ptr, size, instruction_count, func: unsafe { mem::transmute(ptr) } }
+    fn new(ptr: *mut u32, size: usize, glue_start_words: usize, instruction_count: usize) -> Self {
+        Self { ptr, size, instruction_count,
+            func: unsafe { mem::transmute::<*mut u32, fn(*const f64, *mut f64)>(ptr.add(glue_start_words)) } }
     }
 
-    pub fn func(&self) -> fn(f64) -> f64        { self.func }
+    pub fn call(&self, input: &[f64], output: &mut[f64])        { (self.func)(input.as_ptr(), output.as_mut_ptr()) }
 
     pub(super) fn bytes(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts_mut(self.ptr.cast::<u8>(), self.size) }
+        unsafe { std::slice::from_raw_parts(self.ptr.cast::<u8>(), self.size) }
     }
 }
 
@@ -52,7 +53,7 @@ pub fn emit(block: &assembler::Block) -> CompiledFn {
 
     sys::finish_jit_compile(ptr, total_code_size_bytes);
 
-    CompiledFn::new(ptr, total_code_size_bytes, instr_words)
+    CompiledFn::new(ptr, total_code_size_bytes, block.glue_start_words, instr_words)
 }
 
 
@@ -61,8 +62,9 @@ fn encode_instrs(instrs: &[assembler::Instr], words: &mut [u32], constant_start_
     for (address, instr) in instrs.iter().enumerate() {
         let operands = instr.operands.iter().map(|op| {
             match op {
-                Register(i)            => u32::from(*i),
-                Constant(i)            => u32::try_from((constant_start_words - address) * 4 + (*i * 8)).unwrap(),
+                Register(i)             => u32::from(*i),
+                Constant(i)             => u32::try_from((constant_start_words - address) * 4 + (*i * 8)).unwrap(),
+                Offset(o)               => o.cast_unsigned(),
             }}).collect::<Vec<_>>();
         words[address] = (instr.code.encode)(&operands);
     }

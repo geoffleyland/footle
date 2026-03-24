@@ -120,7 +120,9 @@ fn run_file(file_name: &str) -> Result<(), Box<dyn Error>> {
     println!("\nDisassembly from '{file_name}':");
     for line in codegen::disassemble(&func) { println!("  {line}"); }
 
-    let result = func.func()(42.0);
+    let mut results = vec![0.0];
+    func.call(&[42.0], &mut results);
+    let result = results[0];
     println!("\nResult from '{file_name}':");
     println!("  f(42.0) = {result:?}");
 
@@ -314,7 +316,9 @@ fn test_lines(
         }
 
         if expected.contains_key("result") {
-            let result = func.func()(42.0);
+            let mut results = vec![0.0];
+            func.call(&[42.0], &mut results);
+            let result = results[0];
             let result_strings = vec![format!("{result:?}")];
             compare_lines(&result_strings, &expected["result"], section, "result")?;
         }
