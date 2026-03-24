@@ -7,9 +7,10 @@ use super::scheduler;
 use super::assembler;
 use super::binary;
 
+
 //-------------------------------------------------------------------------------------------------
 
-pub fn run(block: &vir::Block) -> fn(f64) -> f64 {
+pub fn run(block: &vir::Block) -> binary::CompiledFn {
     let arena = Arena::<scheduler::Value>::new();
     let scheduler::Block { arguments, values, constants, .. } = scheduler::lower_vir(&arena, block);
     let schedule = scheduler::schedule(&values);
@@ -26,6 +27,8 @@ enum InstrOperand {
     Constant(usize),
     Instr(usize)
 }
+
+
 struct Instr {
     address:                                usize,
     opcode:                                 String,
@@ -33,11 +36,13 @@ struct Instr {
     span:                                   Span,
 }
 
+
 pub struct Schedule {
     arguments:                              Vec<(usize, Span)>,
     instrs:                                 Vec<Instr>,
     constants:                              Vec<scheduler::Constant>,
 }
+
 
 impl Styleable for Schedule {
     fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
@@ -59,6 +64,7 @@ impl Styleable for Schedule {
         Ok(())
     }
 }
+
 
 pub fn schedule(block: &vir::Block) -> Schedule {
     let arena = Arena::<scheduler::Value>::new();

@@ -7,21 +7,47 @@ use super::sys;
 
 //-------------------------------------------------------------------------------------------------
 
-pub fn emit(block: &assembler::Block) -> fn(f64) -> f64 {
+pub struct CompiledFn {
+    ptr:                *mut u32,
+    size:               usize,
+    pub func:           fn(f64) -> f64,
+}
+
+
+impl CompiledFn {
+    fn new(ptr: *mut u32, size: usize) -> CompiledFn {
+        Self { ptr, size, func: unsafe { mem::transmute(ptr) } }
+    }
+
+    pub fn func(&self) -> fn(f64) -> f64        { self.func }
+}
+
+
+impl Drop for CompiledFn {
+    fn drop(&mut self) {
+        sys::free_jit(self.ptr, self.size);
+    }
+}
+
+
+//-------------------------------------------------------------------------------------------------
+
+pub fn emit(block: &assembler::Block) -> CompiledFn {
     let instr_words = block.instrs.len();
     let constant_start_words = instr_words + usize::from(instr_words.is_multiple_of(2));
     let total_code_size_bytes = constant_start_words * 4 + 8 * block.constants.len();
 
-    let code_ptr = sys::alloc_jit(total_code_size_bytes);
-    let words = jit_as_words_mut(code_ptr, total_code_size_bytes);
+    let ptr = sys::alloc_jit(total_code_size_bytes);
+    let words = jit_as_words_mut(ptr, total_code_size_bytes);
 
     sys::start_jit_compile();
 
     encode_instrs(&block.instrs, words, constant_start_words);
     encode_constants(&block.constants, words, constant_start_words);
 
-    sys::finish_jit_compile(code_ptr, total_code_size_bytes);
-    unsafe { mem::transmute(code_ptr) }
+    sys::finish_jit_compile(ptr, total_code_size_bytes);
+
+    CompiledFn::new(ptr, total_code_size_bytes)
 }
 
 

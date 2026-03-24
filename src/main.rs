@@ -116,7 +116,7 @@ fn run_file(file_name: &str) -> Result<(), Box<dyn Error>> {
     println!("{}", assembler.styled(1, &style));
 
     let func = codegen::run(&vir_block);
-    let result = func(42.0);
+    let result = func.func()(42.0);
     println!("\nResult from '{file_name}':");
     println!("  f(42.0) = {result:?}");
 
@@ -304,7 +304,7 @@ fn test_lines(
 
     if expected.contains_key("result") && section == "source" {
         let func = codegen::run(&vir_stmts);
-        let result = func(42.0);
+        let result = func.func()(42.0);
         let result_strings = vec![format!("{result:?}")];
         compare_lines(&result_strings, &expected["result"], section, "result")?;
     }

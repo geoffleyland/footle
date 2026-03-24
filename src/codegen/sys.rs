@@ -20,6 +20,12 @@ pub(super) fn alloc_jit(size: usize) -> *mut u32 {
     ptr.cast()
 }
 
+
+pub(super) fn free_jit(ptr: *mut u32, size: usize) {
+    unsafe { libc::munmap(ptr.cast(), size); }
+}
+
+
 pub(super) fn start_jit_compile() {
     unsafe { pthread_jit_write_protect_np(0); }
 }
