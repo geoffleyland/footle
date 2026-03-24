@@ -69,15 +69,14 @@ fn emit_function(schedule: &[&Value<'_>], registers: &[u8], instrs: &mut Vec<Ins
     for value in schedule {
         let ValueDef::Instr(code) = &value.def else { continue };
 
-        // Emit FMOVs for any operands that need to be in specific registers
         if let Some(required_regs) = &value.operand_registers {
+            let mut swaps = vec![];
             for (op, &required) in value.operands.iter().zip(required_regs) {
                 let scheduler::Operand::Value(v) = op else { continue };
                 let actual = registers[v.address];
-                if actual != required {
-                    assemble!(instrs, None, FMOV, Register(required), Register(actual));
-                }
+                if actual != required { swaps.push((actual, required)); }
             }
+            swap_registers(&swaps, instrs);
         }
 
         let operands = code.has_output
@@ -93,12 +92,57 @@ fn emit_function(schedule: &[&Value<'_>], registers: &[u8], instrs: &mut Vec<Ins
 }
 
 
+fn swap_registers(swaps: &[(u8, u8)], instrs: &mut Vec<Instr>) {
+    let mut sources = [0xFFu8; 32];
+    let mut destination_counts = [0u8; 32];
+    let mut used = 0u32;
+    for (source, destination) in swaps {
+        sources[usize::from(*destination)] = *source;
+        destination_counts[usize::from(*source)] += 1;
+        used |= 1 << isa::REGISTER_INDEX[usize::from(*source)];
+        used |= 1 << isa::REGISTER_INDEX[usize::from(*destination)];
+    }
+    let temp_reg = isa::REGISTER_ORDER[used.trailing_ones() as usize];
+
+    // Handle all the chains by starting from their ends
+    for (_, destination) in swaps {
+        if sources[usize::from(*destination)] != 0xFF && destination_counts[usize::from(*destination)] == 0 {
+            swap_registers_backwards(*destination, &mut sources, &mut destination_counts, instrs);
+        }
+    }
+
+    // All the remaining swaps are cycles.  We can start anywhere.
+    for (_, destination) in swaps {
+        let source = sources[usize::from(*destination)];
+        if source != 0xFF {
+            assemble!(instrs, None, FMOV, Register(temp_reg), Register(source));
+            sources[usize::from(*destination)] = 0xFF;
+            swap_registers_backwards(source, &mut sources, &mut destination_counts, instrs);
+            assemble!(instrs, None, FMOV, Register(*destination), Register(temp_reg));
+        }
+    }
+}
+
+
+fn swap_registers_backwards(mut destination: u8, sources: &mut[u8], destination_counts: &mut[u8], instrs: &mut Vec<Instr>) {
+    loop {
+        let source = sources[usize::from(destination)];
+        if source == 0xFF { return }
+        assemble!(instrs, None, FMOV, Register(destination), Register(source));
+        sources[usize::from(destination)] = 0xFF;
+        destination_counts[usize::from(source)] -= 1;
+        if destination_counts[usize::from(source)] > 0 { return }
+        destination = source;
+    }
+}
+
+
 fn emit_glue(argument_count: u8, return_count: u8, assembler: &mut Vec<Instr>) {
     // Move the input buffer pointer to R16, since we're about to overwrite r0 with the first
     // argument to the function we're calling
     assemble!(assembler, None, MOV_I64, Register(16), Register(0));
 
-    // Move the output buffer and the return address to the stack, since the're about to get
+    // Move the output buffer and the return address to the stack, since they're about to get
     // overwritten and we need them later
     assemble!(assembler, None, STP_PRE_I64, Register(1), Register(30), Register(31), Offset(-16));
 

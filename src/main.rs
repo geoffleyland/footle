@@ -323,6 +323,7 @@ fn test_lines(
     Ok(())
 }
 
+
 fn test_results(func: &codegen::CompiledFn, expected: &[String], section: &str) -> Result<(), Box<dyn Error>> {
     let mut actual_strings = vec![];
     for line in expected {
