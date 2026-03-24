@@ -1,6 +1,6 @@
 use std::mem;
 
-use super::pass::Constant;
+use super::scheduler::Constant;
 use super::assembler;
 use super::sys;
 
@@ -8,7 +8,7 @@ use super::sys;
 //-------------------------------------------------------------------------------------------------
 
 pub fn emit(block: &assembler::Block) -> fn(f64) -> f64 {
-    let instr_words = block.assembler.len();
+    let instr_words = block.instrs.len();
     let constant_start_words = instr_words + usize::from(instr_words.is_multiple_of(2));
     let total_code_size_bytes = constant_start_words * 4 + 8 * block.constants.len();
 
@@ -17,7 +17,7 @@ pub fn emit(block: &assembler::Block) -> fn(f64) -> f64 {
 
     sys::start_jit_compile();
 
-    encode_instrs(&block.assembler, words, constant_start_words);
+    encode_instrs(&block.instrs, words, constant_start_words);
     encode_constants(&block.constants, words, constant_start_words);
 
     sys::finish_jit_compile(code_ptr, total_code_size_bytes);
@@ -25,9 +25,9 @@ pub fn emit(block: &assembler::Block) -> fn(f64) -> f64 {
 }
 
 
-fn encode_instrs(assembler: &[assembler::Instr], words: &mut [u32], constant_start_words: usize) {
+fn encode_instrs(instrs: &[assembler::Instr], words: &mut [u32], constant_start_words: usize) {
     use assembler::Operand::*;
-    for (address, instr) in assembler.iter().enumerate() {
+    for (address, instr) in instrs.iter().enumerate() {
         let operands = instr.operands.iter().map(|op| {
             match op {
                 Register(i)            => u32::from(*i),

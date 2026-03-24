@@ -1,4 +1,5 @@
 mod pass;
+mod scheduler;
 mod assembler;
 mod binary;
 mod isa;

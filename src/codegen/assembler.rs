@@ -1,8 +1,7 @@
 use crate::core::Span;
-use super::pass::{Constant, Value, ValueDef};
-use super::pass;
+use super::scheduler::{Constant, Value, ValueDef};
+use super::scheduler;
 use super::isa;
-
 
 
 //-------------------------------------------------------------------------------------------------
@@ -25,46 +24,46 @@ macro_rules! assemble {
 
 //-------------------------------------------------------------------------------------------------
 
-pub (super) enum Operand {
+pub(super) enum Operand {
     Register(u8),
     Constant(usize),
 }
 
 
-pub (super) struct Instr {
-    pub (super) code:               &'static isa::Code,
-    pub (super) operands:           Vec<Operand>,
+pub(super) struct Instr {
+    pub(super) code:                &'static isa::Code,
+    pub(super) operands:            Vec<Operand>,
     span:                           Option<Span>,
 }
 
 
 pub struct Block {
-    pub (super) assembler:          Vec<Instr>,
-    pub (super) constants:          Vec<Constant>,
+    pub(super) instrs:              Vec<Instr>,
+    pub(super) constants:           Vec<Constant>,
 }
 
 
 //-------------------------------------------------------------------------------------------------
 
-pub (super) fn emit(schedule: &[&Value<'_>], constants: &[Constant], registers: &[u8]) -> Block{
-    let mut assembler = Vec::new();
-    emit_function(schedule, registers, &mut assembler);
+pub(super) fn emit(schedule: &[&Value<'_>], constants: &[Constant], registers: &[u8]) -> Block{
+    let mut instrs = Vec::new();
+    emit_function(schedule, registers, &mut instrs);
 
-    Block{ assembler, constants: constants.into() }
+    Block{ instrs, constants: constants.into() }
 }
 
 
-fn emit_function(schedule: &[&Value<'_>], registers: &[u8], assembler: &mut Vec<Instr>) {
+fn emit_function(schedule: &[&Value<'_>], registers: &[u8], instrs: &mut Vec<Instr>) {
     for value in schedule {
         let ValueDef::Instr(code) = &value.def else { continue };
 
-        // Count FMOVs for any operands that need to be in specific registers
+        // Emit FMOVs for any operands that need to be in specific registers
         if let Some(required_regs) = &value.operand_registers {
             for (op, &required) in value.operands.iter().zip(required_regs) {
-                let pass::Operand::Value(v) = op else { continue };
+                let scheduler::Operand::Value(v) = op else { continue };
                 let actual = registers[v.address];
                 if actual != required {
-                    assemble!(assembler, None, FMOV, Register(required), Register(actual));
+                    assemble!(instrs, None, FMOV, Register(required), Register(actual));
                 }
             }
         }
@@ -73,13 +72,14 @@ fn emit_function(schedule: &[&Value<'_>], registers: &[u8], assembler: &mut Vec<
             .then(|| Operand::Register(registers[value.address]))
             .into_iter()
             .chain(value.operands.iter().map(|op| match op {
-                pass::Operand::Value(v)    => Operand::Register(registers[v.address]),
-                pass::Operand::Constant(i) => Operand::Constant(*i),
+                scheduler::Operand::Value(v)    => Operand::Register(registers[v.address]),
+                scheduler::Operand::Constant(i) => Operand::Constant(*i),
             }))
         .collect();
-        assembler.push(Instr{ code, operands, span: Some(value.span) });
+        instrs.push(Instr{ code, operands, span: Some(value.span) });
     }
 }
+
 
 //-------------------------------------------------------------------------------------------------
 // Text output for assembler
@@ -89,7 +89,7 @@ use crate::core::{Styleable, LineStyle};
 
 impl Styleable for Block {
     fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
-        for i in &self.assembler {
+        for i in &self.instrs {
             let operands = i.operands.iter().map(|o|
                 match o {
                     Operand::Constant(i)    => format!("K{i}"),
@@ -99,10 +99,11 @@ impl Styleable for Block {
                 operands.join(" ")))?;
         }
         for (i, c) in self.constants.iter().enumerate() {
-            writer.writeln (f, indent, Some(c.span), &format!("K{i}: {:?}", c.value))?;
+            writer.writeln(f, indent, Some(c.span), &format!("K{i}: {:?}", c.value))?;
         }
         Ok(())
     }
 }
+
 
 //-------------------------------------------------------------------------------------------------

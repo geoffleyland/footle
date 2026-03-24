@@ -8,7 +8,7 @@ unsafe extern "C" {
     fn sys_icache_invalidate(start: *mut std::ffi::c_void, size: usize);
 }
 
-pub fn alloc_jit(size: usize) -> *mut u32 {
+pub(super) fn alloc_jit(size: usize) -> *mut u32 {
     let ptr = unsafe { mmap(
         std::ptr::null_mut(),
         size,
@@ -20,11 +20,11 @@ pub fn alloc_jit(size: usize) -> *mut u32 {
     ptr.cast()
 }
 
-pub fn start_jit_compile() {
+pub(super) fn start_jit_compile() {
     unsafe { pthread_jit_write_protect_np(0); }
 }
 
-pub fn finish_jit_compile(code_ptr: *mut u32, size: usize) {
+pub(super) fn finish_jit_compile(code_ptr: *mut u32, size: usize) {
     unsafe {
         pthread_jit_write_protect_np(1);
         sys_icache_invalidate(code_ptr.cast(), size);

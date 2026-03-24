@@ -1,0 +1,389 @@
+use std::cell::OnceCell;
+use std::collections::HashMap;
+use std::fmt;
+
+use typed_arena::Arena;
+use enumset::EnumSet;
+use bit_set::BitSet;
+
+use crate::core::{BinaryOperator, Span};
+use crate::vir;
+use super::isa;
+
+
+//-------------------------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Operand<'arena> {
+    Constant(usize),
+    Value(&'arena Value<'arena>),
+}
+
+impl<'arena> Operand<'arena> {
+    fn value(&self) -> Option<&'arena Value<'arena>> {
+        if let Self::Value(v) = self { Some(v) } else { None }
+    }
+    fn needs_scheduling(&self) -> bool {
+        matches!(self, Self::Value(v) if matches!(v.def, ValueDef::Instr(..)))
+    }
+}
+
+impl fmt::Display for Operand<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use Operand::*;
+        match self {
+            Value(v)                        => write!(f, "I{}", v.address),
+            Constant(i)                     => write!(f, "K{i}"),
+        }
+    }
+}
+
+
+//-------------------------------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub(super) enum ValueDef {
+    Instr(&'static isa::Code),
+    Argument(usize, String),
+}
+
+impl fmt::Display for ValueDef {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use ValueDef::*;
+        match self {
+            Instr(code)                     => write!(f, "{}", code.name),
+            Argument(i, name)               => write!(f, "ARGUMENT r{i} ({name})"),
+        }
+    }
+}
+
+
+//-------------------------------------------------------------------------------------------------
+
+#[derive(Debug)]
+pub(super) struct Value<'arena> {
+    pub(super) address:                     usize,
+    pub(super) def:                         ValueDef,
+    pub(super) operands:                    Vec<Operand<'arena>>,
+    pub(super) operand_registers:           Option<Vec<u8>>,
+    pub(super) span:                        Span,
+}
+
+impl<'arena> Value<'arena> {
+    fn new(
+        address:                            usize,
+        def:                                ValueDef,
+        operands:                           Vec<Operand<'arena>>,
+        operand_registers:                  Option<Vec<u8>>,
+        span:                               Span) -> Self {
+        Self { address, def, operands, operand_registers, span }
+    }
+
+
+    pub(super) fn code(&self) -> Option<&'static isa::Code> {
+        if let ValueDef::Instr(code) = &self.def { Some(code) } else { None }
+    }
+
+    fn latency(&self) -> u8                 { self.code().map_or(0, |c| c.latency) }
+    fn has_output(&self) -> bool            { self.code().is_some_and(|c| c.has_output) }
+}
+
+impl fmt::Display for Value<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "I{}: {} {}", self.address, self.def,
+            self.operands
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(" "))
+    }
+}
+
+
+//-------------------------------------------------------------------------------------------------
+
+#[derive(Debug, Copy, Clone)]
+pub(super) struct Constant {
+    pub(super) value:                       f64,
+    pub(super) span:                        Span
+}
+
+
+pub(super) struct Block<'arena> {
+    pub(super) arguments:                   Vec<&'arena Value<'arena>>,
+    pub(super) values:                      Vec<&'arena Value<'arena>>,
+    pub(super) constants:                   Vec<Constant>,
+    operand_map:                            HashMap<usize, Operand<'arena>>,
+}
+
+impl Block<'_> {
+    fn new() -> Self {
+        Self { arguments: vec![], values: vec![], constants: vec![], operand_map: HashMap::new() }
+    }
+}
+
+
+//-------------------------------------------------------------------------------------------------
+// Generate instructions
+
+pub(super) fn lower_vir<'arena>(arena: &'arena Arena<Value<'arena>>, input: &vir::Block) -> Block<'arena> {
+    let mut block = Block::new();
+    for arg in input.arguments() {
+        lower_expr(arena, &mut block, arg);
+    }
+    for stmt in input.stmts() {
+        match &stmt.kind {
+            vir::StmtKind::Return(exprs) => {
+                let operands =
+                    exprs.iter().map(|expr| { lower_expr(arena, &mut block, expr) }).collect::<Vec<_>>();
+
+                // RETURN doesn't produce a value you can use, so add it to the instructions, but
+                // not to the operand_map.
+                let operand_registers = (0..u8::try_from(operands.len()).unwrap()).collect::<Vec<u8>>();
+                let ret = arena.alloc(Value::new(
+                    block.values.len(),
+                    ValueDef::Instr(&isa::RET),
+                    operands,
+                    Some(operand_registers),
+                    stmt.span));
+                block.values.push(ret);
+            }
+        }
+    }
+    block
+}
+
+
+fn lower_expr<'arena>(
+    arena:                                  &'arena Arena<Value<'arena>>,
+    block:                                  &mut Block<'arena>,
+    expr:                                   &vir::Expr) -> Operand<'arena> {
+    if let Some(&operand) = block.operand_map.get(&expr.pool_index()) {
+        operand
+    } else {
+        match expr.kind() {
+            vir::ExprKind::Argument(index, name) => {
+                let (value, operand) = insert_value(arena, block, expr.pool_index(), vec![], ValueDef::Argument(*index, name.clone()), *expr.span());
+                block.arguments.push(value);
+                operand
+            }
+            vir::ExprKind::Number(v) => {
+                block.constants.push(Constant{ value: *v, span: *expr.span() });
+                insert_value(arena, block, expr.pool_index(), vec![Operand::Constant(block.constants.len() - 1)],
+                    ValueDef::Instr(&isa::LDR_PC_F64), *expr.span()).1
+            }
+            vir::ExprKind::Binary(op, lhs, rhs) => {
+                let machine_instr = match op {
+                    BinaryOperator::Add             => &isa::FADD,
+                    BinaryOperator::Subtract        => &isa::FSUB,
+                    BinaryOperator::Multiply        => &isa::FMUL,
+                    BinaryOperator::Divide          => &isa::FDIV,
+
+//                    BinaryOperator::Power           => &machine::FADD,
+
+                    _                               => todo!("More machine ops")
+
+                    // BinaryOperator::Equal           => &machine::FADD,
+                    // BinaryOperator::NotEqual        => &machine::FADD,
+                    // BinaryOperator::LessThan        => &machine::FADD,
+                    // BinaryOperator::LessEqual       => &machine::FADD,
+                    // BinaryOperator::GreaterThan     => &machine::FADD,
+                    // BinaryOperator::GreaterEqual    => &machine::FADD,
+                };
+                let operands = vec![lower_expr(arena, block, lhs), lower_expr(arena, block, rhs)];
+                insert_value(arena, block, expr.pool_index(), operands, ValueDef::Instr(machine_instr), *expr.span()).1
+            }
+        }
+    }
+}
+
+
+fn insert_value<'arena>(
+    arena:                                  &'arena Arena<Value<'arena>>,
+    block:                                  &mut Block<'arena>,
+    pool_index:                             usize,
+    operands:                               Vec<Operand<'arena>>,
+    def:                                    ValueDef,
+    span:                                   Span) -> (&'arena Value<'arena>, Operand<'arena>)  {
+    let value = arena.alloc(Value::new(block.values.len(), def, operands, None, span));
+    block.values.push(value);
+    let operand = Operand::Value(value);
+    block.operand_map.insert(pool_index, operand);
+    (value, operand)
+}
+
+
+//-------------------------------------------------------------------------------------------------
+// Instruction Scheduling
+
+pub(super) fn schedule<'arena>(values: &'arena [&Value<'arena>]) -> Vec<&'arena Value<'arena>> {
+    // Count how many operands (that need scheduling, arguments are always available) each
+    // instruction has so we can figure out when they're ready to go.
+    let mut unresolved_operands =
+        values.iter().map(|v| v.operands.iter().filter(|o| o.needs_scheduling()).count()).collect::<Vec<_>>();
+
+    // Find all the users of each value
+    let mut users: Vec<Vec<usize>> = vec![vec![]; values.len()];
+    for value in values {
+        for op in &value.operands {
+            let Operand::Value(operand) = op else { continue };
+            users[operand.address].push(value.address);
+        }
+    }
+
+    // And count the uses of each value
+    let mut remaining_uses = values.iter().map(|v| users[v.address].len() ).collect::<Vec<_>>();
+
+    // Find the critical path depths of each Value
+    let mut depths = vec![usize::MAX; values.len()];
+    for value in values { compute_depth(values, &users, &mut depths, value.address); }
+    let mut current_critical_path_depth = depths.iter().copied().max().unwrap_or(0);
+
+    let expected_length = values.iter().filter(|v| v.code().is_some()).count();
+
+    let mut cycle = 0usize;
+    let mut results_by_cycle: Vec<Vec<&Value>>  = vec![vec![]; current_critical_path_depth];
+
+    let mut scheduled = vec![];
+
+    let mut ready_instrs: Vec<&Value> = values.iter()
+        .filter(|v| v.code().is_some() && unresolved_operands[v.address] == 0)
+        .copied()
+        .collect();
+
+    while scheduled.len() < expected_length {
+        let mut free_units: EnumSet<isa::Unit> = EnumSet::all();
+
+        while let Some(&best_instr) = ready_instrs.iter()
+            .filter(|i| i.code().unwrap().try_pick_unit(free_units).is_some())
+            .max_by_key(|i| {
+                let critical_path_depth = depths[i.address];
+                let on_critical_path = critical_path_depth >= current_critical_path_depth;
+                let retiring_count = i.operands.iter().filter(|o| o.value().is_some_and(|v| remaining_uses[v.address] == 1)).count();
+                (on_critical_path, retiring_count, critical_path_depth)
+            }) {
+
+            // Add this instr to the code and remove it from the list of ready instructions
+            scheduled.push(best_instr);
+            ready_instrs.retain(|&i| std::ptr::from_ref(i) != std::ptr::from_ref(best_instr));
+
+            // Pick a unit we think is going to run this instruction and reserve it.
+            free_units -= best_instr.code().unwrap().try_pick_unit(free_units).unwrap();
+
+            // Mark that the results of this instruction will be ready in the appropriate cycle.
+            let ready_cycle: usize = cycle + best_instr.latency() as usize;
+            if results_by_cycle.len() <= ready_cycle {
+                results_by_cycle.resize_with(ready_cycle+1, Vec::new);
+            }
+            results_by_cycle[ready_cycle].push(best_instr);
+
+            // Update the remaining uses of our operands so we can keep track of which instructions
+            // will retire (the most) registers.
+            for op in &best_instr.operands   { if let Some(v) = op.value() { remaining_uses[v.address] -= 1; } }
+
+            // Update the critical path depth if this instruction is worse than what we thought.
+            current_critical_path_depth = std::cmp::max(
+                current_critical_path_depth, depths[best_instr.address]);
+        }
+        // We can't dispatch any more instructions to units in the cycle above.  Move ahead a
+        // cycle.
+        cycle += 1;
+        current_critical_path_depth = current_critical_path_depth.saturating_sub(1);
+        // For all the results that are ready in this (new) cycle, mark all the instructions using
+        // them as having that operand ready
+        for completed in &results_by_cycle[cycle] {
+            for &user_address in &users[completed.address] {
+                unresolved_operands[user_address] -= 1;
+                if unresolved_operands[user_address] == 0 {
+                    ready_instrs.push(values[user_address]);
+                }
+            }
+        }
+    }
+
+    scheduled
+}
+
+
+fn compute_depth<'arena>(values: &[&'arena Value<'arena>], users: &[Vec<usize>], depths: &mut [usize], address: usize) -> usize {
+    if depths[address] != usize::MAX { return depths[address] }
+    let depth = values[address].latency() as usize +
+        users[address].iter()
+            .map(|&user_address| compute_depth(values, users, depths, user_address))
+            .max().unwrap_or(0);
+    depths[address] = depth;
+    depth
+}
+
+
+//-------------------------------------------------------------------------------------------------
+// Register Allocation
+
+pub(super) fn allocate_registers<'arena>(
+    arguments: &[&Value<'arena>],
+    values: &[&Value<'arena>],
+    schedule: &[&Value<'arena>]) -> Vec<u8> {
+    let mut registers: Vec<OnceCell<u8>> = vec![OnceCell::new(); values.len()];
+
+    // Find which values interfere with which.
+    let mut live_values = BitSet::new();
+    let mut interfering_values = vec![BitSet::new(); values.len()];
+    for value in schedule.iter().rev() {
+        live_values.remove(value.address);
+        for op in &value.operands {
+            let Operand::Value(v) = op else { continue };
+            live_values.insert(v.address);
+        }
+        for address in &live_values {
+            interfering_values[address].union_with(&live_values);
+        }
+    }
+
+    let mut available_registers = vec![0xFFFF_FFFFu32; values.len()];
+    for (r, value) in arguments.iter().enumerate() {
+        set_register(value, u8::try_from(r).unwrap(), &registers, &interfering_values, &mut available_registers);
+    }
+
+    // Scan instructions for any register constraints
+    for value in schedule {
+        if let Some(operand_registers) = &value.operand_registers {
+            for (op, &r) in value.operands.iter().zip(operand_registers) {
+                if let Operand::Value(v) = op {
+                    if registers[v.address].get().is_some() { continue; }
+                    let mri = isa::REGISTER_INDEX[r as usize];
+                    let r2 = if (available_registers[v.address] >> mri) & 1 == 1 { r }
+                        else {
+                            let mri2 = available_registers[v.address].trailing_zeros();
+                            isa::REGISTER_ORDER[mri2 as usize]
+                        };
+                    set_register(v, r2, &registers, &interfering_values, &mut available_registers);
+                } else {
+                    panic!("internal compiler error: register constraint on constant");
+                }
+            }
+        }
+    }
+
+    for value in schedule {
+        if registers[value.address].get().is_some() || !value.has_output() { continue; }
+        let mri = available_registers[value.address].trailing_zeros();
+        let r = isa::REGISTER_ORDER[mri as usize];
+        set_register(value, r, &registers, &interfering_values, &mut available_registers);
+    }
+
+    registers.iter_mut().map(|c| c.take().unwrap_or(0xFFu8)).collect::<Vec<_>>()
+}
+
+
+fn set_register(value: &Value<'_>, r: u8, registers: &[OnceCell<u8>], interfering_values: &[BitSet], available_registers: &mut [u32]) {
+    let mri = isa::REGISTER_INDEX[r as usize];
+    let mri_bits = 1 << mri;
+    available_registers[value.address] = mri_bits;
+    registers[value.address].set(r).expect("internal compiler error: trying to set a register twice");
+    for address in &interfering_values[value.address] {
+        available_registers[address] &= !mri_bits;
+    }
+}
+
+
+//-------------------------------------------------------------------------------------------------
