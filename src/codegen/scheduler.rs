@@ -168,13 +168,13 @@ fn lower_expr<'arena>(
     } else {
         match expr.kind() {
             vir::ExprKind::Argument(index, name) => {
-                let (value, operand) = insert_value(arena, block, expr.pool_index(), vec![], ValueDef::Argument(*index, name.clone()), *expr.span());
+                let (value, operand) = insert_value(arena, block, expr.pool_index(), vec![], None, ValueDef::Argument(*index, name.clone()), *expr.span());
                 block.arguments.push(value);
                 operand
             }
             vir::ExprKind::Number(v) => {
                 block.constants.push(Constant{ value: *v, span: *expr.span() });
-                insert_value(arena, block, expr.pool_index(), vec![Operand::Constant(block.constants.len() - 1)],
+                insert_value(arena, block, expr.pool_index(), vec![Operand::Constant(block.constants.len() - 1)], None,
                     ValueDef::Instr(&isa::LDR_PC_F64), *expr.span()).1
             }
             vir::ExprKind::Binary(op, lhs, rhs) => {
@@ -208,9 +208,10 @@ fn insert_value<'arena>(
     block:                                  &mut Block<'arena>,
     pool_index:                             usize,
     operands:                               Vec<Operand<'arena>>,
+    operand_registers:                      Option<Vec<u8>>,
     def:                                    ValueDef,
     span:                                   Span) -> (&'arena Value<'arena>, Operand<'arena>)  {
-    let value = arena.alloc(Value::new(block.values.len(), def, operands, None, span));
+    let value = arena.alloc(Value::new(block.values.len(), def, operands, operand_registers, span));
     block.values.push(value);
     let operand = Operand::Value(value);
     block.operand_map.insert(pool_index, operand);
