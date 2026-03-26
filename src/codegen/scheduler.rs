@@ -32,7 +32,7 @@ impl fmt::Display for Operand<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use Operand::*;
         match self {
-            Value(v)                        => write!(f, "I{}", v.address),
+            Value(v)                        => write!(f, "I{}", v.slot),
             Constant(i)                     => write!(f, "K{i}"),
         }
     }
@@ -62,7 +62,7 @@ impl fmt::Display for ValueDef {
 
 #[derive(Debug)]
 pub(super) struct Value<'arena> {
-    pub(super) address:                     usize,
+    pub(super) slot:                        usize,
     pub(super) def:                         ValueDef,
     pub(super) operands:                    Vec<Operand<'arena>>,
     pub(super) operand_registers:           Option<Vec<u8>>,
@@ -71,12 +71,12 @@ pub(super) struct Value<'arena> {
 
 impl<'arena> Value<'arena> {
     fn new(
-        address:                            usize,
+        slot:                               usize,
         def:                                ValueDef,
         operands:                           Vec<Operand<'arena>>,
         operand_registers:                  Option<Vec<u8>>,
         span:                               Span) -> Self {
-        Self { address, def, operands, operand_registers, span }
+        Self { slot, def, operands, operand_registers, span }
     }
 
 
@@ -90,7 +90,7 @@ impl<'arena> Value<'arena> {
 
 impl fmt::Display for Value<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "I{}: {} {}", self.address, self.def,
+        write!(f, "I{}: {} {}", self.slot, self.def,
             self.operands
                 .iter()
                 .map(ToString::to_string)
@@ -233,16 +233,16 @@ pub(super) fn schedule<'arena>(values: &'arena [&Value<'arena>]) -> Vec<&'arena 
     for value in values {
         for op in &value.operands {
             let Operand::Value(operand) = op else { continue };
-            users[operand.address].push(value.address);
+            users[operand.slot].push(value.slot);
         }
     }
 
     // And count the uses of each value
-    let mut remaining_uses = values.iter().map(|v| users[v.address].len() ).collect::<Vec<_>>();
+    let mut remaining_uses = values.iter().map(|v| users[v.slot].len() ).collect::<Vec<_>>();
 
     // Find the critical path depths of each Value
     let mut depths = vec![usize::MAX; values.len()];
-    for value in values { compute_depth(values, &users, &mut depths, value.address); }
+    for value in values { compute_depth(values, &users, &mut depths, value.slot); }
     let mut current_critical_path_depth = depths.iter().copied().max().unwrap_or(0);
 
     let expected_length = values.iter().filter(|v| v.code().is_some()).count();
@@ -253,7 +253,7 @@ pub(super) fn schedule<'arena>(values: &'arena [&Value<'arena>]) -> Vec<&'arena 
     let mut scheduled = vec![];
 
     let mut ready_instrs: Vec<&Value> = values.iter()
-        .filter(|v| v.code().is_some() && unresolved_operands[v.address] == 0)
+        .filter(|v| v.code().is_some() && unresolved_operands[v.slot] == 0)
         .copied()
         .collect();
 
@@ -263,9 +263,9 @@ pub(super) fn schedule<'arena>(values: &'arena [&Value<'arena>]) -> Vec<&'arena 
         while let Some(&best_instr) = ready_instrs.iter()
             .filter(|i| i.code().expect("internal compiler error: instruction without opcode").try_pick_unit(free_units).is_some())
             .max_by_key(|i| {
-                let critical_path_depth = depths[i.address];
+                let critical_path_depth = depths[i.slot];
                 let on_critical_path = critical_path_depth >= current_critical_path_depth;
-                let retiring_count = i.operands.iter().filter(|o| o.value().is_some_and(|v| remaining_uses[v.address] == 1)).count();
+                let retiring_count = i.operands.iter().filter(|o| o.value().is_some_and(|v| remaining_uses[v.slot] == 1)).count();
                 (on_critical_path, retiring_count, critical_path_depth)
             }) {
 
@@ -286,11 +286,11 @@ pub(super) fn schedule<'arena>(values: &'arena [&Value<'arena>]) -> Vec<&'arena 
 
             // Update the remaining uses of our operands so we can keep track of which instructions
             // will retire (the most) registers.
-            for op in &best_instr.operands   { if let Some(v) = op.value() { remaining_uses[v.address] -= 1; } }
+            for op in &best_instr.operands   { if let Some(v) = op.value() { remaining_uses[v.slot] -= 1; } }
 
             // Update the critical path depth if this instruction is worse than what we thought.
             current_critical_path_depth = std::cmp::max(
-                current_critical_path_depth, depths[best_instr.address]);
+                current_critical_path_depth, depths[best_instr.slot]);
         }
         // We can't dispatch any more instructions to units in the cycle above.  Move ahead a
         // cycle.
@@ -299,10 +299,10 @@ pub(super) fn schedule<'arena>(values: &'arena [&Value<'arena>]) -> Vec<&'arena 
         // For all the results that are ready in this (new) cycle, mark all the instructions using
         // them as having that operand ready
         for completed in &results_by_cycle[cycle] {
-            for &user_address in &users[completed.address] {
-                unresolved_operands[user_address] -= 1;
-                if unresolved_operands[user_address] == 0 {
-                    ready_instrs.push(values[user_address]);
+            for &user_slot in &users[completed.slot] {
+                unresolved_operands[user_slot] -= 1;
+                if unresolved_operands[user_slot] == 0 {
+                    ready_instrs.push(values[user_slot]);
                 }
             }
         }
@@ -312,13 +312,13 @@ pub(super) fn schedule<'arena>(values: &'arena [&Value<'arena>]) -> Vec<&'arena 
 }
 
 
-fn compute_depth<'arena>(values: &[&'arena Value<'arena>], users: &[Vec<usize>], depths: &mut [usize], address: usize) -> usize {
-    if depths[address] != usize::MAX { return depths[address] }
-    let depth = usize::from(values[address].latency()) +
-        users[address].iter()
-            .map(|&user_address| compute_depth(values, users, depths, user_address))
+fn compute_depth<'arena>(values: &[&'arena Value<'arena>], users: &[Vec<usize>], depths: &mut [usize], slot: usize) -> usize {
+    if depths[slot] != usize::MAX { return depths[slot] }
+    let depth = usize::from(values[slot].latency()) +
+        users[slot].iter()
+            .map(|&user_slot| compute_depth(values, users, depths, user_slot))
             .max().unwrap_or(0);
-    depths[address] = depth;
+    depths[slot] = depth;
     depth
 }
 
@@ -336,13 +336,13 @@ pub(super) fn allocate_registers<'arena>(
     let mut live_values = BitSet::new();
     let mut interfering_values = vec![BitSet::new(); values.len()];
     for value in schedule.iter().rev() {
-        live_values.remove(value.address);
+        live_values.remove(value.slot);
         for op in &value.operands {
             let Operand::Value(v) = op else { continue };
-            live_values.insert(v.address);
+            live_values.insert(v.slot);
         }
-        for address in &live_values {
-            interfering_values[address].union_with(&live_values);
+        for slot in &live_values {
+            interfering_values[slot].union_with(&live_values);
         }
     }
 
@@ -356,11 +356,11 @@ pub(super) fn allocate_registers<'arena>(
         if let Some(operand_registers) = &value.operand_registers {
             for (op, &r) in value.operands.iter().zip(operand_registers) {
                 if let Operand::Value(v) = op {
-                    if registers[v.address].get().is_some() { continue; }
+                    if registers[v.slot].get().is_some() { continue; }
                     let mri = isa::REGISTER_INDEX[usize::from(r)];
-                    let r2 = if (available_registers[v.address] >> mri) & 1 == 1 { r }
+                    let r2 = if (available_registers[v.slot] >> mri) & 1 == 1 { r }
                         else {
-                            let mri2 = available_registers[v.address].trailing_zeros();
+                            let mri2 = available_registers[v.slot].trailing_zeros();
                             isa::REGISTER_ORDER[mri2 as usize]
                         };
                     set_register(v, r2, &registers, &interfering_values, &mut available_registers);
@@ -372,8 +372,8 @@ pub(super) fn allocate_registers<'arena>(
     }
 
     for value in schedule {
-        if registers[value.address].get().is_some() || !value.has_output() { continue; }
-        let mri = available_registers[value.address].trailing_zeros();
+        if registers[value.slot].get().is_some() || !value.has_output() { continue; }
+        let mri = available_registers[value.slot].trailing_zeros();
         let r = isa::REGISTER_ORDER[mri as usize];
         set_register(value, r, &registers, &interfering_values, &mut available_registers);
     }
@@ -385,10 +385,10 @@ pub(super) fn allocate_registers<'arena>(
 fn set_register(value: &Value<'_>, r: u8, registers: &[OnceCell<u8>], interfering_values: &[BitSet], available_registers: &mut [u32]) {
     let mri = isa::REGISTER_INDEX[usize::from(r)];
     let mri_bits = 1 << mri;
-    available_registers[value.address] = mri_bits;
-    registers[value.address].set(r).expect("internal compiler error: trying to set a register twice");
-    for address in &interfering_values[value.address] {
-        available_registers[address] &= !mri_bits;
+    available_registers[value.slot] = mri_bits;
+    registers[value.slot].set(r).expect("internal compiler error: trying to set a register twice");
+    for slot in &interfering_values[value.slot] {
+        available_registers[slot] &= !mri_bits;
     }
 }
 

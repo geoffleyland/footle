@@ -73,17 +73,17 @@ fn emit_function(schedule: &[&Value<'_>], registers: &[u8], instrs: &mut Vec<Ins
             let mut swaps = vec![];
             for (op, &required) in value.operands.iter().zip(required_regs) {
                 let scheduler::Operand::Value(v) = op else { continue };
-                let actual = registers[v.address];
+                let actual = registers[v.slot];
                 if actual != required { swaps.push((actual, required)); }
             }
             swap_registers(&swaps, instrs);
         }
 
         let operands = code.has_output
-            .then(|| Operand::Register(registers[value.address]))
+            .then(|| Operand::Register(registers[value.slot]))
             .into_iter()
             .chain(value.operands.iter().map(|op| match op {
-                scheduler::Operand::Value(v)    => Operand::Register(registers[v.address]),
+                scheduler::Operand::Value(v)    => Operand::Register(registers[v.slot]),
                 scheduler::Operand::Constant(i) => Operand::Constant(*i),
             }))
         .collect();

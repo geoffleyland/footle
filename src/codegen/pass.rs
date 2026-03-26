@@ -33,7 +33,7 @@ enum InstrOperand {
 
 
 struct Instr {
-    address:                                usize,
+    slot:                                   usize,
     opcode:                                 String,
     operands:                               Vec<InstrOperand>,
     span:                                   Span,
@@ -59,7 +59,7 @@ impl Styleable for Schedule {
                     InstrOperand::Instr(i)      => format!("I{i}")
                 }).collect::<Vec<_>>();
             writer.writeln(f, indent, Some(instr.span), &format!("I{}: {} {}",
-                instr.address, instr.opcode, operands.join(" ")))?;
+                instr.slot, instr.opcode, operands.join(" ")))?;
         }
         for (i, c) in self.constants.iter().enumerate() {
             writer.writeln(f, indent, Some(c.span), &format!("K{i}: {:?}", c.value))?;
@@ -74,15 +74,15 @@ pub fn schedule(block: &vir::Block) -> Schedule {
     let scheduler::Block { arguments, values, constants, .. } = scheduler::lower_vir(&arena, block);
     let schedule = scheduler::schedule(&values);
 
-    let arguments = arguments.iter().map(|a| (a.address, a.span)).collect::<Vec<_>>();
+    let arguments = arguments.iter().map(|a| (a.slot, a.span)).collect::<Vec<_>>();
     let instrs = schedule.iter().map(|c|
         Instr{
-            address:        c.address,
+            slot:           c.slot,
             opcode:         c.code().expect("internal compiler error: instruction without opcode").name.to_string(),
             operands:       c.operands.iter().map(|o|
                 match o {
                     scheduler::Operand::Constant(i)     => InstrOperand::Constant(*i),
-                    scheduler::Operand::Value(v)        => InstrOperand::Instr(v.address)
+                    scheduler::Operand::Value(v)        => InstrOperand::Instr(v.slot)
                 }).collect(),
             span:           c.span})
         .collect();
