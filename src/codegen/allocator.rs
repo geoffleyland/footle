@@ -13,22 +13,22 @@ pub(super) fn run<'arena>(
     arguments:              &[&Value<'arena>],
     values:                 &[&Value<'arena>],
     schedule:               &[&Value<'arena>]) -> Vec<u8> {
-    allocate(arguments.len(), values, schedule)
+    allocate(arguments.len(), values.len(), schedule)
 }
 
 
 //-------------------------------------------------------------------------------------------------
 // Register Allocation
 
-fn allocate<'arena>(
+fn allocate(
     argument_count:         usize,
-    values:                 &[&Value<'arena>],
-    schedule:               &[&Value<'arena>]) -> Vec<u8> {
-    let mut registers: Vec<OnceCell<u8>> = vec![OnceCell::new(); values.len()];
+    slot_count:             usize,
+    schedule:               &[&Value<'_>]) -> Vec<u8> {
+    let mut registers: Vec<OnceCell<u8>> = vec![OnceCell::new(); slot_count];
 
     // Find which values interfere with which.
     let mut live_values = BitSet::new();
-    let mut interfering_values = vec![BitSet::new(); values.len()];
+    let mut interfering_values = vec![BitSet::new(); slot_count];
     for value in schedule.iter().rev() {
         live_values.remove(value.slot);
         for op in &value.operands {
@@ -40,7 +40,7 @@ fn allocate<'arena>(
         }
     }
 
-    let mut available_registers = vec![0xFFFF_FFFFu32; values.len()];
+    let mut available_registers = vec![0xFFFF_FFFFu32; slot_count];
     for slot in 0..argument_count {
         set_register(slot,
             u8::try_from(slot).expect("internal compiler error: too many arguments"),
