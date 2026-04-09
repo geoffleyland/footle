@@ -13,8 +13,8 @@ pub fn run(block: &vir::Block) -> binary::CompiledFn {
     let scheduler::Block { arguments, values, constants, return_count, .. } = scheduler::lower_vir(&arena, block);
     let argument_count = u8::try_from(arguments.len())
         .expect("internal compiler error: too many arguments");
-    let schedule = scheduler::schedule(&values);
-    let allocated = allocator::run(argument_count, values.len(), &schedule);
+    let scheduled = scheduler::schedule(&values);
+    let allocated = allocator::run(argument_count, values.len(), &scheduled);
     let assembler = assembler::run(allocated, &constants, argument_count, return_count);
     binary::emit(&assembler)
 }
@@ -96,8 +96,8 @@ pub fn assemble(block: &vir::Block) -> assembler::Block {
     let scheduler::Block { arguments, values, constants, return_count, .. } = scheduler::lower_vir(&arena, block);
     let argument_count = u8::try_from(arguments.len())
         .expect("internal compiler error: too many arguments");
-    let schedule = scheduler::schedule(&values);
-    let allocated = allocator::run(argument_count, values.len(), &schedule);
+    let scheduled = scheduler::schedule(&values);
+    let allocated = allocator::run(argument_count, values.len(), &scheduled);
     assembler::run(allocated, &constants, argument_count, return_count)
 }
 

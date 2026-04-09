@@ -14,8 +14,8 @@ use super::isa;
 pub(super) fn run(
     argument_count:                     u8,
     slot_count:                         usize,
-    schedule:                           &[&Value<'_>]) -> Vec<Instr> {
-    let lowered = lower_to_slots(schedule);
+    scheduled:                           &[&Value<'_>]) -> Vec<Instr> {
+    let lowered = lower_to_slots(scheduled);
     let registers = allocate(argument_count, slot_count, &lowered);
     lower_to_registers(lowered, &registers)
 }
