@@ -31,7 +31,7 @@ pub(super) fn run<'arena>(
 
     let mut available_registers = vec![0xFFFF_FFFFu32; values.len()];
     for (r, value) in (0u8..).zip(arguments) {
-        set_register(value, r, &registers, &interfering_values, &mut available_registers);
+        set_register(value.slot, r, &registers, &interfering_values, &mut available_registers);
     }
 
     // Scan instructions for any register constraints
@@ -46,7 +46,7 @@ pub(super) fn run<'arena>(
                             let mri2 = available_registers[v.slot].trailing_zeros();
                             isa::REGISTER_ORDER[mri2 as usize]
                         };
-                    set_register(v, r2, &registers, &interfering_values, &mut available_registers);
+                    set_register(v.slot, r2, &registers, &interfering_values, &mut available_registers);
                 } else {
                     panic!("internal compiler error: register constraint on constant");
                 }
@@ -58,20 +58,20 @@ pub(super) fn run<'arena>(
         if registers[value.slot].get().is_some() || !value.has_output() { continue; }
         let mri = available_registers[value.slot].trailing_zeros();
         let r = isa::REGISTER_ORDER[mri as usize];
-        set_register(value, r, &registers, &interfering_values, &mut available_registers);
+        set_register(value.slot, r, &registers, &interfering_values, &mut available_registers);
     }
 
     registers.iter_mut().map(|c| c.take().unwrap_or(0xFFu8)).collect::<Vec<_>>()
 }
 
 
-fn set_register(value: &Value<'_>, r: u8, registers: &[OnceCell<u8>], interfering_values: &[BitSet], available_registers: &mut [u32]) {
+fn set_register(slot: usize, r: u8, registers: &[OnceCell<u8>], interfering_values: &[BitSet], available_registers: &mut [u32]) {
     let mri = isa::REGISTER_INDEX[usize::from(r)];
     let mri_bits = 1 << mri;
-    available_registers[value.slot] = mri_bits;
-    registers[value.slot].set(r).expect("internal compiler error: trying to set a register twice");
-    for slot in &interfering_values[value.slot] {
-        available_registers[slot] &= !mri_bits;
+    available_registers[slot] = mri_bits;
+    registers[slot].set(r).expect("internal compiler error: trying to set a register twice");
+    for interfering_slot in &interfering_values[slot] {
+        available_registers[interfering_slot] &= !mri_bits;
     }
 }
 
