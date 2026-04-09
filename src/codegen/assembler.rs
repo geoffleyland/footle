@@ -1,6 +1,6 @@
 use crate::core::Span;
-use super::scheduler::{Constant, Value, ValueDef};
-use super::scheduler;
+use super::scheduler::Constant;
+use super::allocator;
 use super::isa;
 
 
@@ -50,14 +50,13 @@ pub struct Block {
 
 //-------------------------------------------------------------------------------------------------
 
-pub(super) fn emit(
-    schedule:                       &[&Value<'_>],
+pub(super) fn run(
+    allocated:                      Vec<allocator::Instr>,
     constants:                      &[Constant],
-    registers:                      &[u8],
     argument_count:                 u8,
     return_count:                   u8) -> Block{
     let mut instrs = Vec::new();
-    emit_function(schedule, registers, &mut instrs);
+    emit_function(allocated, &mut instrs);
     let glue_start_words = instrs.len();
     emit_glue(argument_count, return_count, &mut instrs);
 
@@ -65,29 +64,26 @@ pub(super) fn emit(
 }
 
 
-fn emit_function(schedule: &[&Value<'_>], registers: &[u8], instrs: &mut Vec<Instr>) {
-    for value in schedule {
-        let ValueDef::Instr(code) = &value.def else { continue };
-
-        if let Some(required_regs) = &value.operand_registers {
+fn emit_function(allocated: Vec<allocator::Instr>, instrs: &mut Vec<Instr>) {
+    for ai in allocated {
+        if let Some(required_regs) = &ai.operand_registers {
             let mut swaps = vec![];
-            for (op, &required) in value.operands.iter().zip(required_regs) {
-                let scheduler::Operand::Value(v) = op else { continue };
-                let actual = registers[v.slot];
-                if actual != required { swaps.push((actual, required)); }
+            for (op, &required) in ai.operands.iter().zip(required_regs) {
+                let allocator::Operand::Register(actual) = op else { continue };
+                if *actual != required { swaps.push((*actual, required)); }
             }
             swap_registers(&swaps, instrs);
         }
 
-        let operands = code.has_output
-            .then(|| Operand::Register(registers[value.slot]))
+        let operands = ai.code.has_output
+            .then_some(Operand::Register(ai.output_register))
             .into_iter()
-            .chain(value.operands.iter().map(|op| match op {
-                scheduler::Operand::Value(v)    => Operand::Register(registers[v.slot]),
-                scheduler::Operand::Constant(i) => Operand::Constant(*i),
+            .chain(ai.operands.iter().map(|op| match op {
+                allocator::Operand::Register(r)     => Operand::Register(*r),
+                allocator::Operand::Constant(i)     => Operand::Constant(*i),
             }))
         .collect();
-        instrs.push(Instr{ code, operands, span: Some(value.span) });
+        instrs.push(Instr{ code: ai.code, operands, span: Some(ai.span) });
     }
 }
 

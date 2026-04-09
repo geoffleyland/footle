@@ -12,11 +12,12 @@ use super::isa;
 // Register Allocation
 
 pub(super) fn run(
-    argument_count:                     usize,
+    argument_count:                     u8,
     slot_count:                         usize,
-    schedule:                           &[&Value<'_>]) -> Vec<u8> {
+    schedule:                           &[&Value<'_>]) -> Vec<Instr> {
     let lowered = lower_to_slots(schedule);
-    allocate(argument_count, slot_count, &lowered)
+    let registers = allocate(argument_count, slot_count, &lowered);
+    lower_to_registers(lowered, &registers)
 }
 
 
@@ -65,7 +66,7 @@ fn lower_to_slots(
 // Register Allocation
 
 fn allocate(
-    argument_count:                     usize,
+    argument_count:                     u8,
     slot_count:                         usize,
     instrs:                             &[SlotInstr]) -> Vec<u8> {
     let mut registers: Vec<OnceCell<u8>> = vec![OnceCell::new(); slot_count];
@@ -86,9 +87,7 @@ fn allocate(
 
     let mut available_registers = vec![0xFFFF_FFFFu32; slot_count];
     for slot in 0..argument_count {
-        set_register(slot,
-            u8::try_from(slot).expect("internal compiler error: too many arguments"),
-            &registers, &interfering_values, &mut available_registers);
+        set_register(usize::from(slot), slot, &registers, &interfering_values, &mut available_registers);
     }
 
     // Scan instructions for any register constraints
@@ -135,6 +134,48 @@ fn set_register(
     for interfering_slot in &interfering_values[slot] {
         available_registers[interfering_slot] &= !mri_bits;
     }
+}
+
+
+//-------------------------------------------------------------------------------------------------
+// Lower SlotIntrs to allocator::Instrs
+
+#[derive(Debug)]
+pub(super) enum Operand {
+    Constant(usize),
+    Register(u8),
+}
+
+#[derive(Debug)]
+pub(super) struct Instr {
+    pub(super) code:                    &'static isa::Code,
+    pub(super) output_register:         u8,
+    pub(super) operands:                Vec<Operand>,
+    pub(super) operand_registers:       Option<Vec<u8>>,
+    pub(super) span:                    Span,
+}
+
+
+fn lower_to_registers(
+    instrs:                             Vec<SlotInstr>,
+    registers:                          &[u8]) -> Vec<Instr> {
+
+    let mut lowered = vec![];
+    for instr in instrs {
+        let operands = instr.operands.iter().map(|op|
+            match op {
+                SlotOperand::Constant(i)                    => Operand::Constant(*i),
+                SlotOperand::Slot(s)                        => Operand::Register(registers[*s]),
+            }).collect();
+        lowered.push(Instr{
+            operands,
+            code:                       instr.code,
+            output_register:            registers[instr.slot],
+            operand_registers:          instr.operand_registers,
+            span:                       instr.span,
+        });
+    }
+    lowered
 }
 
 
