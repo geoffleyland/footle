@@ -10,9 +10,20 @@ use super::isa;
 // Register Allocation
 
 pub(super) fn run<'arena>(
-    arguments: &[&Value<'arena>],
-    values: &[&Value<'arena>],
-    schedule: &[&Value<'arena>]) -> Vec<u8> {
+    arguments:              &[&Value<'arena>],
+    values:                 &[&Value<'arena>],
+    schedule:               &[&Value<'arena>]) -> Vec<u8> {
+    allocate(arguments.len(), values, schedule)
+}
+
+
+//-------------------------------------------------------------------------------------------------
+// Register Allocation
+
+fn allocate<'arena>(
+    argument_count:         usize,
+    values:                 &[&Value<'arena>],
+    schedule:               &[&Value<'arena>]) -> Vec<u8> {
     let mut registers: Vec<OnceCell<u8>> = vec![OnceCell::new(); values.len()];
 
     // Find which values interfere with which.
@@ -30,8 +41,10 @@ pub(super) fn run<'arena>(
     }
 
     let mut available_registers = vec![0xFFFF_FFFFu32; values.len()];
-    for (r, value) in (0u8..).zip(arguments) {
-        set_register(value.slot, r, &registers, &interfering_values, &mut available_registers);
+    for slot in 0..argument_count {
+        set_register(slot,
+            u8::try_from(slot).expect("internal compiler error: too many arguments"),
+            &registers, &interfering_values, &mut available_registers);
     }
 
     // Scan instructions for any register constraints
