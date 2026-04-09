@@ -83,7 +83,6 @@ impl<'arena> Value<'arena> {
     }
 
     fn latency(&self) -> u8                 { self.code().map_or(0, |c| c.latency) }
-    pub(super) fn has_output(&self) -> bool { self.code().is_some_and(|c| c.has_output) }
 }
 
 impl fmt::Display for Value<'_> {

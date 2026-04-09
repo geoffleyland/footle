@@ -2,18 +2,62 @@ use std::cell::OnceCell;
 
 use bit_set::BitSet;
 
-use super::scheduler::{Operand, Value};
+use crate::core::Span;
+use super::scheduler::Value;
+use super::scheduler;
 use super::isa;
 
 
 //-------------------------------------------------------------------------------------------------
 // Register Allocation
 
-pub(super) fn run<'arena>(
-    arguments:              &[&Value<'arena>],
-    values:                 &[&Value<'arena>],
-    schedule:               &[&Value<'arena>]) -> Vec<u8> {
-    allocate(arguments.len(), values.len(), schedule)
+pub(super) fn run(
+    argument_count:                     usize,
+    slot_count:                         usize,
+    schedule:                           &[&Value<'_>]) -> Vec<u8> {
+    let lowered = lower_to_slots(schedule);
+    allocate(argument_count, slot_count, &lowered)
+}
+
+
+//-------------------------------------------------------------------------------------------------
+// Lower Values to SlotInstrs
+
+#[derive(Debug)]
+enum SlotOperand {
+    Constant(usize),
+    Slot(usize),
+}
+
+#[derive(Debug)]
+struct SlotInstr {
+    slot:                               usize,
+    code:                               &'static isa::Code,
+    operands:                           Vec<SlotOperand>,
+    operand_registers:                  Option<Vec<u8>>,
+    span:                               Span,
+}
+
+
+fn lower_to_slots(
+    schedule: &[&Value<'_>]) -> Vec<SlotInstr> {
+
+    let mut lowered = vec![];
+    for value in schedule {
+        let operands = value.operands.iter().map(|op|
+            match op {
+                scheduler::Operand::Constant(i)             => SlotOperand::Constant(*i),
+                scheduler::Operand::Value(v)                => SlotOperand::Slot(v.slot),
+            }).collect();
+        let code = value.code().expect("internal compiler error: expected an excutable instruction");
+        lowered.push(SlotInstr{
+            operands, code,
+            slot:                       value.slot,
+            operand_registers:          value.operand_registers.clone(),
+            span:                       value.span,
+        });
+    }
+    lowered
 }
 
 
@@ -21,19 +65,19 @@ pub(super) fn run<'arena>(
 // Register Allocation
 
 fn allocate(
-    argument_count:         usize,
-    slot_count:             usize,
-    schedule:               &[&Value<'_>]) -> Vec<u8> {
+    argument_count:                     usize,
+    slot_count:                         usize,
+    instrs:                             &[SlotInstr]) -> Vec<u8> {
     let mut registers: Vec<OnceCell<u8>> = vec![OnceCell::new(); slot_count];
 
     // Find which values interfere with which.
     let mut live_values = BitSet::new();
     let mut interfering_values = vec![BitSet::new(); slot_count];
-    for value in schedule.iter().rev() {
-        live_values.remove(value.slot);
-        for op in &value.operands {
-            let Operand::Value(v) = op else { continue };
-            live_values.insert(v.slot);
+    for instr in instrs.iter().rev() {
+        live_values.remove(instr.slot);
+        for op in &instr.operands {
+            let SlotOperand::Slot(op_slot) = op else { continue };
+            live_values.insert(*op_slot);
         }
         for slot in &live_values {
             interfering_values[slot].union_with(&live_values);
@@ -48,18 +92,18 @@ fn allocate(
     }
 
     // Scan instructions for any register constraints
-    for value in schedule {
-        if let Some(operand_registers) = &value.operand_registers {
-            for (op, &r) in value.operands.iter().zip(operand_registers) {
-                if let Operand::Value(v) = op {
-                    if registers[v.slot].get().is_some() { continue; }
+    for instr in instrs {
+        if let Some(operand_registers) = &instr.operand_registers {
+            for (op, &r) in instr.operands.iter().zip(operand_registers) {
+                if let SlotOperand::Slot(op_slot) = op {
+                    if registers[*op_slot].get().is_some() { continue; }
                     let mri = isa::REGISTER_INDEX[usize::from(r)];
-                    let r2 = if (available_registers[v.slot] >> mri) & 1 == 1 { r }
+                    let r2 = if (available_registers[*op_slot] >> mri) & 1 == 1 { r }
                         else {
-                            let mri2 = available_registers[v.slot].trailing_zeros();
+                            let mri2 = available_registers[*op_slot].trailing_zeros();
                             isa::REGISTER_ORDER[mri2 as usize]
                         };
-                    set_register(v.slot, r2, &registers, &interfering_values, &mut available_registers);
+                    set_register(*op_slot, r2, &registers, &interfering_values, &mut available_registers);
                 } else {
                     panic!("internal compiler error: register constraint on constant");
                 }
@@ -67,18 +111,23 @@ fn allocate(
         }
     }
 
-    for value in schedule {
-        if registers[value.slot].get().is_some() || !value.has_output() { continue; }
-        let mri = available_registers[value.slot].trailing_zeros();
+    for instr in instrs {
+        if registers[instr.slot].get().is_some() || !instr.code.has_output { continue; }
+        let mri = available_registers[instr.slot].trailing_zeros();
         let r = isa::REGISTER_ORDER[mri as usize];
-        set_register(value.slot, r, &registers, &interfering_values, &mut available_registers);
+        set_register(instr.slot, r, &registers, &interfering_values, &mut available_registers);
     }
 
     registers.iter_mut().map(|c| c.take().unwrap_or(0xFFu8)).collect::<Vec<_>>()
 }
 
 
-fn set_register(slot: usize, r: u8, registers: &[OnceCell<u8>], interfering_values: &[BitSet], available_registers: &mut [u32]) {
+fn set_register(
+    slot:                               usize,
+    r:                                  u8,
+    registers:                          &[OnceCell<u8>],
+    interfering_values:                 &[BitSet],
+    available_registers:                &mut [u32]) {
     let mri = isa::REGISTER_INDEX[usize::from(r)];
     let mri_bits = 1 << mri;
     available_registers[slot] = mri_bits;
