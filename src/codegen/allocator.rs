@@ -151,7 +151,7 @@ pub(super) struct Instr {
     pub(super) code:                    &'static isa::Code,
     pub(super) output_register:         u8,
     pub(super) operands:                Vec<Operand>,
-    pub(super) operand_registers:       Option<Vec<u8>>,
+    pub(super) moves:                   Vec<(u8, u8)>,
     pub(super) span:                    Span,
 }
 
@@ -166,12 +166,20 @@ fn lower_to_registers(
             match op {
                 SlotOperand::Constant(i)                    => Operand::Constant(*i),
                 SlotOperand::Slot(s)                        => Operand::Register(registers[*s]),
-            }).collect();
+            }).collect::<Vec<_>>();
+
+        let moves = operands.iter()
+            .zip(instr.operand_registers.as_deref().unwrap_or(&[]))
+            .filter_map(|(op, &required)| {
+                let Operand::Register(actual) = op else { return None };
+                (*actual != required).then_some((*actual, required))
+            })
+            .collect::<Vec<_>>();
+
         lowered.push(Instr{
-            operands,
+            operands, moves,
             code:                       instr.code,
             output_register:            registers[instr.slot],
-            operand_registers:          instr.operand_registers,
             span:                       instr.span,
         });
     }

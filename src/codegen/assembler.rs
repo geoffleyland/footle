@@ -66,14 +66,7 @@ pub(super) fn run(
 
 fn emit_function(allocated: Vec<allocator::Instr>, instrs: &mut Vec<Instr>) {
     for ai in allocated {
-        if let Some(required_regs) = &ai.operand_registers {
-            let mut moves = vec![];
-            for (op, &required) in ai.operands.iter().zip(required_regs) {
-                let allocator::Operand::Register(actual) = op else { continue };
-                if *actual != required { moves.push((*actual, required)); }
-            }
-            move_registers(&moves, instrs);
-        }
+        if !ai.moves.is_empty() { move_registers(&ai.moves, instrs) }
 
         let operands = ai.code.has_output
             .then_some(Operand::Register(ai.output_register))
