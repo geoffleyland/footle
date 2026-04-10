@@ -67,12 +67,12 @@ pub(super) fn run(
 fn emit_function(allocated: Vec<allocator::Instr>, instrs: &mut Vec<Instr>) {
     for ai in allocated {
         if let Some(required_regs) = &ai.operand_registers {
-            let mut swaps = vec![];
+            let mut moves = vec![];
             for (op, &required) in ai.operands.iter().zip(required_regs) {
                 let allocator::Operand::Register(actual) = op else { continue };
-                if *actual != required { swaps.push((*actual, required)); }
+                if *actual != required { moves.push((*actual, required)); }
             }
-            swap_registers(&swaps, instrs);
+            move_registers(&moves, instrs);
         }
 
         let operands = ai.code.has_output
@@ -88,11 +88,11 @@ fn emit_function(allocated: Vec<allocator::Instr>, instrs: &mut Vec<Instr>) {
 }
 
 
-fn swap_registers(swaps: &[(u8, u8)], instrs: &mut Vec<Instr>) {
+fn move_registers(moves: &[(u8, u8)], instrs: &mut Vec<Instr>) {
     let mut sources = [0xFFu8; 32];
     let mut destination_counts = [0u8; 32];
     let mut used = 0u32;
-    for (source, destination) in swaps {
+    for (source, destination) in moves {
         sources[usize::from(*destination)] = *source;
         destination_counts[usize::from(*source)] += 1;
         used |= 1 << isa::REGISTER_INDEX[usize::from(*source)];
@@ -101,14 +101,14 @@ fn swap_registers(swaps: &[(u8, u8)], instrs: &mut Vec<Instr>) {
     let temp_reg = isa::REGISTER_ORDER[used.trailing_ones() as usize];
 
     // Handle all the chains by starting from their ends
-    for (_, destination) in swaps {
+    for (_, destination) in moves {
         if sources[usize::from(*destination)] != 0xFF && destination_counts[usize::from(*destination)] == 0 {
             swap_registers_backwards(*destination, &mut sources, &mut destination_counts, instrs);
         }
     }
 
-    // All the remaining swaps are cycles.  We can start anywhere.
-    for (_, destination) in swaps {
+    // All the remaining moves are cycles.  We can start anywhere.
+    for (_, destination) in moves {
         let source = sources[usize::from(*destination)];
         if source != 0xFF {
             assemble!(instrs, None, FMOV, Register(temp_reg), Register(source));
