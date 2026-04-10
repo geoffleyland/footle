@@ -16,8 +16,8 @@ pub(super) fn run(
     slot_count:                         usize,
     scheduled:                           &[&Value<'_>]) -> Vec<Instr> {
     let lowered = lower_to_slots(scheduled);
-    let registers = allocate(argument_count, slot_count, &lowered);
-    lower_to_registers(lowered, &registers)
+    let (registers, temp_registers) = allocate(argument_count, slot_count, &lowered);
+    lower_to_registers(lowered, &registers, &temp_registers)
 }
 
 
@@ -68,7 +68,7 @@ fn lower_to_slots(
 fn allocate(
     argument_count:                     u8,
     slot_count:                         usize,
-    instrs:                             &[SlotInstr]) -> Vec<u8> {
+    instrs:                             &[SlotInstr]) -> (Vec<u8>, Vec<u8>) {
     let mut registers: Vec<OnceCell<u8>> = vec![OnceCell::new(); slot_count];
 
     // Find which values interfere with which.
@@ -117,7 +117,10 @@ fn allocate(
         set_register(instr.slot, r, &registers, &interfering_values, &mut available_registers);
     }
 
-    registers.iter_mut().map(|c| c.take().unwrap_or(0xFFu8)).collect::<Vec<_>>()
+    (
+        registers.iter_mut().map(|c| c.take().unwrap_or(0xFFu8)).collect(),
+        available_registers.iter().map(|&a| isa::REGISTER_ORDER[a.trailing_zeros() as usize]).collect()
+    )
 }
 
 
@@ -129,7 +132,7 @@ fn set_register(
     available_registers:                &mut [u32]) {
     let mri = isa::REGISTER_INDEX[usize::from(r)];
     let mri_bits = 1 << mri;
-    available_registers[slot] = mri_bits;
+    available_registers[slot] &= !mri_bits;
     registers[slot].set(r).expect("internal compiler error: trying to set a register twice");
     for interfering_slot in &interfering_values[slot] {
         available_registers[interfering_slot] &= !mri_bits;
@@ -152,13 +155,15 @@ pub(super) struct Instr {
     pub(super) output_register:         u8,
     pub(super) operands:                Vec<Operand>,
     pub(super) moves:                   Vec<(u8, u8)>,
+    pub(super) temp_register:           u8,
     pub(super) span:                    Span,
 }
 
 
 fn lower_to_registers(
     instrs:                             Vec<SlotInstr>,
-    registers:                          &[u8]) -> Vec<Instr> {
+    registers:                          &[u8],
+    temp_registers:                     &[u8]) -> Vec<Instr> {
 
     let mut lowered = vec![];
     for instr in instrs {
@@ -180,6 +185,7 @@ fn lower_to_registers(
             operands, moves,
             code:                       instr.code,
             output_register:            registers[instr.slot],
+            temp_register:              temp_registers[instr.slot],
             span:                       instr.span,
         });
     }

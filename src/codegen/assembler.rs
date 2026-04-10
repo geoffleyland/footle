@@ -66,7 +66,7 @@ pub(super) fn run(
 
 fn emit_function(allocated: Vec<allocator::Instr>, instrs: &mut Vec<Instr>) {
     for ai in allocated {
-        if !ai.moves.is_empty() { move_registers(&ai.moves, instrs) }
+        if !ai.moves.is_empty() { move_registers(&ai.moves, ai.temp_register, instrs) }
 
         let operands = ai.code.has_output
             .then_some(Operand::Register(ai.output_register))
@@ -81,17 +81,13 @@ fn emit_function(allocated: Vec<allocator::Instr>, instrs: &mut Vec<Instr>) {
 }
 
 
-fn move_registers(moves: &[(u8, u8)], instrs: &mut Vec<Instr>) {
+fn move_registers(moves: &[(u8, u8)], temp_register: u8, instrs: &mut Vec<Instr>) {
     let mut sources = [0xFFu8; 32];
     let mut destination_counts = [0u8; 32];
-    let mut used = 0u32;
     for (source, destination) in moves {
         sources[usize::from(*destination)] = *source;
         destination_counts[usize::from(*source)] += 1;
-        used |= 1 << isa::REGISTER_INDEX[usize::from(*source)];
-        used |= 1 << isa::REGISTER_INDEX[usize::from(*destination)];
     }
-    let temp_reg = isa::REGISTER_ORDER[used.trailing_ones() as usize];
 
     // Handle all the chains by starting from their ends
     for (_, destination) in moves {
@@ -104,10 +100,10 @@ fn move_registers(moves: &[(u8, u8)], instrs: &mut Vec<Instr>) {
     for (_, destination) in moves {
         let source = sources[usize::from(*destination)];
         if source != 0xFF {
-            assemble!(instrs, None, FMOV, Register(temp_reg), Register(source));
+            assemble!(instrs, None, FMOV, Register(temp_register), Register(source));
             sources[usize::from(*destination)] = 0xFF;
             swap_registers_backwards(source, &mut sources, &mut destination_counts, instrs);
-            assemble!(instrs, None, FMOV, Register(*destination), Register(temp_reg));
+            assemble!(instrs, None, FMOV, Register(*destination), Register(temp_register));
         }
     }
 }
