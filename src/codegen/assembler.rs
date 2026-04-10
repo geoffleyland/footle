@@ -92,7 +92,7 @@ fn move_registers(moves: &[(u8, u8)], temp_register: u8, instrs: &mut Vec<Instr>
     // Handle all the chains by starting from their ends
     for (_, destination) in moves {
         if sources[usize::from(*destination)] != 0xFF && destination_counts[usize::from(*destination)] == 0 {
-            swap_registers_backwards(*destination, &mut sources, &mut destination_counts, instrs);
+            move_registers_backwards(*destination, &mut sources, &mut destination_counts, instrs);
         }
     }
 
@@ -102,14 +102,14 @@ fn move_registers(moves: &[(u8, u8)], temp_register: u8, instrs: &mut Vec<Instr>
         if source != 0xFF {
             assemble!(instrs, None, FMOV, Register(temp_register), Register(source));
             sources[usize::from(*destination)] = 0xFF;
-            swap_registers_backwards(source, &mut sources, &mut destination_counts, instrs);
+            move_registers_backwards(source, &mut sources, &mut destination_counts, instrs);
             assemble!(instrs, None, FMOV, Register(*destination), Register(temp_register));
         }
     }
 }
 
 
-fn swap_registers_backwards(mut destination: u8, sources: &mut[u8], destination_counts: &mut[u8], instrs: &mut Vec<Instr>) {
+fn move_registers_backwards(mut destination: u8, sources: &mut[u8], destination_counts: &mut[u8], instrs: &mut Vec<Instr>) {
     loop {
         let source = sources[usize::from(destination)];
         if source == 0xFF { return }

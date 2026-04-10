@@ -17,7 +17,7 @@ pub(super) fn run(
     scheduled:                           &[&Value<'_>]) -> Vec<Instr> {
     let lowered = lower_to_slots(scheduled);
     let (registers, temp_registers) = allocate(argument_count, slot_count, &lowered);
-    lower_to_registers(lowered, &registers, &temp_registers)
+    lower_to_registers(&lowered, &registers, &temp_registers)
 }
 
 
@@ -42,23 +42,21 @@ struct SlotInstr {
 
 fn lower_to_slots(
     schedule: &[&Value<'_>]) -> Vec<SlotInstr> {
-
-    let mut lowered = vec![];
-    for value in schedule {
+    schedule.iter().map(|value| {
         let operands = value.operands.iter().map(|op|
             match op {
                 scheduler::Operand::Constant(i)             => SlotOperand::Constant(*i),
                 scheduler::Operand::Value(v)                => SlotOperand::Slot(v.slot),
             }).collect();
         let code = value.code().expect("internal compiler error: expected an excutable instruction");
-        lowered.push(SlotInstr{
+        SlotInstr{
             operands, code,
             slot:                       value.slot,
             operand_registers:          value.operand_registers.clone(),
             span:                       value.span,
-        });
-    }
-    lowered
+        }
+    })
+    .collect()
 }
 
 
@@ -97,6 +95,11 @@ fn allocate(
                 if let SlotOperand::Slot(op_slot) = op {
                     if registers[*op_slot].get().is_some() { continue; }
                     let mri = isa::REGISTER_INDEX[usize::from(r)];
+                    // If we can get the register we want, great!  But if we can't just assign the
+                    // slot to any old register, and the move machinery will get the value into
+                    // the right register at the right moment.
+                    // (Getting the right register here is just about avoiding a move if we can,
+                    // but in all cases, we'll get the move right)
                     let r2 = if (available_registers[*op_slot] >> mri) & 1 == 1 { r }
                         else {
                             let mri2 = available_registers[*op_slot].trailing_zeros();
@@ -161,12 +164,11 @@ pub(super) struct Instr {
 
 
 fn lower_to_registers(
-    instrs:                             Vec<SlotInstr>,
+    instrs:                             &[SlotInstr],
     registers:                          &[u8],
     temp_registers:                     &[u8]) -> Vec<Instr> {
 
-    let mut lowered = vec![];
-    for instr in instrs {
+    instrs.iter().map(|instr| {
         let operands = instr.operands.iter().map(|op|
             match op {
                 SlotOperand::Constant(i)                    => Operand::Constant(*i),
@@ -181,15 +183,15 @@ fn lower_to_registers(
             })
             .collect::<Vec<_>>();
 
-        lowered.push(Instr{
+        Instr{
             operands, moves,
             code:                       instr.code,
             output_register:            registers[instr.slot],
             temp_register:              temp_registers[instr.slot],
             span:                       instr.span,
-        });
-    }
-    lowered
+        }
+    })
+    .collect()
 }
 
 
