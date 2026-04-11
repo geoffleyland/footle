@@ -20,26 +20,11 @@ return a, b
 
   I0: argument
   I1: argument
-  I2: RET I0 I1
+  I2: ret I0 I1
 
 #)
 
 #( expected assembler
-
-  RET d0 d1
-  MOV d16 d0
-  STP d1 d30 d31 #-16
-  LDR d0 d16 #0
-  LDR d1 d16 #8
-  BL #-20
-  LDP d16 d30 d31 #16
-  STR d0 d16 #0
-  STR d1 d16 #8
-  RET
-
-#)
-
-#( expected disassembler
 
   0x1000: ret
   0x1004: mov x16, x0

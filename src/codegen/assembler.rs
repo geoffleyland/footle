@@ -160,18 +160,26 @@ use crate::core::{Styleable, LineStyle};
 
 impl Styleable for Block {
     fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
-        for i in &self.instrs {
-            let operands = i.operands.iter().map(|o|
+        let instr_words = self.instrs.len();
+        let constant_start_words = instr_words + usize::from(instr_words.is_multiple_of(2));
+        for (i, instr) in self.instrs.iter().enumerate() {
+
+            let operands = instr.operands.iter().map(|o|
                 match o {
-                    Operand::Constant(i)    => format!("K{i}"),
-                    Operand::Register(i)    => format!("d{i}"),
-                    Operand::Offset(o)      => format!("#{o}"),
+                    Operand::Constant(c)    => i32::try_from((constant_start_words - i) * 4 + *c * 8).unwrap(),
+                    Operand::Register(r)    => i32::from(*r),
+                    Operand::Offset(o)      => *o,
                 }).collect::<Vec<_>>();
-            writer.writeln(f, indent, i.span, &format!("{} {}", i.code.name,
-                operands.join(" ")))?;
+
+            let address = i32::try_from(0x1000 + i * 4).unwrap();
+            writer.writeln(f, indent, instr.span, &format!("{:#06x}: {} {}",
+                address,
+                instr.code.name,
+                (instr.code.format)(&operands, address)))?;
         }
         for (i, c) in self.constants.iter().enumerate() {
-            writer.writeln(f, indent, Some(c.span), &format!("K{i}: {:?}", c.value))?;
+            let address = 0x1000 + constant_start_words * 4 + i * 8;
+            writer.writeln(f, indent, Some(c.span), &format!("{address:#06x}: {:?}", c.value))?;
         }
         Ok(())
     }

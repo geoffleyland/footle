@@ -20,30 +20,14 @@ return a + 1
 #( expected schedule
 
   I0: argument
-  I1: LDR K0
-  I2: FADD I0 I1
-  I3: RET I2
+  I1: ldr K0
+  I2: fadd I0 I1
+  I3: ret I2
   K0: 1.0
 
 #)
 
 #( expected assembler
-
-  LDR d16 K0
-  FADD d0 d0 d16
-  RET d0
-  MOV d16 d0
-  STP d1 d30 d31 #-16
-  LDR d0 d16 #0
-  BL #-24
-  LDP d16 d30 d31 #16
-  STR d0 d16 #0
-  RET
-  K0: 1.0
-
-#)
-
-#( expected disassembler
 
   0x1000: ldr d16, #0x102c
   0x1004: fadd d0, d0, d16
@@ -55,6 +39,7 @@ return a + 1
   0x101c: ldp x16, x30, [sp], #0x10
   0x1020: str d0, [x16]
   0x1024: ret
+  0x102c: 1.0
 
 #)
 
