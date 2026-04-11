@@ -175,6 +175,10 @@ fn lower_to_registers(
             match op {
                 SlotOperand::Constant(i)    => operands.push(Operand::Constant(*i)),
                 SlotOperand::Slot(s) => {
+                    // If there's a required register for this operand, us it.  We don't fix up the
+                    // register for the slot here (because it might be a last use of the operand)
+                    // we just trust the move machinery in the assembler to get things in the
+                    // right place (which they do)
                     let maybe_required_register = instr.operand_registers.as_ref().map(|r| r[i]);
                     let slot_register = registers[*s];
                     if let Some(required_register) = maybe_required_register
