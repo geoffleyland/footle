@@ -169,19 +169,24 @@ fn lower_to_registers(
     temp_registers:                     &[u8]) -> Vec<Instr> {
 
     instrs.iter().map(|instr| {
-        let operands = instr.operands.iter().map(|op|
+        let mut operands = vec![];
+        let mut moves = vec![];
+        for (i, op) in instr.operands.iter().enumerate() {
             match op {
-                SlotOperand::Constant(i)                    => Operand::Constant(*i),
-                SlotOperand::Slot(s)                        => Operand::Register(registers[*s]),
-            }).collect::<Vec<_>>();
-
-        let moves = operands.iter()
-            .zip(instr.operand_registers.as_deref().unwrap_or(&[]))
-            .filter_map(|(op, &required)| {
-                let Operand::Register(actual) = op else { return None };
-                (*actual != required).then_some((*actual, required))
-            })
-            .collect::<Vec<_>>();
+                SlotOperand::Constant(i)    => operands.push(Operand::Constant(*i)),
+                SlotOperand::Slot(s) => {
+                    let maybe_required_register = instr.operand_registers.as_ref().map(|r| r[i]);
+                    let slot_register = registers[*s];
+                    if let Some(required_register) = maybe_required_register
+                        && slot_register != required_register {
+                        moves.push((slot_register, required_register));
+                        operands.push(Operand::Register(required_register));
+                    } else {
+                        operands.push(Operand::Register(slot_register));
+                    }
+                }
+            }
+        }
 
         Instr{
             operands, moves,
