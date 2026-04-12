@@ -69,23 +69,27 @@ fn allocate(
     instrs:                             &[SlotInstr]) -> (Vec<u8>, Vec<u8>) {
     let mut registers: Vec<OnceCell<u8>> = vec![OnceCell::new(); slot_count];
 
-    // Find which values interfere with which.
-    let mut live_values = BitSet::new();
-    let mut interfering_values = vec![BitSet::new(); slot_count];
+    // Find which slots interfere with which.
+    let mut live_slots = BitSet::new();
+    let mut interfering_slots = vec![BitSet::new(); slot_count];
     for instr in instrs.iter().rev() {
-        live_values.remove(instr.slot);
+        live_slots.remove(instr.slot);
         for op in &instr.operands {
             let SlotOperand::Slot(op_slot) = op else { continue };
-            live_values.insert(*op_slot);
+            live_slots.insert(*op_slot);
         }
-        for slot in &live_values {
-            interfering_values[slot].union_with(&live_values);
+        for slot in &live_slots {
+            interfering_slots[slot].union_with(&live_slots);
         }
     }
+    // Slots don't interfere with themselves - and this matters because we use available_registers
+    // post-allocation to find a temporary register for every instruction (only used if the
+    // instruction needs moves), and available_registers in turn depends on interfering_slots.
+    for instr in instrs { interfering_slots[instr.slot].remove(instr.slot); }
 
     let mut available_registers = vec![0xFFFF_FFFFu32; slot_count];
     for slot in 0..argument_count {
-        set_register(usize::from(slot), slot, &registers, &interfering_values, &mut available_registers);
+        set_register(usize::from(slot), slot, &registers, &interfering_slots, &mut available_registers);
     }
 
     // Scan instructions for any register constraints
@@ -105,7 +109,7 @@ fn allocate(
                             let mri2 = available_registers[*op_slot].trailing_zeros();
                             isa::REGISTER_ORDER[mri2 as usize]
                         };
-                    set_register(*op_slot, r2, &registers, &interfering_values, &mut available_registers);
+                    set_register(*op_slot, r2, &registers, &interfering_slots, &mut available_registers);
                 } else {
                     panic!("internal compiler error: register constraint on constant");
                 }
@@ -117,7 +121,7 @@ fn allocate(
         if registers[instr.slot].get().is_some() || !instr.code.has_output { continue; }
         let mri = available_registers[instr.slot].trailing_zeros();
         let r = isa::REGISTER_ORDER[mri as usize];
-        set_register(instr.slot, r, &registers, &interfering_values, &mut available_registers);
+        set_register(instr.slot, r, &registers, &interfering_slots, &mut available_registers);
     }
 
     (
@@ -131,13 +135,12 @@ fn set_register(
     slot:                               usize,
     r:                                  u8,
     registers:                          &[OnceCell<u8>],
-    interfering_values:                 &[BitSet],
+    interfering_slots:                  &[BitSet],
     available_registers:                &mut [u32]) {
     let mri = isa::REGISTER_INDEX[usize::from(r)];
     let mri_bits = 1 << mri;
-    available_registers[slot] &= !mri_bits;
     registers[slot].set(r).expect("internal compiler error: trying to set a register twice");
-    for interfering_slot in &interfering_values[slot] {
+    for interfering_slot in &interfering_slots[slot] {
         available_registers[interfering_slot] &= !mri_bits;
     }
 }
