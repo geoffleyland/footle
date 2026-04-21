@@ -1,7 +1,9 @@
 use std::cell::OnceCell;
+use std::collections::HashSet;
 
 use bit_set::BitSet;
 
+use crate::codegen::isa::real_reg_to_ordered_reg_mask;
 use crate::core::Span;
 use super::scheduler::Value;
 use super::scheduler;
@@ -14,10 +16,21 @@ use super::isa;
 pub(super) fn run(
     argument_count:                     u8,
     slot_count:                         usize,
-    scheduled:                           &[&Value<'_>]) -> Vec<Instr> {
-    let lowered = lower_to_slots(scheduled);
+    scheduled:                           &[&Value<'_>]) -> (Vec<Instr>, Vec<u8>) {
+    let (lowered, slot_count) = lower_to_slots_and_split(argument_count, slot_count, scheduled);
     let (registers, temp_registers) = allocate(argument_count, slot_count, &lowered);
-    lower_to_registers(&lowered, &registers, &temp_registers)
+    let mut registers_to_save = HashSet::new();
+    for r in &registers {
+        if *r < 32 && isa::CALLEE_SAVED_REGISTERS & (1 << r) != 0 {
+            registers_to_save.insert(*r);
+        }
+    }
+    let mut registers_to_save: Vec<_> = registers_to_save.into_iter().collect();
+    registers_to_save.sort_unstable();
+    (
+        lower_to_registers(&lowered, &registers, &temp_registers),
+        registers_to_save
+    )
 }
 
 
@@ -36,27 +49,78 @@ struct SlotInstr {
     code:                               &'static isa::Code,
     operands:                           Vec<SlotOperand>,
     operand_registers:                  Option<Vec<u8>>,
+    slot_moves:                         Vec<(usize, usize)>,
     span:                               Span,
 }
 
 
-fn lower_to_slots(
-    schedule: &[&Value<'_>]) -> Vec<SlotInstr> {
-    schedule.iter().map(|value| {
+fn lower_to_slots_and_split(
+    argument_count:                     u8,
+    slot_count:                         usize,
+    scheduled:                          &[&Value<'_>]) -> (Vec<SlotInstr>, usize) {
+
+    // Walk backwards through the scheduled instructions finding out when instructions retire
+    let mut retirements = vec![0; slot_count];
+    let mut used_slots = BitSet::new();
+    for (i, value) in scheduled.iter().enumerate().rev() {
+        for op in &value.operands {
+            let scheduler::Operand::Value(v) = op else { continue };
+            if !used_slots.contains(v.slot) {
+                retirements[v.slot] = i;
+                used_slots.insert(v.slot);
+            }
+        }
+    }
+
+    let mut register_slots = vec![usize::MAX; 32];
+    let mut slot_map = (0..slot_count).collect::<Vec<_>>();
+
+    for slot in 0..argument_count {
+        register_slots[usize::from(slot)] = usize::from(slot);
+    }
+
+    let mut slot_count = usize::from(argument_count);
+    let mut new_schedule = vec![];
+
+    for (i, value) in scheduled.iter().enumerate() {
         let operands = value.operands.iter().map(|op|
             match op {
                 scheduler::Operand::Constant(i)             => SlotOperand::Constant(*i),
-                scheduler::Operand::Value(v)                => SlotOperand::Slot(v.slot),
+                scheduler::Operand::Value(v)                => SlotOperand::Slot(slot_map[v.slot]),
             }).collect();
-        let code = value.code().expect("internal compiler error: expected an excutable instruction");
-        SlotInstr{
-            operands, code,
-            slot:                       value.slot,
-            operand_registers:          value.operand_registers.clone(),
-            span:                       value.span,
+        let mut slot_moves: Vec<(usize, usize, usize)> = vec![];
+        if let Some(c) = value.code() && c.clobbers != 0 {
+            let mut bits = c.clobbers;
+            while bits != 0 {
+                let reg = bits.trailing_zeros() as usize;
+                let slot = register_slots[reg];
+                if slot != usize::MAX &&
+                    retirements[slot] > i {
+                    slot_moves.push((slot, slot_map[slot], slot_count));
+                    slot_map[slot] = slot_count;
+                    slot_count += 1;
+                }
+                bits &= bits - 1;
+            }
+            let mut bits = c.clobbers;
+            while bits != 0 {
+                let reg = bits.trailing_zeros() as usize;
+                register_slots[reg] = usize::MAX;
+                bits &= bits - 1;
+            }
         }
-    })
-    .collect()
+        let code = value.code().expect("internal compiler error: expected an excutable instruction");
+        new_schedule.push(SlotInstr{
+            operands, code,
+            slot:                           slot_count,
+            operand_registers:              value.operand_registers.clone(),
+            slot_moves:                     slot_moves.iter().map(|(_, b, c)| (*b, *c)).collect(),
+            span:                           value.span,
+        });
+        slot_map[value.slot] = slot_count;
+        slot_count += 1;
+    }
+    (new_schedule, slot_count)
 }
 
 
@@ -74,10 +138,12 @@ fn allocate(
     let mut interfering_slots = vec![BitSet::new(); slot_count];
     for instr in instrs.iter().rev() {
         live_slots.remove(instr.slot);
+        for (_, dest) in &instr.slot_moves { live_slots.remove(*dest); }
         for op in &instr.operands {
             let SlotOperand::Slot(op_slot) = op else { continue };
             live_slots.insert(*op_slot);
         }
+        for (source, _) in &instr.slot_moves { live_slots.insert(*source); }
         for slot in &live_slots {
             interfering_slots[slot].union_with(&live_slots);
         }
@@ -87,12 +153,25 @@ fn allocate(
     // instruction needs moves), and available_registers in turn depends on interfering_slots.
     for instr in instrs { interfering_slots[instr.slot].remove(instr.slot); }
 
+    // Compute available registers for each instruction: any values that are live across a call
+    // have to be in a callee-saved register.
     let mut available_registers = vec![0xFFFF_FFFFu32; slot_count];
+    for instr in instrs {
+        if instr.code.clobbers != 0 {
+            let mask = !real_reg_to_ordered_reg_mask(instr.code.clobbers);
+            available_registers[instr.slot] &= mask;
+            for slot in &interfering_slots[instr.slot] {
+                available_registers[slot] &= mask;
+            }
+        }
+    }
+
+    // Allocate registers for arguments
     for slot in 0..argument_count {
         set_register(usize::from(slot), slot, &registers, &interfering_slots, &mut available_registers);
     }
 
-    // Scan instructions for any register constraints
+    // Allocate registers for any values that need to be in a register as an argument.
     for instr in instrs {
         if let Some(operand_registers) = &instr.operand_registers {
             for (op, &r) in instr.operands.iter().zip(operand_registers) {
@@ -117,11 +196,22 @@ fn allocate(
         }
     }
 
+    // Allocate registers for remaining instructions
     for instr in instrs {
         if registers[instr.slot].get().is_some() || !instr.code.has_output { continue; }
         let mri = available_registers[instr.slot].trailing_zeros();
         let r = isa::REGISTER_ORDER[mri as usize];
         set_register(instr.slot, r, &registers, &interfering_slots, &mut available_registers);
+    }
+
+    // Allocate registers for any slots that get moved (which don't show up in instructions)
+    for instr in instrs {
+        for (_, dest) in &instr.slot_moves {
+            if registers[*dest].get().is_some() { continue; }
+            let mri = available_registers[*dest].trailing_zeros();
+            let r = isa::REGISTER_ORDER[mri as usize];
+            set_register(*dest, r, &registers, &interfering_slots, &mut available_registers);
+        }
     }
 
     (
@@ -192,6 +282,11 @@ fn lower_to_registers(
                         operands.push(Operand::Register(slot_register));
                     }
                 }
+            }
+        }
+        for (source, dest) in &instr.slot_moves {
+            if registers[*source] != registers[*dest] {
+                moves.push((registers[*source], registers[*dest]));
             }
         }
 

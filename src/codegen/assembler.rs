@@ -54,9 +54,10 @@ pub(super) fn run(
     allocated:                      Vec<allocator::Instr>,
     constants:                      &[Constant],
     argument_count:                 u8,
-    return_count:                   u8) -> Block{
+    return_count:                   u8,
+    registers_to_save:              &[u8]) -> Block{
     let mut instrs = Vec::new();
-    emit_function(allocated, &mut instrs);
+    emit_function(allocated, &mut instrs, registers_to_save);
     let glue_start_words = instrs.len();
     emit_glue(argument_count, return_count, &mut instrs);
 
@@ -64,7 +65,16 @@ pub(super) fn run(
 }
 
 
-fn emit_function(allocated: Vec<allocator::Instr>, instrs: &mut Vec<Instr>) {
+fn emit_function(allocated: Vec<allocator::Instr>, instrs: &mut Vec<Instr>, registers_to_save: &[u8]) {
+    // Save any callee saved registers
+    for pair in registers_to_save.chunks(2) {
+        match *pair {
+            [a, b]  => assemble!(instrs, None, STP_PRE_F64, Register(a), Register(b), Register(31), Offset(-16)),
+            [a]     => assemble!(instrs, None, STR_PRE_F64, Register(a), Register(31), Offset(-16)),
+            _       => unreachable!()
+        }
+    }
+
     for ai in allocated {
         if !ai.moves.is_empty() { move_registers(&ai.moves, ai.temp_register, instrs) }
 
@@ -76,6 +86,18 @@ fn emit_function(allocated: Vec<allocator::Instr>, instrs: &mut Vec<Instr>) {
                 allocator::Operand::Constant(i)     => Operand::Constant(*i),
             }))
         .collect();
+
+        // Restore callee saved registers before a `ret`.
+        if ai.code.restore_regs {
+            for pair in registers_to_save.chunks(2).rev() {
+                match *pair {
+                    [a, b]  => assemble!(instrs, None, LDP_POST_F64, Register(a), Register(b), Register(31), Offset(16)),
+                    [a]     => assemble!(instrs, None, LDR_POST_F64, Register(a), Register(31), Offset(16)),
+                    _       => unreachable!()
+                }
+            }
+        }
+
         instrs.push(Instr{ code: ai.code, operands, span: Some(ai.span) });
     }
 }
@@ -115,10 +137,10 @@ fn move_registers(moves: &[(u8, u8)], temp_register: u8, instrs: &mut Vec<Instr>
     for (_, destination) in moves {
         let source = sources[usize::from(*destination)];
         if source == 0xFF { continue; }
-            assemble!(instrs, None, FMOV, Register(temp_register), Register(source));
-            sources[usize::from(*destination)] = 0xFF;
-            move_registers_backwards(source, &mut sources, &mut destination_counts, instrs);
-            assemble!(instrs, None, FMOV, Register(*destination), Register(temp_register));
+        assemble!(instrs, None, FMOV, Register(temp_register), Register(source));
+        sources[usize::from(*destination)] = 0xFF;
+        move_registers_backwards(source, &mut sources, &mut destination_counts, instrs);
+        assemble!(instrs, None, FMOV, Register(*destination), Register(temp_register));
     }
 }
 
