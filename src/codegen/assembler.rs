@@ -89,22 +89,36 @@ fn move_registers(moves: &[(u8, u8)], temp_register: u8, instrs: &mut Vec<Instr>
         destination_counts[usize::from(*source)] += 1;
     }
 
+    let mut copies = [0xFFu8; 32];
     // Handle all the chains by starting from their ends
     for (_, destination) in moves {
-        if sources[usize::from(*destination)] != 0xFF && destination_counts[usize::from(*destination)] == 0 {
+        let source = sources[usize::from(*destination)];
+        if source != 0xFF && destination_counts[usize::from(*destination)] == 0 {
             move_registers_backwards(*destination, &mut sources, &mut destination_counts, instrs);
+            copies[usize::from(source)] = *destination;
         }
     }
 
-    // All the remaining moves are cycles.  We can start anywhere.
+    // All the remaining moves are cycles.  Do the ones where we've already got a copy and don't
+    // need a temp
     for (_, destination) in moves {
         let source = sources[usize::from(*destination)];
-        if source != 0xFF {
+        if source == 0xFF { continue; }
+        let copy = copies[usize::from(source)];
+        if copy == 0xFF { continue; }
+        sources[usize::from(*destination)] = 0xFF;
+        move_registers_backwards(source, &mut sources, &mut destination_counts, instrs);
+        assemble!(instrs, None, FMOV, Register(*destination), Register(copy));
+    }
+
+    // Now do the ones where there's no other copy and we need a temp.
+    for (_, destination) in moves {
+        let source = sources[usize::from(*destination)];
+        if source == 0xFF { continue; }
             assemble!(instrs, None, FMOV, Register(temp_register), Register(source));
             sources[usize::from(*destination)] = 0xFF;
             move_registers_backwards(source, &mut sources, &mut destination_counts, instrs);
             assemble!(instrs, None, FMOV, Register(*destination), Register(temp_register));
-        }
     }
 }
 
