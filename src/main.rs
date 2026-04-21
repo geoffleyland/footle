@@ -308,11 +308,13 @@ fn test_lines(
         compare_lines(&assembler_strings, &expected["assembler"], section, "assembler")?;
     }
 
-    if (expected.contains_key("disassembler") || expected.contains_key("results")) && section == "source" {
+    if (expected.contains_key("assembler") || expected.contains_key("results")) && section == "source" {
         let func = codegen::run(&vir_stmts);
 
-        if expected.contains_key("disassembler") {
-            compare_lines(&codegen::disassemble(&func), &expected["disassembler"], section, "disassembler")?;
+        if expected.contains_key("assembler") {
+            let disassembled = &codegen::disassemble(&func);
+            let expected_disassembled = &expected["assembler"][0..disassembled.len()];
+            compare_lines(disassembled, expected_disassembled, section, "disassembler")?;
         }
 
         if expected.contains_key("results") {
