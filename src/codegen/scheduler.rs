@@ -63,7 +63,7 @@ pub(super) struct Value<'arena> {
     pub(super) slot:                        usize,
     pub(super) def:                         ValueDef,
     pub(super) operands:                    Vec<Operand<'arena>>,
-    pub(super) operand_registers:           Option<Vec<u8>>,
+    pub(super) operand_regs:                Option<Vec<u8>>,
     pub(super) span:                        Span,
 }
 
@@ -72,9 +72,9 @@ impl<'arena> Value<'arena> {
         slot:                               usize,
         def:                                ValueDef,
         operands:                           Vec<Operand<'arena>>,
-        operand_registers:                  Option<Vec<u8>>,
+        operand_regs:                       Option<Vec<u8>>,
         span:                               Span) -> Self {
-        Self { slot, def, operands, operand_registers, span }
+        Self { slot, def, operands, operand_regs, span }
     }
 
 
@@ -140,12 +140,12 @@ pub(super) fn lower_vir<'arena>(arena: &'arena Arena<Value<'arena>>, input: &vir
                 // not to the operand_map.
                 let operand_count = u8::try_from(operands.len())
                     .expect("internal compiler error: too many return values");
-                let operand_registers = (0..operand_count).collect::<Vec<_>>();
+                let operand_regs = (0..operand_count).collect::<Vec<_>>();
                 let ret = arena.alloc(Value::new(
-                    block.values.len(),
+                    arena.len(),
                     ValueDef::Instr(&isa::RET),
                     operands,
-                    Some(operand_registers),
+                    Some(operand_regs),
                     stmt.span));
                 block.values.push(ret);
                 block.return_count = operand_count;
@@ -205,10 +205,10 @@ fn insert_value<'arena>(
     block:                                  &mut Block<'arena>,
     pool_index:                             usize,
     operands:                               Vec<Operand<'arena>>,
-    operand_registers:                      Option<Vec<u8>>,
+    operand_regs:                           Option<Vec<u8>>,
     def:                                    ValueDef,
     span:                                   Span) -> (&'arena Value<'arena>, Operand<'arena>)  {
-    let value = arena.alloc(Value::new(block.values.len(), def, operands, operand_registers, span));
+    let value = arena.alloc(Value::new(arena.len(), def, operands, operand_regs, span));
     block.values.push(value);
     let operand = Operand::Value(value);
     block.operand_map.insert(pool_index, operand);

@@ -7,7 +7,7 @@ use super::isa;
 //-------------------------------------------------------------------------------------------------
 
 macro_rules! asm_op {
-    (Register($r:expr))     => { Operand::Register($r) };
+    (Reg($r:expr))          => { Operand::Reg($r) };
     (Constant($i:expr))     => { Operand::Constant($i) };
     (Offset($o:expr))       => { Operand::Offset($o) };
 }
@@ -26,7 +26,7 @@ macro_rules! assemble {
 //-------------------------------------------------------------------------------------------------
 
 pub(super) enum Operand {
-    Register(u8),
+    Reg(u8),
     Constant(usize),
     Offset(i32),
 }
@@ -55,9 +55,9 @@ pub(super) fn run(
     constants:                      &[Constant],
     argument_count:                 u8,
     return_count:                   u8,
-    registers_to_save:              &[u8]) -> Block{
+    regs_to_save:                   &[u8]) -> Block{
     let mut instrs = Vec::new();
-    emit_function(allocated, &mut instrs, registers_to_save);
+    emit_function(allocated, &mut instrs, regs_to_save);
     let glue_start_words = instrs.len();
     emit_glue(argument_count, return_count, &mut instrs);
 
@@ -65,34 +65,34 @@ pub(super) fn run(
 }
 
 
-fn emit_function(allocated: Vec<allocator::Instr>, instrs: &mut Vec<Instr>, registers_to_save: &[u8]) {
+fn emit_function(allocated: Vec<allocator::Instr>, instrs: &mut Vec<Instr>, regs_to_save: &[u8]) {
     // Save any callee saved registers
-    for pair in registers_to_save.chunks(2) {
+    for pair in regs_to_save.chunks(2) {
         match *pair {
-            [a, b]  => assemble!(instrs, None, STP_PRE_F64, Register(a), Register(b), Register(31), Offset(-16)),
-            [a]     => assemble!(instrs, None, STR_PRE_F64, Register(a), Register(31), Offset(-16)),
+            [a, b]  => assemble!(instrs, None, STP_PRE_F64, Reg(a), Reg(b), Reg(31), Offset(-16)),
+            [a]     => assemble!(instrs, None, STR_PRE_F64, Reg(a), Reg(31), Offset(-16)),
             _       => unreachable!()
         }
     }
 
     for ai in allocated {
-        if !ai.moves.is_empty() { move_registers(&ai.moves, ai.temp_register, instrs) }
+        if !ai.moves.is_empty() { move_regs(&ai.moves, ai.temp_reg, instrs) }
 
         let operands = ai.code.has_output
-            .then_some(Operand::Register(ai.output_register))
+            .then_some(Operand::Reg(ai.output_reg))
             .into_iter()
             .chain(ai.operands.iter().map(|op| match op {
-                allocator::Operand::Register(r)     => Operand::Register(*r),
+                allocator::Operand::Reg(r)          => Operand::Reg(*r),
                 allocator::Operand::Constant(i)     => Operand::Constant(*i),
             }))
         .collect();
 
         // Restore callee saved registers before a `ret`.
         if ai.code.restore_regs {
-            for pair in registers_to_save.chunks(2).rev() {
+            for pair in regs_to_save.chunks(2).rev() {
                 match *pair {
-                    [a, b]  => assemble!(instrs, None, LDP_POST_F64, Register(a), Register(b), Register(31), Offset(16)),
-                    [a]     => assemble!(instrs, None, LDR_POST_F64, Register(a), Register(31), Offset(16)),
+                    [a, b]  => assemble!(instrs, None, LDP_POST_F64, Reg(a), Reg(b), Reg(31), Offset(16)),
+                    [a]     => assemble!(instrs, None, LDR_POST_F64, Reg(a), Reg(31), Offset(16)),
                     _       => unreachable!()
                 }
             }
@@ -103,7 +103,7 @@ fn emit_function(allocated: Vec<allocator::Instr>, instrs: &mut Vec<Instr>, regi
 }
 
 
-fn move_registers(moves: &[(u8, u8)], temp_register: u8, instrs: &mut Vec<Instr>) {
+fn move_regs(moves: &[(u8, u8)], temp_reg: u8, instrs: &mut Vec<Instr>) {
     let mut sources = [0xFFu8; 32];
     let mut destination_counts = [0u8; 32];
     for (source, destination) in moves {
@@ -119,7 +119,7 @@ fn move_registers(moves: &[(u8, u8)], temp_register: u8, instrs: &mut Vec<Instr>
     for (_, destination) in moves {
         let source = sources[usize::from(*destination)];
         if source != 0xFF && destination_counts[usize::from(*destination)] == 0 {
-            move_registers_backwards(*destination, &mut sources, &mut destination_counts, instrs);
+            move_regs_backwards(*destination, &mut sources, &mut destination_counts, instrs);
             copies[usize::from(source)] = *destination;
         }
     }
@@ -132,27 +132,27 @@ fn move_registers(moves: &[(u8, u8)], temp_register: u8, instrs: &mut Vec<Instr>
         let copy = copies[usize::from(source)];
         if copy == 0xFF { continue; }
         sources[usize::from(*destination)] = 0xFF;
-        move_registers_backwards(source, &mut sources, &mut destination_counts, instrs);
-        assemble!(instrs, None, FMOV, Register(*destination), Register(copy));
+        move_regs_backwards(source, &mut sources, &mut destination_counts, instrs);
+        assemble!(instrs, None, FMOV, Reg(*destination), Reg(copy));
     }
 
     // Now do the ones where there's no other copy and we need a temp.
     for (_, destination) in moves {
         let source = sources[usize::from(*destination)];
         if source == 0xFF { continue; }
-        assemble!(instrs, None, FMOV, Register(temp_register), Register(source));
+        assemble!(instrs, None, FMOV, Reg(temp_reg), Reg(source));
         sources[usize::from(*destination)] = 0xFF;
-        move_registers_backwards(source, &mut sources, &mut destination_counts, instrs);
-        assemble!(instrs, None, FMOV, Register(*destination), Register(temp_register));
+        move_regs_backwards(source, &mut sources, &mut destination_counts, instrs);
+        assemble!(instrs, None, FMOV, Reg(*destination), Reg(temp_reg));
     }
 }
 
 
-fn move_registers_backwards(mut destination: u8, sources: &mut[u8], destination_counts: &mut[u8], instrs: &mut Vec<Instr>) {
+fn move_regs_backwards(mut destination: u8, sources: &mut[u8], destination_counts: &mut[u8], instrs: &mut Vec<Instr>) {
     loop {
         let source = sources[usize::from(destination)];
         if source == 0xFF { return }
-        assemble!(instrs, None, FMOV, Register(destination), Register(source));
+        assemble!(instrs, None, FMOV, Reg(destination), Reg(source));
         sources[usize::from(destination)] = 0xFF;
         destination_counts[usize::from(source)] -= 1;
         if destination_counts[usize::from(source)] > 0 { return }
@@ -164,15 +164,15 @@ fn move_registers_backwards(mut destination: u8, sources: &mut[u8], destination_
 fn emit_glue(argument_count: u8, return_count: u8, assembler: &mut Vec<Instr>) {
     // Move the input buffer pointer to R16, since we're about to overwrite r0 with the first
     // argument to the function we're calling
-    assemble!(assembler, None, MOV_I64, Register(16), Register(0));
+    assemble!(assembler, None, MOV_I64, Reg(16), Reg(0));
 
     // Move the output buffer and the return address to the stack, since they're about to get
     // overwritten and we need them later
-    assemble!(assembler, None, STP_PRE_I64, Register(1), Register(30), Register(31), Offset(-16));
+    assemble!(assembler, None, STP_PRE_I64, Reg(1), Reg(30), Reg(31), Offset(-16));
 
     // Put the arguments in the right place on the stack
     for i in 0..argument_count {
-        assemble!(assembler, None, LDR_OFFSET_F64, Register(i), Register(16), Offset(i32::from(i) * 8));
+        assemble!(assembler, None, LDR_OFFSET_F64, Reg(i), Reg(16), Offset(i32::from(i) * 8));
     }
 
     // Call our function
@@ -181,10 +181,10 @@ fn emit_glue(argument_count: u8, return_count: u8, assembler: &mut Vec<Instr>) {
             .expect("internal compiler error: function too long for jump")));
 
     // Load the output buffer in to r16 and the return address to the appropriate spot
-    assemble!(assembler, None, LDP_POST_I64, Register(16), Register(30), Register(31), Offset(16));
+    assemble!(assembler, None, LDP_POST_I64, Reg(16), Reg(30), Reg(31), Offset(16));
 
     for i in 0..return_count {
-        assemble!(assembler, None, STR_OFFSET_F64, Register(i), Register(16), Offset(i32::from(i) * 8));
+        assemble!(assembler, None, STR_OFFSET_F64, Reg(i), Reg(16), Offset(i32::from(i) * 8));
     }
 
     assemble!(assembler, None, RET);
@@ -206,7 +206,7 @@ impl Styleable for Block {
             let operands = instr.operands.iter().map(|o|
                 match o {
                     Operand::Constant(c)    => i32::try_from((constant_start_words - i) * 4 + *c * 8).unwrap(),
-                    Operand::Register(r)    => i32::from(*r),
+                    Operand::Reg(r)         => i32::from(*r),
                     Operand::Offset(o)      => *o,
                 }).collect::<Vec<_>>();
 

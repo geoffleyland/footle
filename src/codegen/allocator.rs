@@ -18,18 +18,18 @@ pub(super) fn run(
     slot_count:                         usize,
     scheduled:                           &[&Value<'_>]) -> (Vec<Instr>, Vec<u8>) {
     let (lowered, slot_count) = lower_to_slots_and_split(argument_count, slot_count, scheduled);
-    let (registers, temp_registers) = allocate(argument_count, slot_count, &lowered);
-    let mut registers_to_save = HashSet::new();
-    for r in &registers {
-        if *r != u8::MAX && isa::CALLEE_SAVED_REGISTERS & (1 << r) != 0 {
-            registers_to_save.insert(*r);
+    let (regs, temp_regs) = allocate(argument_count, slot_count, &lowered);
+    let mut regs_to_save = HashSet::new();
+    for r in &regs {
+        if *r != u8::MAX && isa::CALLEE_SAVED_REGS & (1 << r) != 0 {
+            regs_to_save.insert(*r);
         }
     }
-    let mut registers_to_save: Vec<_> = registers_to_save.into_iter().collect();
-    registers_to_save.sort_unstable();
+    let mut regs_to_save: Vec<_> = regs_to_save.into_iter().collect();
+    regs_to_save.sort_unstable();
     (
-        lower_to_registers(&lowered, &registers, &temp_registers),
-        registers_to_save
+        lower_to_regs(&lowered, &regs, &temp_regs),
+        regs_to_save
     )
 }
 
@@ -48,7 +48,7 @@ struct SlotInstr {
     slot:                               usize,
     code:                               &'static isa::Code,
     operands:                           Vec<SlotOperand>,
-    operand_registers:                  Option<Vec<u8>>,
+    operand_regs:                       Option<Vec<u8>>,
     slot_moves:                         Vec<(usize, usize)>,
     span:                               Span,
 }
@@ -72,11 +72,11 @@ fn lower_to_slots_and_split(
         }
     }
 
-    let mut register_slots = vec![usize::MAX; 32];
+    let mut reg_slots = vec![usize::MAX; 32];
     let mut slot_map = (0..slot_count).collect::<Vec<_>>();
 
     for slot in 0..argument_count {
-        register_slots[usize::from(slot)] = usize::from(slot);
+        reg_slots[usize::from(slot)] = usize::from(slot);
     }
 
     let mut slot_count = usize::from(argument_count);
@@ -93,7 +93,7 @@ fn lower_to_slots_and_split(
             let mut bits = c.clobbers;
             while bits != 0 {
                 let reg = bits.trailing_zeros() as usize;
-                let slot = register_slots[reg];
+                let slot = reg_slots[reg];
                 if slot != usize::MAX &&
                     retirements[slot] > i {
                     slot_moves.push((slot_map[slot], slot_count));
@@ -105,7 +105,7 @@ fn lower_to_slots_and_split(
             let mut bits = c.clobbers;
             while bits != 0 {
                 let reg = bits.trailing_zeros() as usize;
-                register_slots[reg] = usize::MAX;
+                reg_slots[reg] = usize::MAX;
                 bits &= bits - 1;
             }
         }
@@ -113,8 +113,7 @@ fn lower_to_slots_and_split(
         new_schedule.push(SlotInstr{
             operands, code, slot_moves,
             slot:                           slot_count,
-            operand_registers:              value.operand_registers.clone(),
-//            slot_moves:                     slot_moves.iter().map(|(_, b, c)| (*b, *c)).collect(),
+            operand_regs:                   value.operand_regs.clone(),
             span:                           value.span,
         });
         slot_map[value.slot] = slot_count;
@@ -131,7 +130,7 @@ fn allocate(
     argument_count:                     u8,
     slot_count:                         usize,
     instrs:                             &[SlotInstr]) -> (Vec<u8>, Vec<u8>) {
-    let mut registers: Vec<OnceCell<u8>> = vec![OnceCell::new(); slot_count];
+    let mut regs: Vec<OnceCell<u8>> = vec![OnceCell::new(); slot_count];
 
     // Find which slots interfere with which.
     let mut live_slots = BitSet::new();
@@ -148,47 +147,47 @@ fn allocate(
             interfering_slots[slot].union_with(&live_slots);
         }
     }
-    // Slots don't interfere with themselves - and this matters because we use available_registers
+    // Slots don't interfere with themselves - and this matters because we use available_regs
     // post-allocation to find a temporary register for every instruction (only used if the
     // instruction needs moves), and available_registers in turn depends on interfering_slots.
     for instr in instrs { interfering_slots[instr.slot].remove(instr.slot); }
 
     // Compute available registers for each instruction: any values that are live across a call
     // have to be in a callee-saved register.
-    let mut available_registers = vec![0xFFFF_FFFFu32; slot_count];
+    let mut available_regs = vec![0xFFFF_FFFFu32; slot_count];
     for instr in instrs {
         if instr.code.clobbers != 0 {
             let mask = !real_reg_to_ordered_reg_mask(instr.code.clobbers);
-            available_registers[instr.slot] &= mask;
+            available_regs[instr.slot] &= mask;
             for slot in &interfering_slots[instr.slot] {
-                available_registers[slot] &= mask;
+                available_regs[slot] &= mask;
             }
         }
     }
 
     // Allocate registers for arguments
     for slot in 0..argument_count {
-        set_register(usize::from(slot), slot, &registers, &interfering_slots, &mut available_registers);
+        set_reg(usize::from(slot), slot, &regs, &interfering_slots, &mut available_regs);
     }
 
     // Allocate registers for any values that need to be in a register as an argument.
     for instr in instrs {
-        if let Some(operand_registers) = &instr.operand_registers {
-            for (op, &r) in instr.operands.iter().zip(operand_registers) {
+        if let Some(operand_regs) = &instr.operand_regs {
+            for (op, &r) in instr.operands.iter().zip(operand_regs) {
                 if let SlotOperand::Slot(op_slot) = op {
-                    if registers[*op_slot].get().is_some() { continue; }
-                    let mri = isa::REGISTER_INDEX[usize::from(r)];
+                    if regs[*op_slot].get().is_some() { continue; }
+                    let mri = isa::REG_INDEX[usize::from(r)];
                     // If we can get the register we want, great!  But if we can't just assign the
                     // slot to any old register, and the move machinery will get the value into
                     // the right register at the right moment.
                     // (Getting the right register here is just about avoiding a move if we can,
                     // but in all cases, we'll get the move right)
-                    let r2 = if (available_registers[*op_slot] >> mri) & 1 == 1 { r }
+                    let r2 = if (available_regs[*op_slot] >> mri) & 1 == 1 { r }
                         else {
-                            let mri2 = available_registers[*op_slot].trailing_zeros();
-                            isa::REGISTER_ORDER[mri2 as usize]
+                            let mri2 = available_regs[*op_slot].trailing_zeros();
+                            isa::REG_ORDER[mri2 as usize]
                         };
-                    set_register(*op_slot, r2, &registers, &interfering_slots, &mut available_registers);
+                    set_reg(*op_slot, r2, &regs, &interfering_slots, &mut available_regs);
                 } else {
                     panic!("internal compiler error: register constraint on constant");
                 }
@@ -198,40 +197,40 @@ fn allocate(
 
     // Allocate registers for remaining instructions
     for instr in instrs {
-        if registers[instr.slot].get().is_some() || !instr.code.has_output { continue; }
-        let mri = available_registers[instr.slot].trailing_zeros();
-        let r = isa::REGISTER_ORDER[mri as usize];
-        set_register(instr.slot, r, &registers, &interfering_slots, &mut available_registers);
+        if regs[instr.slot].get().is_some() || !instr.code.has_output { continue; }
+        let mri = available_regs[instr.slot].trailing_zeros();
+        let r = isa::REG_ORDER[mri as usize];
+        set_reg(instr.slot, r, &regs, &interfering_slots, &mut available_regs);
     }
 
     // Allocate registers for any slots that get moved (which don't show up in instructions)
     for instr in instrs {
         for (_, dest) in &instr.slot_moves {
-            if registers[*dest].get().is_some() { continue; }
-            let mri = available_registers[*dest].trailing_zeros();
-            let r = isa::REGISTER_ORDER[mri as usize];
-            set_register(*dest, r, &registers, &interfering_slots, &mut available_registers);
+            if regs[*dest].get().is_some() { continue; }
+            let mri = available_regs[*dest].trailing_zeros();
+            let r = isa::REG_ORDER[mri as usize];
+            set_reg(*dest, r, &regs, &interfering_slots, &mut available_regs);
         }
     }
 
     (
-        registers.iter_mut().map(|c| c.take().unwrap_or(u8::MAX)).collect(),
-        available_registers.iter().map(|&a| isa::REGISTER_ORDER[a.trailing_zeros() as usize]).collect()
+        regs.iter_mut().map(|c| c.take().unwrap_or(u8::MAX)).collect(),
+        available_regs.iter().map(|&a| isa::REG_ORDER[a.trailing_zeros() as usize]).collect()
     )
 }
 
 
-fn set_register(
+fn set_reg(
     slot:                               usize,
     r:                                  u8,
-    registers:                          &[OnceCell<u8>],
+    regs:                               &[OnceCell<u8>],
     interfering_slots:                  &[BitSet],
-    available_registers:                &mut [u32]) {
-    let mri = isa::REGISTER_INDEX[usize::from(r)];
+    available_regs:                     &mut [u32]) {
+    let mri = isa::REG_INDEX[usize::from(r)];
     let mri_bits = 1 << mri;
-    registers[slot].set(r).expect("internal compiler error: trying to set a register twice");
+    regs[slot].set(r).expect("internal compiler error: trying to set a register twice");
     for interfering_slot in &interfering_slots[slot] {
-        available_registers[interfering_slot] &= !mri_bits;
+        available_regs[interfering_slot] &= !mri_bits;
     }
 }
 
@@ -242,24 +241,24 @@ fn set_register(
 #[derive(Debug)]
 pub(super) enum Operand {
     Constant(usize),
-    Register(u8),
+    Reg(u8),
 }
 
 #[derive(Debug)]
 pub(super) struct Instr {
     pub(super) code:                    &'static isa::Code,
-    pub(super) output_register:         u8,
+    pub(super) output_reg:              u8,
     pub(super) operands:                Vec<Operand>,
     pub(super) moves:                   Vec<(u8, u8)>,
-    pub(super) temp_register:           u8,
+    pub(super) temp_reg:                u8,
     pub(super) span:                    Span,
 }
 
 
-fn lower_to_registers(
+fn lower_to_regs(
     instrs:                             &[SlotInstr],
-    registers:                          &[u8],
-    temp_registers:                     &[u8]) -> Vec<Instr> {
+    regs:                               &[u8],
+    temp_regs:                     &[u8]) -> Vec<Instr> {
 
     instrs.iter().map(|instr| {
         let mut operands = vec![];
@@ -272,29 +271,29 @@ fn lower_to_registers(
                     // the register for the slot here (because it might be a last use of the
                     // operand) we just trust the move machinery in the assembler to get things in
                     // the right place (which they do)
-                    let maybe_required_register = instr.operand_registers.as_ref().map(|r| r[i]);
-                    let slot_register = registers[*s];
-                    if let Some(required_register) = maybe_required_register
-                        && slot_register != required_register {
-                        moves.push((slot_register, required_register));
-                        operands.push(Operand::Register(required_register));
+                    let maybe_required_reg = instr.operand_regs.as_ref().map(|r| r[i]);
+                    let slot_reg = regs[*s];
+                    if let Some(required_reg) = maybe_required_reg
+                        && slot_reg != required_reg {
+                        moves.push((slot_reg, required_reg));
+                        operands.push(Operand::Reg(required_reg));
                     } else {
-                        operands.push(Operand::Register(slot_register));
+                        operands.push(Operand::Reg(slot_reg));
                     }
                 }
             }
         }
         for (source, dest) in &instr.slot_moves {
-            if registers[*source] != registers[*dest] {
-                moves.push((registers[*source], registers[*dest]));
+            if regs[*source] != regs[*dest] {
+                moves.push((regs[*source], regs[*dest]));
             }
         }
 
         Instr{
             operands, moves,
             code:                       instr.code,
-            output_register:            registers[instr.slot],
-            temp_register:              temp_registers[instr.slot],
+            output_reg:                 regs[instr.slot],
+            temp_reg:                   temp_regs[instr.slot],
             span:                       instr.span,
         }
     })

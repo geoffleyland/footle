@@ -264,7 +264,7 @@ pub(super) static RET: Code = Code {
 
 
 /// The order in which we want to allocate registers.
-pub(super) const REGISTER_ORDER: [u8; 32] = [
+pub(super) const REG_ORDER: [u8; 32] = [
     16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,     // d16-d31
      8,  9, 10, 11, 12, 13, 14, 15,                                     // d8-d16 (callee saved)
      0,  1,  2,  3,  4,  5,  6,  7,                                     // d0-d7
@@ -272,27 +272,27 @@ pub(super) const REGISTER_ORDER: [u8; 32] = [
 
 
 #[allow(clippy::cast_possible_truncation)]
-pub(super) const REGISTER_INDEX: [u8; 32] = {
+pub(super) const REG_INDEX: [u8; 32] = {
     let mut t = [255u8; 32];
     let mut i = 0;
-    while i < REGISTER_ORDER.len() {
-        t[REGISTER_ORDER[i] as usize] = i as u8;
+    while i < REG_ORDER.len() {
+        t[REG_ORDER[i] as usize] = i as u8;
         i += 1;
     }
     t
 };
 
 
-pub(super) const CALLEE_SAVED_REGISTERS: u32 = 0x0000_FF00;
+pub(super) const CALLEE_SAVED_REGS: u32 = 0x0000_FF00;
 
 
-// For each real register dN, make a mask of the appropriate bit in REGISTER_ORDER.
+// For each real register dN, make a mask of the appropriate bit in REG_ORDER.
 // `for` and iterators aren't allowed in const blocks, hence the weird while loop.
 const CLOBBER_MASK: [u32; 32] = {
     let mut t = [0u32; 32];
     let mut i = 0;
     while i < 32 {
-        t[i] = 1 << REGISTER_INDEX[i];
+        t[i] = 1 << REG_INDEX[i];
         i += 1;
     }
     t

@@ -76,7 +76,7 @@ fn encode_instrs(instrs: &[assembler::Instr], words: &mut [u32], constant_start_
     for (address, instr) in instrs.iter().enumerate() {
         let operands = instr.operands.iter().map(|op| {
             match op {
-                Register(i)             => u32::from(*i),
+                Reg(i)                  => u32::from(*i),
                 Constant(i)             => u32::try_from((constant_start_words - address) * 4 + (*i * 8))
                                             .expect("internal compiler error: constant offset too large"),
                 Offset(o)               => o.cast_unsigned(),
