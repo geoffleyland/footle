@@ -49,6 +49,7 @@ struct SlotInstr {
     code:                               &'static isa::Code,
     operands:                           Vec<SlotOperand>,
     operand_regs:                       Option<Vec<u8>>,
+    result_reg:                         Option<u8>,
     slot_moves:                         Vec<(usize, usize)>,
     span:                               Span,
 }
@@ -109,11 +110,15 @@ fn lower_to_slots_and_split(
                 bits &= bits - 1;
             }
         }
+        if let Some(result_reg) = value.result_reg {
+            reg_slots[usize::from(result_reg)] = value.slot;
+        }
         let code = value.code().expect("internal compiler error: expected an excutable instruction");
         new_schedule.push(SlotInstr{
             operands, code, slot_moves,
             slot:                           slot_count,
             operand_regs:                   value.operand_regs.clone(),
+            result_reg:                     value.result_reg,
             span:                           value.span,
         });
         slot_map[value.slot] = slot_count;
@@ -166,7 +171,14 @@ fn allocate(
         set_reg(usize::from(slot), slot, &regs, &interfering_slots, &mut available_regs);
     }
 
-    // Allocate registers for any values that need to be in a register as an argument.
+    // Allocate registers for value with constrained output registers.
+    for instr in instrs {
+        if let Some(result_reg) = instr.result_reg {
+            set_reg(instr.slot, result_reg, &regs, &interfering_slots, &mut available_regs);
+        }
+    }
+
+    // Allocate registers for values with constrained operand registers.
     for instr in instrs {
         if let Some(operand_regs) = &instr.operand_regs {
             for (op, &r) in instr.operands.iter().zip(operand_regs) {
@@ -243,7 +255,7 @@ pub(super) enum Operand {
 #[derive(Debug)]
 pub(super) struct Instr {
     pub(super) code:                    &'static isa::Code,
-    pub(super) output_reg:              u8,
+    pub(super) result_reg:              u8,
     pub(super) operands:                Vec<Operand>,
     pub(super) moves:                   Vec<(u8, u8)>,
     pub(super) temp_reg:                u8,
@@ -288,7 +300,7 @@ fn lower_to_regs(
         Instr{
             operands, moves,
             code:                       instr.code,
-            output_reg:                 regs[instr.slot],
+            result_reg:                 regs[instr.slot],
             temp_reg:                   temp_regs[instr.slot],
             span:                       instr.span,
         }

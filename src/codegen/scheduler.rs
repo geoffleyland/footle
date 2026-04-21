@@ -64,6 +64,7 @@ pub(super) struct Value<'arena> {
     pub(super) def:                         ValueDef,
     pub(super) operands:                    Vec<Operand<'arena>>,
     pub(super) operand_regs:                Option<Vec<u8>>,
+    pub(super) result_reg:                  Option<u8>,
     pub(super) span:                        Span,
 }
 
@@ -73,8 +74,9 @@ impl<'arena> Value<'arena> {
         def:                                ValueDef,
         operands:                           Vec<Operand<'arena>>,
         operand_regs:                       Option<Vec<u8>>,
+        result_reg:                         Option<u8>,
         span:                               Span) -> Self {
-        Self { slot, def, operands, operand_regs, span }
+        Self { slot, def, operands, operand_regs, result_reg, span }
     }
 
 
@@ -146,6 +148,7 @@ pub(super) fn lower_vir<'arena>(arena: &'arena Arena<Value<'arena>>, input: &vir
                     ValueDef::Instr(&isa::RET),
                     operands,
                     Some(operand_regs),
+                    None,
                     stmt.span));
                 block.values.push(ret);
                 block.return_count = operand_count;
@@ -165,14 +168,16 @@ fn lower_expr<'arena>(
     } else {
         match expr.kind() {
             vir::ExprKind::Argument(index, name) => {
-                let (value, operand) = insert_value(arena, block, expr.pool_index(), vec![], None, ValueDef::Argument(*index, name.clone()), *expr.span());
+                let (value, operand) = insert_value(arena, block, expr,
+                    vec![], None, None, ValueDef::Argument(*index, name.clone()));
                 block.arguments.push(value);
                 operand
             }
             vir::ExprKind::Number(v) => {
                 block.constants.push(Constant{ value: *v, span: *expr.span() });
-                insert_value(arena, block, expr.pool_index(), vec![Operand::Constant(block.constants.len() - 1)], None,
-                    ValueDef::Instr(&isa::LDR_PC_F64), *expr.span()).1
+                insert_value(arena, block, expr,
+                    vec![Operand::Constant(block.constants.len() - 1)], None, None,
+                    ValueDef::Instr(&isa::LDR_PC_F64)).1
             }
             vir::ExprKind::Binary(op, lhs, rhs) => {
                 let machine_instr = match op {
@@ -193,7 +198,8 @@ fn lower_expr<'arena>(
                     // BinaryOperator::GreaterEqual    => &machine::FADD,
                 };
                 let operands = vec![lower_expr(arena, block, lhs), lower_expr(arena, block, rhs)];
-                insert_value(arena, block, expr.pool_index(), operands, ValueDef::Instr(machine_instr), *expr.span()).1
+                insert_value(arena, block, expr, operands, operand_regs, result_reg,
+                    ValueDef::Instr(machine_instr)).1
             }
         }
     }
@@ -203,15 +209,15 @@ fn lower_expr<'arena>(
 fn insert_value<'arena>(
     arena:                                  &'arena Arena<Value<'arena>>,
     block:                                  &mut Block<'arena>,
-    pool_index:                             usize,
+    expr:                                   &vir::Expr,
     operands:                               Vec<Operand<'arena>>,
     operand_regs:                           Option<Vec<u8>>,
-    def:                                    ValueDef,
-    span:                                   Span) -> (&'arena Value<'arena>, Operand<'arena>)  {
-    let value = arena.alloc(Value::new(arena.len(), def, operands, operand_regs, span));
+    result_reg:                             Option<u8>,
+    def:                                    ValueDef) -> (&'arena Value<'arena>, Operand<'arena>)  {
+    let value = arena.alloc(Value::new(arena.len(), def, operands, operand_regs, result_reg, *expr.span()));
     block.values.push(value);
     let operand = Operand::Value(value);
-    block.operand_map.insert(pool_index, operand);
+    block.operand_map.insert(expr.pool_index(), operand);
     (value, operand)
 }
 

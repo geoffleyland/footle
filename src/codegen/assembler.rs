@@ -79,7 +79,7 @@ fn emit_function(allocated: Vec<allocator::Instr>, instrs: &mut Vec<Instr>, regs
         if !ai.moves.is_empty() { move_regs(&ai.moves, ai.temp_reg, instrs) }
 
         let operands = ai.code.has_output
-            .then_some(Operand::Reg(ai.output_reg))
+            .then_some(Operand::Reg(ai.result_reg))
             .into_iter()
             .chain(ai.operands.iter().map(|op| match op {
                 allocator::Operand::Reg(r)          => Operand::Reg(*r),
