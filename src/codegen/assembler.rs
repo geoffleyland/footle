@@ -111,6 +111,9 @@ fn move_registers(moves: &[(u8, u8)], temp_register: u8, instrs: &mut Vec<Instr>
         destination_counts[usize::from(*source)] += 1;
     }
 
+    // Keep track of any copies we make of a value as we move them - they could be useful later
+    // if we have to resolve a cycle including the value, where we could avoid using a temporary
+    // register.
     let mut copies = [0xFFu8; 32];
     // Handle all the chains by starting from their ends
     for (_, destination) in moves {

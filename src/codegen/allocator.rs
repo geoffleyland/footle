@@ -21,7 +21,7 @@ pub(super) fn run(
     let (registers, temp_registers) = allocate(argument_count, slot_count, &lowered);
     let mut registers_to_save = HashSet::new();
     for r in &registers {
-        if *r < 32 && isa::CALLEE_SAVED_REGISTERS & (1 << r) != 0 {
+        if *r != u8::MAX && isa::CALLEE_SAVED_REGISTERS & (1 << r) != 0 {
             registers_to_save.insert(*r);
         }
     }
@@ -88,7 +88,7 @@ fn lower_to_slots_and_split(
                 scheduler::Operand::Constant(i)             => SlotOperand::Constant(*i),
                 scheduler::Operand::Value(v)                => SlotOperand::Slot(slot_map[v.slot]),
             }).collect();
-        let mut slot_moves: Vec<(usize, usize, usize)> = vec![];
+        let mut slot_moves: Vec<(usize, usize)> = vec![];
         if let Some(c) = value.code() && c.clobbers != 0 {
             let mut bits = c.clobbers;
             while bits != 0 {
@@ -96,7 +96,7 @@ fn lower_to_slots_and_split(
                 let slot = register_slots[reg];
                 if slot != usize::MAX &&
                     retirements[slot] > i {
-                    slot_moves.push((slot, slot_map[slot], slot_count));
+                    slot_moves.push((slot_map[slot], slot_count));
                     slot_map[slot] = slot_count;
                     slot_count += 1;
                 }
@@ -111,10 +111,10 @@ fn lower_to_slots_and_split(
         }
         let code = value.code().expect("internal compiler error: expected an excutable instruction");
         new_schedule.push(SlotInstr{
-            operands, code,
+            operands, code, slot_moves,
             slot:                           slot_count,
             operand_registers:              value.operand_registers.clone(),
-            slot_moves:                     slot_moves.iter().map(|(_, b, c)| (*b, *c)).collect(),
+//            slot_moves:                     slot_moves.iter().map(|(_, b, c)| (*b, *c)).collect(),
             span:                           value.span,
         });
         slot_map[value.slot] = slot_count;
@@ -215,7 +215,7 @@ fn allocate(
     }
 
     (
-        registers.iter_mut().map(|c| c.take().unwrap_or(0xFFu8)).collect(),
+        registers.iter_mut().map(|c| c.take().unwrap_or(u8::MAX)).collect(),
         available_registers.iter().map(|&a| isa::REGISTER_ORDER[a.trailing_zeros() as usize]).collect()
     )
 }
@@ -268,10 +268,10 @@ fn lower_to_registers(
             match op {
                 SlotOperand::Constant(i)    => operands.push(Operand::Constant(*i)),
                 SlotOperand::Slot(s) => {
-                    // If there's a required register for this operand, us it.  We don't fix up the
-                    // register for the slot here (because it might be a last use of the operand)
-                    // we just trust the move machinery in the assembler to get things in the
-                    // right place (which they do)
+                    // If there's a required register for this operand, use it.  We don't fix up
+                    // the register for the slot here (because it might be a last use of the
+                    // operand) we just trust the move machinery in the assembler to get things in
+                    // the right place (which they do)
                     let maybe_required_register = instr.operand_registers.as_ref().map(|r| r[i]);
                     let slot_register = registers[*s];
                     if let Some(required_register) = maybe_required_register
