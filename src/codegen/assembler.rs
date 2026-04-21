@@ -133,7 +133,7 @@ fn emit_glue(argument_count: u8, return_count: u8, assembler: &mut Vec<Instr>) {
 
     // Put the arguments in the right place on the stack
     for i in 0..argument_count {
-        assemble!(assembler, None, LDR_REG_F64, Register(i), Register(16), Offset(i32::from(i) * 8));
+        assemble!(assembler, None, LDR_OFFSET_F64, Register(i), Register(16), Offset(i32::from(i) * 8));
     }
 
     // Call our function
@@ -145,7 +145,7 @@ fn emit_glue(argument_count: u8, return_count: u8, assembler: &mut Vec<Instr>) {
     assemble!(assembler, None, LDP_POST_I64, Register(16), Register(30), Register(31), Offset(16));
 
     for i in 0..return_count {
-        assemble!(assembler, None, STR_REG_F64, Register(i), Register(16), Offset(i32::from(i) * 8));
+        assemble!(assembler, None, STR_OFFSET_F64, Register(i), Register(16), Offset(i32::from(i) * 8));
     }
 
     assemble!(assembler, None, RET);

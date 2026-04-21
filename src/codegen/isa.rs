@@ -55,9 +55,9 @@ fn f64_math_format(operands: &[i32], _: i32) -> String {
 
 fn format_reg_offset(reg: i32, offset: i32) -> String {
     if offset == 0 {
-        format!("[x{reg}]")
+        format!("[{}]", x_reg(reg))
     } else {
-        format!("[x{reg}, {}]", format_offset(offset))
+        format!("[{}, {}]", x_reg(reg), format_offset(offset))
     }
 }
 
@@ -119,16 +119,16 @@ pub(super) static FMOV: Code = Code {
 pub(super) static LDR_PC_F64: Code = Code {
     name:                   "ldr",
     has_output:             true,
-    encode:                 |operands| 0x5C00_0000 | ((operands[1] >> 2) << 5) | operands[0],
+    encode:                 |operands| 0x5C00_0000 | (((operands[1] >> 2) & 0x7_FFFF) << 5) | operands[0],
     latency:                10,
     units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
     format:                 |operands, address| format!("d{}, #{:#x}", operands[0], address + operands[1]),
 };
 
-pub(super) static LDR_REG_F64: Code = Code {
+pub(super) static LDR_OFFSET_F64: Code = Code {
     name:                   "ldr",
     has_output:             true,
-    encode:                 |operands| 0b11_111_1_01_01_000000000000_00000_00000 | operands[0] | operands[1] << 5 | ((operands[2] >> 3) << 10),
+    encode:                 |operands| 0b11_111_1_01_01_000000000000_00000_00000 | operands[0] | operands[1] << 5 | (((operands[2] >> 3) & 0x7FF) << 10),
     latency:                10,
     units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
     format:                 |operands, _| format!("d{}, {}", operands[0], format_reg_offset(operands[1], operands[2])),
@@ -143,10 +143,10 @@ pub(super) static LDP_POST_I64: Code = Code {
     format:                 |operands, _| format!("x{}, x{}, [{}], {}", operands[0], operands[1], x_reg(operands[2]), format_offset(operands[3])),
 };
 
-pub(super) static STR_REG_F64: Code = Code {
+pub(super) static STR_OFFSET_F64: Code = Code {
     name:                   "str",
     has_output:             false,
-    encode:                 |operands| 0b11_111_1_01_00_000000000000_00000_00000 | ((operands[2] >> 3) << 10) | operands[1] << 5 | operands[0],
+    encode:                 |operands| 0b11_111_1_01_00_000000000000_00000_00000 | (((operands[2] >> 3) & 0x7FF) << 10) | operands[1] << 5 | operands[0],
     latency:                10,
     units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
     format:                 |operands, _| format!("d{}, {}", operands[0], format_reg_offset(operands[1], operands[2])),
