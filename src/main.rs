@@ -120,11 +120,9 @@ fn run_file(file_name: &str) -> Result<(), Box<dyn Error>> {
     println!("\nDisassembly from '{file_name}':");
     for line in codegen::disassemble(&func) { println!("  {line}"); }
 
-    let mut results = vec![0.0];
-    func.call(&[42.0], &mut results);
-    let result = results[0];
+    let results = func.call(&[2.0, 6.0]);
     println!("\nResult from '{file_name}':");
-    println!("  f(42.0) = {result:?}");
+    println!("  f(2, 6) = {results:?} (should be 3!)");
 
     Ok(())
 }
@@ -329,20 +327,15 @@ fn test_lines(
 fn test_results(func: &codegen::CompiledFn, expected: &[String], section: &str) -> Result<(), Box<dyn Error>> {
     let mut actual_strings = vec![];
     for line in expected {
-        let Some((inputs_str, outputs_str)) = line.split_once("->") else {
+        let Some((inputs_str, _)) = line.split_once("->") else {
             return Err(format!("invalid result line: {line:?}").into());
         };
         let inputs = inputs_str.split_whitespace()
             .map(str::parse::<f64>)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("invalid input in {line:?}: {e}"))?;
-        let expected_outputs = outputs_str.split_whitespace()
-            .map(str::parse::<f64>)
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("invalid output in {line:?}: {e}"))?;
 
-        let mut actual_outputs = vec![0.0f64; expected_outputs.len()];
-        func.call(&inputs, &mut actual_outputs);
+        let actual_outputs = func.call(&inputs);
 
         actual_strings.push(format!("{} -> {}",
             inputs.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(" "),

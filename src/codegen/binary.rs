@@ -33,10 +33,11 @@ impl CompiledFn {
         unsafe { std::slice::from_raw_parts(self.ptr.cast::<u8>(), self.size) }
     }
 
-    pub fn call(&self, input: &[f64], output: &mut[f64]) {
+    pub fn call(&self, input: &[f64]) -> Vec<f64> {
         assert!(input.len() == usize::from(self.argument_count));
-        assert!(output.len() == usize::from(self.return_count));
+        let mut output = vec![0.0; usize::from(self.return_count)];
         (self.func)(input.as_ptr(), output.as_mut_ptr());
+        output
     }
 }
 
