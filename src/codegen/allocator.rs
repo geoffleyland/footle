@@ -132,11 +132,20 @@ fn allocate(
     instrs:                             &[SlotInstr]) -> (Vec<u8>, Vec<u8>) {
     let mut regs: Vec<OnceCell<u8>> = vec![OnceCell::new(); slot_count];
 
-    // Find which slots interfere with which.
+    // Find which slots interfere with which, and which are live across calls.
+    // If they are live, make sure they're not in a clobbered register.
     let mut live_slots = BitSet::new();
     let mut interfering_slots = vec![BitSet::new(); slot_count];
+    let mut available_regs = vec![0xFFFF_FFFFu32; slot_count];
+
     for instr in instrs.iter().rev() {
         live_slots.remove(instr.slot);
+        if instr.code.clobbers != 0 {
+            let mask = !real_reg_to_ordered_reg_mask(instr.code.clobbers);
+            for slot in &live_slots {
+                available_regs[slot] &= mask;
+            }
+        }
         for (_, dest) in &instr.slot_moves { live_slots.remove(*dest); }
         for op in &instr.operands {
             let SlotOperand::Slot(op_slot) = op else { continue };
@@ -151,19 +160,6 @@ fn allocate(
     // post-allocation to find a temporary register for every instruction (only used if the
     // instruction needs moves), and available_registers in turn depends on interfering_slots.
     for instr in instrs { interfering_slots[instr.slot].remove(instr.slot); }
-
-    // Compute available registers for each instruction: any values that are live across a call
-    // have to be in a callee-saved register.
-    let mut available_regs = vec![0xFFFF_FFFFu32; slot_count];
-    for instr in instrs {
-        if instr.code.clobbers != 0 {
-            let mask = !real_reg_to_ordered_reg_mask(instr.code.clobbers);
-            available_regs[instr.slot] &= mask;
-            for slot in &interfering_slots[instr.slot] {
-                available_regs[slot] &= mask;
-            }
-        }
-    }
 
     // Allocate registers for arguments
     for slot in 0..argument_count {
