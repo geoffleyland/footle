@@ -33,6 +33,7 @@ struct Instr {
     slot:                                   usize,
     opcode:                                 String,
     operands:                               Vec<InstrOperand>,
+    fixed_inputs:                           Vec<usize>,
     span:                                   Span,
 }
 
@@ -55,8 +56,9 @@ impl Styleable for Schedule {
                     InstrOperand::Constant(i)   => format!("K{i}"),
                     InstrOperand::Instr(i)      => format!("I{i}")
                 }).collect::<Vec<_>>();
-            writer.writeln(f, indent, Some(instr.span), &format!("I{}: {} {}",
-                instr.slot, instr.opcode, operands.join(" ")))?;
+            writer.writeln(f, indent, Some(instr.span), &format!("I{}: {} {}{}",
+                instr.slot, instr.opcode, operands.join(" "),
+                instr.fixed_inputs.iter().map(|i| format!("I{i}")).collect::<Vec<_>>().join(" ")))?;
         }
         for (i, c) in self.constants.iter().enumerate() {
             writer.writeln(f, indent, Some(c.span), &format!("K{i}: {:?}", c.value))?;
@@ -81,6 +83,7 @@ pub fn schedule(block: &vir::Block) -> Schedule {
                     scheduler::Operand::Constant(i)     => InstrOperand::Constant(*i),
                     scheduler::Operand::Value(v)        => InstrOperand::Instr(v.slot)
                 }).collect(),
+            fixed_inputs:   c.fixed_inputs.iter().map(|(v, _)| v.slot).collect(),
             span:           c.span})
         .collect();
 

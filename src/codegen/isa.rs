@@ -24,7 +24,7 @@ pub(super) struct Code {
     pub(super) restore_regs:    bool,
     units:                      EnumSet<Unit>,
 
-    pub(super) format:      fn(&[i32], i32) -> String,
+    pub(super) format:          fn(&[i32], i32) -> String,
 }
 
 
@@ -111,12 +111,12 @@ pub(super) static FDIV: Code = Code {
 pub(super) static CFDIV: Code = Code {
     name:                   "fdiv",
     has_output:             true,
-    encode:                 |operands| 0x1E60_1800 | (operands[2] << 16) | (operands[1] << 5) | operands[0],
+    encode:                 |_operands| 0x1E60_1800 | 1 << 16,
     latency:                10,
     clobbers:               0xFFFF_00FF,
     restore_regs:           false,
     units:                  enum_set!(Unit::FP14),
-    format:                 |operands, address| f64_math_format(operands, address),
+    format:                 |_, _| "d0, d0, d1".to_string(),
 };
 
 pub(super) static MOV_I64: Code = Code {

@@ -48,10 +48,21 @@ struct SlotInstr {
     slot:                               usize,
     code:                               &'static isa::Code,
     operands:                           Vec<SlotOperand>,
-    operand_regs:                       Option<Vec<u8>>,
-    result_reg:                         Option<u8>,
+    fixed_inputs:                       Vec<(usize, u8)>,
+    fixed_output:                       Option<u8>,
     slot_moves:                         Vec<(usize, usize)>,
     span:                               Span,
+}
+
+
+impl SlotInstr {
+    pub(super) fn predecessors(&self) -> impl Iterator<Item = usize> {
+        let operands = self.operands.iter().filter_map(|op| {
+            if let SlotOperand::Slot(s) = op { Some(*s) } else { None }
+        });
+        let fixed_inputs = self.fixed_inputs.iter().map(|(v, _)| *v);
+        operands.chain(fixed_inputs)
+    }
 }
 
 
@@ -64,11 +75,10 @@ fn lower_to_slots_and_split(
     let mut retirements = vec![0; slot_count];
     let mut used_slots = BitSet::new();
     for (i, value) in scheduled.iter().enumerate().rev() {
-        for op in &value.operands {
-            let scheduler::Operand::Value(v) = op else { continue };
-            if !used_slots.contains(v.slot) {
-                retirements[v.slot] = i;
-                used_slots.insert(v.slot);
+        for predecessor in value.predecessors() {
+            if !used_slots.contains(predecessor.slot) {
+                retirements[predecessor.slot] = i;
+                used_slots.insert(predecessor.slot);
             }
         }
     }
@@ -89,6 +99,7 @@ fn lower_to_slots_and_split(
                 scheduler::Operand::Constant(i)             => SlotOperand::Constant(*i),
                 scheduler::Operand::Value(v)                => SlotOperand::Slot(slot_map[v.slot]),
             }).collect();
+        let fixed_inputs = value.fixed_inputs.iter().map(|(v, reg)| (slot_map[v.slot], *reg)).collect();
         let mut slot_moves: Vec<(usize, usize)> = vec![];
         if let Some(c) = value.code() && c.clobbers != 0 {
             let mut bits = c.clobbers;
@@ -110,15 +121,14 @@ fn lower_to_slots_and_split(
                 bits &= bits - 1;
             }
         }
-        if let Some(result_reg) = value.result_reg {
-            reg_slots[usize::from(result_reg)] = value.slot;
+        if let Some(fixed_output) = value.fixed_output {
+            reg_slots[usize::from(fixed_output)] = value.slot;
         }
         let code = value.code().expect("internal compiler error: expected an excutable instruction");
         new_schedule.push(SlotInstr{
-            operands, code, slot_moves,
+            operands, code, slot_moves, fixed_inputs,
             slot:                           slot_count,
-            operand_regs:                   value.operand_regs.clone(),
-            result_reg:                     value.result_reg,
+            fixed_output:                   value.fixed_output,
             span:                           value.span,
         });
         slot_map[value.slot] = slot_count;
@@ -152,10 +162,7 @@ fn allocate(
             }
         }
         for (_, dest) in &instr.slot_moves { live_slots.remove(*dest); }
-        for op in &instr.operands {
-            let SlotOperand::Slot(op_slot) = op else { continue };
-            live_slots.insert(*op_slot);
-        }
+        for slot in instr.predecessors() { live_slots.insert(slot); }
         for (source, _) in &instr.slot_moves { live_slots.insert(*source); }
         for slot in &live_slots {
             interfering_slots[slot].union_with(&live_slots);
@@ -173,33 +180,27 @@ fn allocate(
 
     // Allocate registers for value with constrained output registers.
     for instr in instrs {
-        if let Some(result_reg) = instr.result_reg {
-            set_reg(instr.slot, result_reg, &regs, &interfering_slots, &mut available_regs);
+        if let Some(fixed_output) = instr.fixed_output {
+            set_reg(instr.slot, fixed_output, &regs, &interfering_slots, &mut available_regs);
         }
     }
 
     // Allocate registers for values with constrained operand registers.
     for instr in instrs {
-        if let Some(operand_regs) = &instr.operand_regs {
-            for (op, &r) in instr.operands.iter().zip(operand_regs) {
-                if let SlotOperand::Slot(op_slot) = op {
-                    if regs[*op_slot].get().is_some() { continue; }
-                    let mri = isa::REG_INDEX[usize::from(r)];
-                    // If we can get the register we want, great!  But if we can't just assign the
-                    // slot to any old register, and the move machinery will get the value into
-                    // the right register at the right moment.
-                    // (Getting the right register here is just about avoiding a move if we can,
-                    // but in all cases, we'll get the move right)
-                    let r2 = if (available_regs[*op_slot] >> mri) & 1 == 1 { r }
-                        else {
-                            let mri2 = available_regs[*op_slot].trailing_zeros();
-                            isa::REG_ORDER[mri2 as usize]
-                        };
-                    set_reg(*op_slot, r2, &regs, &interfering_slots, &mut available_regs);
-                } else {
-                    panic!("internal compiler error: register constraint on constant");
-                }
-            }
+        for (input_slot, reg) in &instr.fixed_inputs {
+            if regs[*input_slot].get().is_some() { continue; }
+            let mri = isa::REG_INDEX[usize::from(*reg)];
+            // If we can get the register we want, great!  But if we can't just assign the
+            // slot to any old register, and the move machinery will get the value into
+            // the right register at the right moment.
+            // (Getting the right register here is just about avoiding a move if we can,
+            // but in all cases, we'll get the move right)
+            let r2 = if (available_regs[*input_slot] >> mri) & 1 == 1 { *reg }
+                else {
+                    let mri2 = available_regs[*input_slot].trailing_zeros();
+                    isa::REG_ORDER[mri2 as usize]
+                };
+            set_reg(*input_slot, r2, &regs, &interfering_slots, &mut available_regs);
         }
     }
 
@@ -270,31 +271,19 @@ fn lower_to_regs(
 
     instrs.iter().map(|instr| {
         let mut operands = vec![];
-        let mut moves = vec![];
-        for (i, op) in instr.operands.iter().enumerate() {
+        for op in &instr.operands {
             match op {
                 SlotOperand::Constant(i)    => operands.push(Operand::Constant(*i)),
-                SlotOperand::Slot(s) => {
-                    // If there's a required register for this operand, use it.  We don't fix up
-                    // the register for the slot here (because it might be a last use of the
-                    // operand) we just trust the move machinery in the assembler to get things in
-                    // the right place (which they do)
-                    let maybe_required_reg = instr.operand_regs.as_ref().map(|r| r[i]);
-                    let slot_reg = regs[*s];
-                    if let Some(required_reg) = maybe_required_reg
-                        && slot_reg != required_reg {
-                        moves.push((slot_reg, required_reg));
-                        operands.push(Operand::Reg(required_reg));
-                    } else {
-                        operands.push(Operand::Reg(slot_reg));
-                    }
-                }
+                SlotOperand::Slot(s)        => operands.push(Operand::Reg(regs[*s])),
             }
         }
+        let mut moves = vec![];
+        for (slot, required_reg) in &instr.fixed_inputs {
+            let slot_reg = regs[*slot];
+            if slot_reg != *required_reg { moves.push((slot_reg, *required_reg)); }
+        }
         for (source, dest) in &instr.slot_moves {
-            if regs[*source] != regs[*dest] {
-                moves.push((regs[*source], regs[*dest]));
-            }
+            if regs[*source] != regs[*dest] { moves.push((regs[*source], regs[*dest])); }
         }
 
         Instr{

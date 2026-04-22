@@ -21,9 +21,6 @@ impl<'arena> Operand<'arena> {
     fn value(&self) -> Option<&'arena Value<'arena>> {
         if let Self::Value(v) = self { Some(v) } else { None }
     }
-    fn needs_scheduling(&self) -> bool {
-        matches!(self, Self::Value(v) if matches!(v.def, ValueDef::Instr(..)))
-    }
 }
 
 impl fmt::Display for Operand<'_> {
@@ -63,8 +60,8 @@ pub(super) struct Value<'arena> {
     pub(super) slot:                        usize,
     pub(super) def:                         ValueDef,
     pub(super) operands:                    Vec<Operand<'arena>>,
-    pub(super) operand_regs:                Option<Vec<u8>>,
-    pub(super) result_reg:                  Option<u8>,
+    pub(super) fixed_inputs:                Vec<(&'arena Self, u8)>,
+    pub(super) fixed_output:                Option<u8>,
     pub(super) span:                        Span,
 }
 
@@ -73,10 +70,10 @@ impl<'arena> Value<'arena> {
         slot:                               usize,
         def:                                ValueDef,
         operands:                           Vec<Operand<'arena>>,
-        operand_regs:                       Option<Vec<u8>>,
-        result_reg:                         Option<u8>,
+        fixed_inputs:                       Vec<(&'arena Self, u8)>,
+        fixed_output:                       Option<u8>,
         span:                               Span) -> Self {
-        Self { slot, def, operands, operand_regs, result_reg, span }
+        Self { slot, def, operands, fixed_inputs, fixed_output, span }
     }
 
 
@@ -85,7 +82,16 @@ impl<'arena> Value<'arena> {
     }
 
     fn latency(&self) -> u8                 { self.code().map_or(0, |c| c.latency) }
+
+    pub(super) fn predecessors(&self) -> impl Iterator<Item = &'arena Value<'arena>> {
+        let operands = self.operands.iter().filter_map(Operand::value);
+        let fixed_inputs = self.fixed_inputs.iter().map(|(v, _)| *v);
+        operands.chain(fixed_inputs)
+    }
+
+    fn needs_scheduling(&self) -> bool      { matches!(self.def, ValueDef::Instr(..)) }
 }
+
 
 impl fmt::Display for Value<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -135,23 +141,26 @@ pub(super) fn lower_vir<'arena>(arena: &'arena Arena<Value<'arena>>, input: &vir
     for stmt in input.stmts() {
         match &stmt.kind {
             vir::StmtKind::Return(exprs) => {
-                let operands =
-                    exprs.iter().map(|expr| { lower_expr(arena, &mut block, expr) }).collect::<Vec<_>>();
-
                 // RETURN doesn't produce a value you can use, so add it to the instructions, but
                 // not to the operand_map.
-                let operand_count = u8::try_from(operands.len())
-                    .expect("internal compiler error: too many return values");
-                let operand_regs = (0..operand_count).collect::<Vec<_>>();
+                let fixed_inputs = exprs.iter().enumerate()
+                    .map(|(reg, expr)| (
+                        if let Operand::Value(v) = lower_expr(arena, &mut block, expr) { v }
+                        else { panic!("internal compiler error: constant as argument to return")},
+                        u8::try_from(reg).expect("internal compiler error: too many return values")
+                    ))
+                    .collect::<Vec<_>>();
+
                 let ret = arena.alloc(Value::new(
                     arena.len(),
                     ValueDef::Instr(&isa::RET),
-                    operands,
-                    Some(operand_regs),
+                    vec![],
+                    fixed_inputs,
                     None,
                     stmt.span));
                 block.values.push(ret);
-                block.return_count = operand_count;
+                block.return_count = u8::try_from(exprs.len())
+                    .expect("internal compiler error: too many return values");
             }
         }
     }
@@ -169,14 +178,14 @@ fn lower_expr<'arena>(
         match expr.kind() {
             vir::ExprKind::Argument(index, name) => {
                 let (value, operand) = insert_value(arena, block, expr,
-                    vec![], None, None, ValueDef::Argument(*index, name.clone()));
+                    vec![], vec![], None, ValueDef::Argument(*index, name.clone()));
                 block.arguments.push(value);
                 operand
             }
             vir::ExprKind::Number(v) => {
                 block.constants.push(Constant{ value: *v, span: *expr.span() });
                 insert_value(arena, block, expr,
-                    vec![Operand::Constant(block.constants.len() - 1)], None, None,
+                    vec![Operand::Constant(block.constants.len() - 1)], vec![], None,
                     ValueDef::Instr(&isa::LDR_PC_F64)).1
             }
             vir::ExprKind::Binary(op, lhs, rhs) => {
@@ -185,6 +194,8 @@ fn lower_expr<'arena>(
                     BinaryOperator::Subtract        => &isa::FSUB,
                     BinaryOperator::Multiply        => &isa::FMUL,
                     BinaryOperator::Divide          => &isa::FDIV,
+
+                    BinaryOperator::ConstrainedDivide   => &isa::CFDIV,
 
 //                    BinaryOperator::Power           => &machine::FADD,
 
@@ -197,9 +208,24 @@ fn lower_expr<'arena>(
                     // BinaryOperator::GreaterThan     => &machine::FADD,
                     // BinaryOperator::GreaterEqual    => &machine::FADD,
                 };
-                let operands = vec![lower_expr(arena, block, lhs), lower_expr(arena, block, rhs)];
-                insert_value(arena, block, expr, operands, operand_regs, result_reg,
-                    ValueDef::Instr(machine_instr)).1
+
+                if *op == BinaryOperator::ConstrainedDivide {
+                    let exprs = [lhs, rhs];
+                    let fixed_inputs = exprs.iter().enumerate()
+                        .map(|(reg, expr)| (
+                            if let Operand::Value(v) = lower_expr(arena, block, expr) {
+                                v
+                            } else { panic!("internal compiler error: constant as argument to return")},
+                            u8::try_from(reg).expect("internal compiler error: too many return values")
+                        ))
+                        .collect::<Vec<_>>();
+                        insert_value(arena, block, expr, vec![], fixed_inputs, Some(0u8),
+                            ValueDef::Instr(machine_instr)).1
+                } else {
+                    let operands = vec![lower_expr(arena, block, lhs), lower_expr(arena, block, rhs)];
+                    insert_value(arena, block, expr, operands, vec![], None,
+                        ValueDef::Instr(machine_instr)).1
+                }
             }
         }
     }
@@ -211,10 +237,10 @@ fn insert_value<'arena>(
     block:                                  &mut Block<'arena>,
     expr:                                   &vir::Expr,
     operands:                               Vec<Operand<'arena>>,
-    operand_regs:                           Option<Vec<u8>>,
-    result_reg:                             Option<u8>,
+    fixed_inputs:                           Vec<(&'arena Value<'arena>, u8)>,
+    fixed_output:                           Option<u8>,
     def:                                    ValueDef) -> (&'arena Value<'arena>, Operand<'arena>)  {
-    let value = arena.alloc(Value::new(arena.len(), def, operands, operand_regs, result_reg, *expr.span()));
+    let value = arena.alloc(Value::new(arena.len(), def, operands, fixed_inputs, fixed_output, *expr.span()));
     block.values.push(value);
     let operand = Operand::Value(value);
     block.operand_map.insert(expr.pool_index(), operand);
@@ -229,14 +255,13 @@ pub(super) fn schedule<'arena>(values: &'arena [&Value<'arena>]) -> Vec<&'arena 
     // Count how many operands (that need scheduling, arguments are always available) each
     // instruction has so we can figure out when they're ready to go.
     let mut unresolved_operands =
-        values.iter().map(|v| v.operands.iter().filter(|o| o.needs_scheduling()).count()).collect::<Vec<_>>();
+        values.iter().map(|v| v.predecessors().filter(|v| v.needs_scheduling()).count()).collect::<Vec<_>>();
 
     // Find all the users of each value
     let mut users: Vec<Vec<usize>> = vec![vec![]; values.len()];
     for value in values {
-        for op in &value.operands {
-            let Operand::Value(operand) = op else { continue };
-            users[operand.slot].push(value.slot);
+        for predecessor in value.predecessors() {
+            users[predecessor.slot].push(value.slot);
         }
     }
 
@@ -268,7 +293,7 @@ pub(super) fn schedule<'arena>(values: &'arena [&Value<'arena>]) -> Vec<&'arena 
             .max_by_key(|i| {
                 let critical_path_depth = depths[i.slot];
                 let on_critical_path = critical_path_depth >= current_critical_path_depth;
-                let retiring_count = i.operands.iter().filter(|o| o.value().is_some_and(|v| remaining_uses[v.slot] == 1)).count();
+                let retiring_count = i.predecessors().filter(|p| remaining_uses[p.slot] == 1).count();
                 (on_critical_path, retiring_count, critical_path_depth)
             }) {
 
@@ -289,7 +314,7 @@ pub(super) fn schedule<'arena>(values: &'arena [&Value<'arena>]) -> Vec<&'arena 
 
             // Update the remaining uses of our operands so we can keep track of which instructions
             // will retire (the most) registers.
-            for op in &best_instr.operands   { if let Some(v) = op.value() { remaining_uses[v.slot] -= 1; } }
+            for p in best_instr.predecessors() { remaining_uses[p.slot] -= 1; }
 
             // Update the critical path depth if this instruction is worse than what we thought.
             current_critical_path_depth = std::cmp::max(
