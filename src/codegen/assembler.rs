@@ -161,16 +161,20 @@ fn move_regs_backwards(mut destination: u8, sources: &mut[u8], destination_count
 }
 
 
+//-------------------------------------------------------------------------------------------------
+
 fn emit_glue(argument_count: u8, return_count: u8, assembler: &mut Vec<Instr>) {
-    // Move the input buffer pointer to R16, since we're about to overwrite r0 with the first
-    // argument to the function we're calling
+    // Move the input buffer pointer to x16 so it doesn't get clobbered by arguments to our function.
+    // In fact, at the moment, we only have floating-point arguments, so it *won't* get clobbered,
+    // but if I ever get to types and integers, then I don't want to have a mystery bug strike me
+    // because I was too smart about my function glue.
     assemble!(assembler, None, MOV_I64, Reg(16), Reg(0));
 
     // Move the output buffer and the return address to the stack, since they're about to get
-    // overwritten and we need them later
+    // overwritten and we need them later.
     assemble!(assembler, None, STP_PRE_I64, Reg(1), Reg(30), Reg(31), Offset(-16));
 
-    // Put the arguments in the right place on the stack
+    // Move the arguments from the input buffer into the argument registers.
     for i in 0..argument_count {
         assemble!(assembler, None, LDR_OFFSET_F64, Reg(i), Reg(16), Offset(i32::from(i) * 8));
     }
