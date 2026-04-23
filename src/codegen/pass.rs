@@ -8,14 +8,13 @@ use super::{scheduler, allocator, assembler, binary};
 
 //-------------------------------------------------------------------------------------------------
 
-pub fn run(block: &vir::Block) -> binary::CompiledFn {
+pub fn run(vir_block: &vir::Block) -> binary::CompiledFn {
     let arena = Arena::<scheduler::Value>::new();
-    let scheduler::Block { arguments, values, constants, return_count, .. } = scheduler::lower_vir(&arena, block);
-    let argument_count = u8::try_from(arguments.len())
-        .expect("internal compiler error: too many arguments");
-    let scheduled = scheduler::schedule(&values);
-    let (allocated, registers_to_save) = allocator::run(argument_count, values.len(), &scheduled);
-    let assembler = assembler::run(allocated, &constants, argument_count, return_count, &registers_to_save);
+    let scheduled_block = scheduler::run(&arena, vir_block);
+    let (allocated, registers_to_save) =
+        allocator::run(scheduled_block.argument_count, scheduled_block.value_count, &scheduled_block.instrs);
+    let assembler =
+        assembler::run(allocated, &scheduled_block.constants, scheduled_block.argument_count, scheduled_block.return_count, &registers_to_save);
     binary::emit(&assembler)
 }
 
@@ -68,13 +67,12 @@ impl Styleable for Schedule {
 }
 
 
-pub fn schedule(block: &vir::Block) -> Schedule {
+pub fn schedule(vir_block: &vir::Block) -> Schedule {
     let arena = Arena::<scheduler::Value>::new();
-    let scheduler::Block { arguments, values, constants, .. } = scheduler::lower_vir(&arena, block);
-    let schedule = scheduler::schedule(&values);
+    let scheduled_block = scheduler::run(&arena, vir_block);
 
-    let arguments = arguments.iter().map(|a| (a.slot, a.span)).collect::<Vec<_>>();
-    let instrs = schedule.iter().map(|c|
+    let arguments = vir_block.arguments().iter().enumerate().map(|(i, e)| (i, *e.span())).collect::<Vec<_>>();
+    let instrs = scheduled_block.instrs.iter().map(|c|
         Instr{
             slot:           c.slot,
             opcode:         c.code().expect("internal compiler error: instruction without opcode").name.to_string(),
@@ -87,21 +85,19 @@ pub fn schedule(block: &vir::Block) -> Schedule {
             span:           c.span})
         .collect();
 
-    Schedule{ arguments, instrs, constants }
+    Schedule{ arguments, instrs, constants: scheduled_block.constants }
 }
 
 
 //-------------------------------------------------------------------------------------------------
 // Text output for assembler
 
-pub fn assemble(block: &vir::Block) -> assembler::Block {
+pub fn assemble(vir_block: &vir::Block) -> assembler::Block {
     let arena = Arena::<scheduler::Value>::new();
-    let scheduler::Block { arguments, values, constants, return_count, .. } = scheduler::lower_vir(&arena, block);
-    let argument_count = u8::try_from(arguments.len())
-        .expect("internal compiler error: too many arguments");
-    let scheduled = scheduler::schedule(&values);
-    let (allocated, registers_to_save) = allocator::run(argument_count, values.len(), &scheduled);
-    assembler::run(allocated, &constants, argument_count, return_count, &registers_to_save)
+    let scheduled_block = scheduler::run(&arena, vir_block);
+    let (allocated, registers_to_save) =
+        allocator::run(scheduled_block.argument_count, scheduled_block.value_count, &scheduled_block.instrs);
+    assembler::run(allocated, &scheduled_block.constants, scheduled_block.argument_count, scheduled_block.return_count, &registers_to_save)
 }
 
 

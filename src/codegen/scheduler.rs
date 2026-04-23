@@ -114,15 +114,15 @@ pub(super) struct Constant {
 }
 
 
-pub(super) struct Block<'arena> {
-    pub(super) arguments:                   Vec<&'arena Value<'arena>>,
-    pub(super) values:                      Vec<&'arena Value<'arena>>,
-    pub(super) constants:                   Vec<Constant>,
-    pub(super) return_count:                u8,
+struct Builder<'arena> {
+    arguments:                              Vec<&'arena Value<'arena>>,
+    values:                                 Vec<&'arena Value<'arena>>,
+    constants:                              Vec<Constant>,
+    return_count:                           u8,
     operand_map:                            HashMap<usize, Operand<'arena>>,
 }
 
-impl Block<'_> {
+impl Builder<'_> {
     fn new() -> Self {
         Self { arguments: vec![], values: vec![], constants: vec![], return_count: 0,
             operand_map: HashMap::new() }
@@ -130,13 +130,35 @@ impl Block<'_> {
 }
 
 
+pub(super) struct Block<'arena> {
+    pub(super) value_count:                 usize,
+    pub(super) argument_count:              u8,
+    pub(super) return_count:                u8,
+    pub(super) instrs:                      Vec<&'arena Value<'arena>>,
+    pub(super) constants:                   Vec<Constant>,
+}
+
+
+//-------------------------------------------------------------------------------------------------
+
+pub(super) fn run<'arena>(arena: &'arena Arena<Value<'arena>>, input: &vir::Block) -> Block<'arena> {
+    let builder = lower_vir(arena, input);
+    let argument_count = u8::try_from(builder.arguments.len())
+        .expect("internal compiler error: too many arguments");
+    let instrs = schedule(&builder.values);
+
+    Block { argument_count, instrs,
+        value_count: builder.values.len(), return_count: builder.return_count, constants: builder.constants}
+}
+
+
 //-------------------------------------------------------------------------------------------------
 // Generate instructions
 
-pub(super) fn lower_vir<'arena>(arena: &'arena Arena<Value<'arena>>, input: &vir::Block) -> Block<'arena> {
-    let mut block = Block::new();
+fn lower_vir<'arena>(arena: &'arena Arena<Value<'arena>>, input: &vir::Block) -> Builder<'arena> {
+    let mut builder = Builder::new();
     for arg in input.arguments() {
-        lower_expr(arena, &mut block, arg);
+        lower_expr(arena, &mut builder, arg);
     }
     for stmt in input.stmts() {
         match &stmt.kind {
@@ -145,7 +167,7 @@ pub(super) fn lower_vir<'arena>(arena: &'arena Arena<Value<'arena>>, input: &vir
                 // not to the operand_map.
                 let fixed_inputs = exprs.iter().enumerate()
                     .map(|(reg, expr)| (
-                        if let Operand::Value(v) = lower_expr(arena, &mut block, expr) { v }
+                        if let Operand::Value(v) = lower_expr(arena, &mut builder, expr) { v }
                         else { panic!("internal compiler error: constant as argument to return")},
                         u8::try_from(reg).expect("internal compiler error: too many return values")
                     ))
@@ -158,34 +180,34 @@ pub(super) fn lower_vir<'arena>(arena: &'arena Arena<Value<'arena>>, input: &vir
                     fixed_inputs,
                     None,
                     stmt.span));
-                block.values.push(ret);
-                block.return_count = u8::try_from(exprs.len())
+                builder.values.push(ret);
+                builder.return_count = u8::try_from(exprs.len())
                     .expect("internal compiler error: too many return values");
             }
         }
     }
-    block
+    builder
 }
 
 
 fn lower_expr<'arena>(
     arena:                                  &'arena Arena<Value<'arena>>,
-    block:                                  &mut Block<'arena>,
+    builder:                                &mut Builder<'arena>,
     expr:                                   &vir::Expr) -> Operand<'arena> {
-    if let Some(&operand) = block.operand_map.get(&expr.pool_index()) {
+    if let Some(&operand) = builder.operand_map.get(&expr.pool_index()) {
         operand
     } else {
         match expr.kind() {
             vir::ExprKind::Argument(index, name) => {
-                let (value, operand) = insert_value(arena, block, expr,
+                let (value, operand) = insert_value(arena, builder, expr,
                     vec![], vec![], None, ValueDef::Argument(*index, name.clone()));
-                block.arguments.push(value);
+                builder.arguments.push(value);
                 operand
             }
             vir::ExprKind::Number(v) => {
-                block.constants.push(Constant{ value: *v, span: *expr.span() });
-                insert_value(arena, block, expr,
-                    vec![Operand::Constant(block.constants.len() - 1)], vec![], None,
+                builder.constants.push(Constant{ value: *v, span: *expr.span() });
+                insert_value(arena, builder, expr,
+                    vec![Operand::Constant(builder.constants.len() - 1)], vec![], None,
                     ValueDef::Instr(&isa::LDR_PC_F64)).1
             }
             vir::ExprKind::Binary(op, lhs, rhs) => {
@@ -207,8 +229,8 @@ fn lower_expr<'arena>(
                     // BinaryOperator::GreaterEqual    => &machine::FADD,
                 };
 
-                let operands = vec![lower_expr(arena, block, lhs), lower_expr(arena, block, rhs)];
-                insert_value(arena, block, expr, operands, vec![], None,
+                let operands = vec![lower_expr(arena, builder, lhs), lower_expr(arena, builder, rhs)];
+                insert_value(arena, builder, expr, operands, vec![], None,
                     ValueDef::Instr(machine_instr)).1
             }
         }
@@ -218,16 +240,16 @@ fn lower_expr<'arena>(
 
 fn insert_value<'arena>(
     arena:                                  &'arena Arena<Value<'arena>>,
-    block:                                  &mut Block<'arena>,
+    builder:                                &mut Builder<'arena>,
     expr:                                   &vir::Expr,
     operands:                               Vec<Operand<'arena>>,
     fixed_inputs:                           Vec<(&'arena Value<'arena>, u8)>,
     fixed_output:                           Option<u8>,
     def:                                    ValueDef) -> (&'arena Value<'arena>, Operand<'arena>)  {
     let value = arena.alloc(Value::new(arena.len(), def, operands, fixed_inputs, fixed_output, *expr.span()));
-    block.values.push(value);
+    builder.values.push(value);
     let operand = Operand::Value(value);
-    block.operand_map.insert(expr.pool_index(), operand);
+    builder.operand_map.insert(expr.pool_index(), operand);
     (value, operand)
 }
 
@@ -235,7 +257,7 @@ fn insert_value<'arena>(
 //-------------------------------------------------------------------------------------------------
 // Instruction Scheduling
 
-pub(super) fn schedule<'arena>(values: &'arena [&Value<'arena>]) -> Vec<&'arena Value<'arena>> {
+fn schedule<'arena>(values: &[&'arena Value<'arena>]) -> Vec<&'arena Value<'arena>> {
     // Count how many operands (that need scheduling, arguments are always available) each
     // instruction has so we can figure out when they're ready to go.
     let mut unresolved_operands =
