@@ -206,7 +206,7 @@ fn allocate(
 
     // Allocate registers for remaining instructions
     for instr in instrs {
-        if regs[instr.slot].get().is_some() || !instr.code.has_output { continue; }
+        if regs[instr.slot].get().is_some() || !instr.code.has_output() { continue; }
         let mri = available_regs[instr.slot].trailing_zeros();
         let r = isa::REG_ORDER[mri as usize];
         set_reg(instr.slot, r, &regs, &interfering_slots, &mut available_regs);

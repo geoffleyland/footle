@@ -78,7 +78,7 @@ fn emit_function(allocated: Vec<allocator::Instr>, instrs: &mut Vec<Instr>, regs
     for ai in allocated {
         if !ai.moves.is_empty() { move_regs(&ai.moves, ai.temp_reg, instrs) }
 
-        let operands = ai.code.has_output
+        let operands = ai.code.has_output()
             .then_some(Operand::Reg(ai.result_reg))
             .into_iter()
             .chain(ai.operands.iter().map(|op| match op {
@@ -88,7 +88,7 @@ fn emit_function(allocated: Vec<allocator::Instr>, instrs: &mut Vec<Instr>, regs
         .collect();
 
         // Restore callee saved registers before a `ret`.
-        if ai.code.restore_regs {
+        if ai.code.restore_regs() {
             for pair in regs_to_save.chunks(2).rev() {
                 match *pair {
                     [a, b]  => assemble!(instrs, None, LDP_POST_F64, Reg(a), Reg(b), Reg(31), Offset(16)),
