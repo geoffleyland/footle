@@ -14,6 +14,7 @@ use super::isa;
 #[derive(Debug, Clone, Copy)]
 pub(super) enum Operand<'arena> {
     Constant(usize),
+    Function(&'static str),
     Value(&'arena Value<'arena>),
 }
 
@@ -29,6 +30,7 @@ impl fmt::Display for Operand<'_> {
         match self {
             Value(v)                        => write!(f, "I{}", v.slot),
             Constant(i)                     => write!(f, "K{i}"),
+            Function(s)                     => write!(f, "{s}"),
         }
     }
 }
@@ -120,12 +122,13 @@ struct Builder<'arena> {
     constants:                              Vec<Constant>,
     return_count:                           u8,
     operand_map:                            HashMap<usize, Operand<'arena>>,
+    function_map:                           HashMap<&'static str, &'arena Value<'arena>>,
 }
 
 impl Builder<'_> {
     fn new() -> Self {
         Self { arguments: vec![], values: vec![], constants: vec![], return_count: 0,
-            operand_map: HashMap::new() }
+            operand_map: HashMap::new(), function_map: HashMap::new() }
     }
 }
 
@@ -136,6 +139,7 @@ pub(super) struct Block<'arena> {
     pub(super) return_count:                u8,
     pub(super) instrs:                      Vec<&'arena Value<'arena>>,
     pub(super) constants:                   Vec<Constant>,
+    pub(super) functions:                   Vec<&'static str>,
 }
 
 
@@ -148,7 +152,10 @@ pub(super) fn run<'arena>(arena: &'arena Arena<Value<'arena>>, input: &vir::Bloc
     let instrs = schedule(&builder.values);
 
     Block { argument_count, instrs,
-        value_count: builder.values.len(), return_count: builder.return_count, constants: builder.constants}
+        value_count: builder.values.len(), return_count: builder.return_count,
+        constants: builder.constants,
+        functions: builder.function_map.keys().copied().collect()
+    }
 }
 
 
@@ -211,30 +218,74 @@ fn lower_expr<'arena>(
                     ValueDef::Instr(&isa::LDR_PC_F64)).1
             }
             vir::ExprKind::Binary(op, lhs, rhs) => {
-                let machine_instr = match op {
-                    BinaryOperator::Add             => &isa::FADD,
-                    BinaryOperator::Subtract        => &isa::FSUB,
-                    BinaryOperator::Multiply        => &isa::FMUL,
-                    BinaryOperator::Divide          => &isa::FDIV,
+                if *op == BinaryOperator::Power {
+                    let exprs = [lhs, rhs];
+                    let fixed_inputs = exprs.iter().enumerate()
+                        .map(|(reg, expr)| (
+                            if let Operand::Value(v) = lower_expr(arena, builder, expr) {
+                                v
+                            } else { panic!("internal compiler error: constant as argument to pow")},
+                            u8::try_from(reg).expect("internal compiler error: too many return values")
+                        ))
+                        .collect::<Vec<_>>();
+                        let function_value = intern_function(arena, builder, "pow", *expr.span());
+                        insert_value(arena, builder, expr, vec![function_value], fixed_inputs, Some(0u8),
+                            ValueDef::Instr(&isa::BLR)).1
+                } else {
+                    let machine_instr = match op {
+                        BinaryOperator::Add             => &isa::FADD,
+                        BinaryOperator::Subtract        => &isa::FSUB,
+                        BinaryOperator::Multiply        => &isa::FMUL,
+                        BinaryOperator::Divide          => &isa::FDIV,
 
-//                    BinaryOperator::Power           => &machine::FADD,
+                        _                               => todo!("More machine ops")
 
-                    _                               => todo!("More machine ops")
+                        // BinaryOperator::Equal           => &machine::FADD,
+                        // BinaryOperator::NotEqual        => &machine::FADD,
+                        // BinaryOperator::LessThan        => &machine::FADD,
+                        // BinaryOperator::LessEqual       => &machine::FADD,
+                        // BinaryOperator::GreaterThan     => &machine::FADD,
+                        // BinaryOperator::GreaterEqual    => &machine::FADD,
+                    };
 
-                    // BinaryOperator::Equal           => &machine::FADD,
-                    // BinaryOperator::NotEqual        => &machine::FADD,
-                    // BinaryOperator::LessThan        => &machine::FADD,
-                    // BinaryOperator::LessEqual       => &machine::FADD,
-                    // BinaryOperator::GreaterThan     => &machine::FADD,
-                    // BinaryOperator::GreaterEqual    => &machine::FADD,
-                };
-
-                let operands = vec![lower_expr(arena, builder, lhs), lower_expr(arena, builder, rhs)];
-                insert_value(arena, builder, expr, operands, vec![], None,
-                    ValueDef::Instr(machine_instr)).1
+                    let operands = vec![lower_expr(arena, builder, lhs), lower_expr(arena, builder, rhs)];
+                    insert_value(arena, builder, expr, operands, vec![], None,
+                        ValueDef::Instr(machine_instr)).1
+                }
             }
         }
     }
+}
+
+
+fn intern_function<'arena>(
+    arena:                                  &'arena Arena<Value<'arena>>,
+    builder:                                &mut Builder<'arena>,
+    name:                                   &'static str,
+    span:                                   Span) -> Operand<'arena> {
+    let v = if let Some(&v) = builder.function_map.get(name) {
+        v
+    } else {
+        let v = create_value(arena, builder, vec![Operand::Function(name)], vec![], None,
+            ValueDef::Instr(&isa::LDR_PC_I64), span);
+        builder.function_map.insert(name, v);
+        v
+    };
+    Operand::Value(v)
+}
+
+
+fn create_value<'arena>(
+    arena:                                  &'arena Arena<Value<'arena>>,
+    builder:                                &mut Builder<'arena>,
+    operands:                               Vec<Operand<'arena>>,
+    fixed_inputs:                           Vec<(&'arena Value<'arena>, u8)>,
+    fixed_output:                           Option<u8>,
+    def:                                    ValueDef,
+    span:                                   Span) -> &'arena Value<'arena>  {
+    let value = arena.alloc(Value::new(arena.len(), def, operands, fixed_inputs, fixed_output, span));
+    builder.values.push(value);
+    value
 }
 
 
@@ -246,8 +297,7 @@ fn insert_value<'arena>(
     fixed_inputs:                           Vec<(&'arena Value<'arena>, u8)>,
     fixed_output:                           Option<u8>,
     def:                                    ValueDef) -> (&'arena Value<'arena>, Operand<'arena>)  {
-    let value = arena.alloc(Value::new(arena.len(), def, operands, fixed_inputs, fixed_output, *expr.span()));
-    builder.values.push(value);
+    let value = create_value(arena, builder, operands, fixed_inputs, fixed_output, def, *expr.span());
     let operand = Operand::Value(value);
     builder.operand_map.insert(expr.pool_index(), operand);
     (value, operand)

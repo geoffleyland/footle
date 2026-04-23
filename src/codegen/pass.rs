@@ -14,7 +14,8 @@ pub fn run(vir_block: &vir::Block) -> binary::CompiledFn {
     let (allocated, registers_to_save) =
         allocator::run(scheduled_block.argument_count, scheduled_block.value_count, &scheduled_block.instrs);
     let assembler =
-        assembler::run(allocated, &scheduled_block.constants, scheduled_block.argument_count, scheduled_block.return_count, &registers_to_save);
+        assembler::run(allocated, &scheduled_block.constants, &scheduled_block.functions,
+            scheduled_block.argument_count, scheduled_block.return_count, &registers_to_save);
     binary::emit(&assembler)
 }
 
@@ -24,7 +25,8 @@ pub fn run(vir_block: &vir::Block) -> binary::CompiledFn {
 
 enum InstrOperand {
     Constant(usize),
-    Instr(usize)
+    Function(&'static str),
+    Instr(usize),
 }
 
 
@@ -53,10 +55,13 @@ impl Styleable for Schedule {
             let operands = instr.operands.iter().map(|o|
                 match o {
                     InstrOperand::Constant(i)   => format!("K{i}"),
-                    InstrOperand::Instr(i)      => format!("I{i}")
+                    InstrOperand::Instr(i)      => format!("I{i}"),
+                    InstrOperand::Function(s)   => s.to_string(),
                 }).collect::<Vec<_>>();
-            writer.writeln(f, indent, Some(instr.span), &format!("I{}: {} {}{}",
-                instr.slot, instr.opcode, operands.join(" "),
+            writer.writeln(f, indent, Some(instr.span), &format!("I{}: {}{}{}{}{}",
+                instr.slot, instr.opcode,
+                if operands.is_empty() { "" } else { " " }, operands.join(" "),
+                if instr.fixed_inputs.is_empty() { "" } else { " " },
                 instr.fixed_inputs.iter().map(|i| format!("I{i}")).collect::<Vec<_>>().join(" ")))?;
         }
         for (i, c) in self.constants.iter().enumerate() {
@@ -79,7 +84,8 @@ pub fn schedule(vir_block: &vir::Block) -> Schedule {
             operands:       c.operands.iter().map(|o|
                 match o {
                     scheduler::Operand::Constant(i)     => InstrOperand::Constant(*i),
-                    scheduler::Operand::Value(v)        => InstrOperand::Instr(v.slot)
+                    scheduler::Operand::Value(v)        => InstrOperand::Instr(v.slot),
+                    scheduler::Operand::Function(s)     => InstrOperand::Function(s),
                 }).collect(),
             fixed_inputs:   c.fixed_inputs.iter().map(|(v, _)| v.slot).collect(),
             span:           c.span})
@@ -97,7 +103,8 @@ pub fn assemble(vir_block: &vir::Block) -> assembler::Block {
     let scheduled_block = scheduler::run(&arena, vir_block);
     let (allocated, registers_to_save) =
         allocator::run(scheduled_block.argument_count, scheduled_block.value_count, &scheduled_block.instrs);
-    assembler::run(allocated, &scheduled_block.constants, scheduled_block.argument_count, scheduled_block.return_count, &registers_to_save)
+    assembler::run(allocated, &scheduled_block.constants, &scheduled_block.functions,
+        scheduled_block.argument_count, scheduled_block.return_count, &registers_to_save)
 }
 
 

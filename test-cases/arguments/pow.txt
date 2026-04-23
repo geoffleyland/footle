@@ -1,0 +1,54 @@
+argument a, b
+return b ^ a
+
+#( expected statements
+
+  argument a, b
+  return (b ^ a)
+
+#)
+
+#( expected vir
+
+  argument I0
+  argument I1
+  local I2 = I1 ^ I0
+  return I2
+
+#)
+
+#( expected schedule
+
+  I0: argument
+  I1: argument
+  I2: ldr pow
+  I3: blr I2 I1 I0
+  I4: ret I3
+
+#)
+
+#( expected assembler
+
+  0x1000: ldr x16, #0x1044
+  0x1004: fmov d16, d1
+  0x1008: fmov d1, d0
+  0x100c: fmov d0, d16
+  0x1010: str x30, [sp, #-0x10]!
+  0x1014: blr x16
+  0x1018: ldr x30, [sp], #0x10
+  0x101c: ret
+  0x1020: mov x16, x0
+  0x1024: stp x1, x30, [sp, #-0x10]!
+  0x1028: ldr d0, [x16]
+  0x102c: ldr d1, [x16, #8]
+  0x1030: bl #0x1000
+  0x1034: ldp x16, x30, [sp], #0x10
+  0x1038: str d0, [x16]
+  0x103c: ret
+  0x1044: pow
+
+#)
+
+#( expected results
+    2 6 -> 36
+#)

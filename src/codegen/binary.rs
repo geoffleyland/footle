@@ -54,15 +54,17 @@ impl Drop for CompiledFn {
 pub fn emit(block: &assembler::Block) -> CompiledFn {
     let instr_words = block.instrs.len();
     let constant_start_words = instr_words + usize::from(instr_words.is_multiple_of(2));
-    let total_code_size_bytes = constant_start_words * 4 + 8 * block.constants.len();
+    let function_start_words = constant_start_words + block.constants.len() * 2;
+    let total_code_size_bytes = function_start_words * 4 + 8 * block.functions.len();
 
     let ptr = sys::alloc_jit(total_code_size_bytes);
     let words = jit_as_words_mut(ptr, total_code_size_bytes);
 
     sys::start_jit_compile();
 
-    encode_instrs(&block.instrs, words, constant_start_words);
+    encode_instrs(&block.instrs, words, constant_start_words, function_start_words);
     encode_constants(&block.constants, words, constant_start_words);
+    encode_functions(&block.functions, words, function_start_words);
 
     sys::finish_jit_compile(ptr, total_code_size_bytes);
 
@@ -71,7 +73,11 @@ pub fn emit(block: &assembler::Block) -> CompiledFn {
 }
 
 
-fn encode_instrs(instrs: &[assembler::Instr], words: &mut [u32], constant_start_words: usize) {
+fn encode_instrs(
+    instrs:                         &[assembler::Instr],
+    words:                          &mut [u32],
+    constant_start_words:           usize,
+    function_start_words:           usize) {
     use assembler::Operand::*;
     for (address, instr) in instrs.iter().enumerate() {
         let operands = instr.operands.iter().map(|op| {
@@ -79,6 +85,8 @@ fn encode_instrs(instrs: &[assembler::Instr], words: &mut [u32], constant_start_
                 Reg(i)                  => u32::from(*i),
                 Constant(i)             => u32::try_from((constant_start_words - address) * 4 + (*i * 8))
                                             .expect("internal compiler error: constant offset too large"),
+                Function(i)             => u32::try_from((function_start_words - address) * 4 + (*i * 8))
+                                            .expect("internal compiler error: function offset too large"),
                 Offset(o)               => o.cast_unsigned(),
             }}).collect::<Vec<_>>();
         words[address] = (instr.code.encode)(&operands);
@@ -90,13 +98,29 @@ fn encode_constants(constants: &[Constant], words: &mut [u32], constant_start_wo
     let mut index = constant_start_words;
     for c in constants {
         let bits = c.value.to_bits();
-        // Just get the bottom 32 bits
-        words[index] = (bits & 0xFFFF_FFFF) as u32;
-        index += 1;
-        // And the top 32 bits
-        words[index] = (bits >> 32) as u32;
-        index += 1;
+        let (lo, hi) = u64_words(bits);
+        words[index] = lo;
+        words[index+1] = hi;
+        index += 2;
     }
+}
+
+
+fn encode_functions(functions: &[&'static str], words: &mut [u32], function_start_words: usize) {
+    let mut index = function_start_words;
+    for f in functions {
+        let ptr = sys::resolve_symbol(f);
+        let (lo, hi) = u64_words(ptr);
+        words[index] = lo;
+        words[index+1] = hi;
+        index += 2;
+    }
+}
+
+
+#[allow(clippy::cast_possible_truncation)]
+fn u64_words(value: u64) -> (u32, u32) {
+    (value as u32, (value >> 32) as u32)
 }
 
 

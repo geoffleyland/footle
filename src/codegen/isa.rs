@@ -17,7 +17,8 @@ pub(super) enum Unit {
 #[derive(Debug, EnumSetType)]
 enum CodeFlags {
     HasOutput,
-    RestoreRegs
+    RestoreRegs,
+    SaveLinkReg,
 }
 
 
@@ -41,6 +42,7 @@ impl Code {
 
     pub fn has_output(&self) -> bool    { self.flags.contains(CodeFlags::HasOutput) }
     pub fn restore_regs(&self) -> bool  { self.flags.contains(CodeFlags::RestoreRegs) }
+    pub fn save_link_reg(&self) -> bool { self.flags.contains(CodeFlags::SaveLinkReg) }
 }
 
 
@@ -133,6 +135,16 @@ pub(super) static FMOV: Code = Code {
     format:                 |operands, _| format!("d{}, d{}", operands[0], operands[1]),
 };
 
+pub(super) static LDR_PC_I64: Code = Code {
+    name:                   "ldr",
+    encode:                 |operands| 0b01_011_0_00_0000000000000000000_00000 | operands[0] | (((operands[1] >> 2) & 0x7_FFFF) << 5),
+    latency:                10,
+    clobbers:               0,
+    flags:                  enum_set!(CodeFlags::HasOutput),
+    units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
+    format:                 |operands, address| format!("x{}, #{:#x}", operands[0], address + operands[1]),
+};
+
 pub(super) static LDR_PC_F64: Code = Code {
     name:                   "ldr",
     encode:                 |operands| 0x5C00_0000 | (((operands[1] >> 2) & 0x7_FFFF) << 5) | operands[0],
@@ -151,6 +163,16 @@ pub(super) static LDR_OFFSET_F64: Code = Code {
     flags:                  enum_set!(CodeFlags::HasOutput),
     units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
     format:                 |operands, _| format!("d{}, {}", operands[0], format_reg_offset(operands[1], operands[2])),
+};
+
+pub(super) static LDR_POST_I64: Code = Code {
+    name:                   "ldr",
+    encode:                 |operands| 0b11_111_0_00_01_0_000000000_01_00000_00000 | operands[0] | operands[1] << 5 | ((operands[2] & 0x1FF) << 12),
+    latency:                10,
+    clobbers:               0,
+    flags:                  enum_set!(CodeFlags::HasOutput),
+    units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
+    format:                 |operands, _| format!("x{}, [{}], {}", operands[0], x_reg(operands[1]), format_offset(operands[2])),
 };
 
 pub(super) static LDR_POST_F64: Code = Code {
@@ -193,6 +215,16 @@ pub(super) static STR_OFFSET_F64: Code = Code {
     format:                 |operands, _| format!("d{}, {}", operands[0], format_reg_offset(operands[1], operands[2])),
 };
 
+pub(super) static STR_PRE_I64: Code = Code {
+    name:                   "str",
+    encode:                 |operands| 0b11_111_0_00_00_0_000000000_11_00000_00000 | ((operands[2] & 0x1FF) << 12) | operands[1] << 5 | operands[0],
+    latency:                10,
+    clobbers:               0,
+    flags:                  enum_set!(),
+    units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
+    format:                 |operands, _| format!("x{}, {}!", operands[0], format_reg_offset(operands[1], operands[2])),
+};
+
 pub(super) static STR_PRE_F64: Code = Code {
     name:                   "str",
     encode:                 |operands| 0b11_111_1_00_00_0_000000000_11_00000_00000 | ((operands[2] & 0x1FF) << 12) | operands[1] << 5 | operands[0],
@@ -228,9 +260,19 @@ pub(super) static BL: Code = Code {
     encode:                 |operands| 0b1_00_101_00000000000000000000000000 | ((operands[0] >> 2) & 0x03FF_FFFF),
     latency:                1,
     clobbers:               0xFFFF_00FF,
-    flags:                  enum_set!(),
+    flags:                  enum_set!(CodeFlags::SaveLinkReg),
     units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
     format:                 |operands, address| format!("#{:#x}", address + operands[0]),
+};
+
+pub(super) static BLR: Code = Code {
+    name:                   "blr",
+    encode:                 |operands| 0b110_101_1_0_0_01_11111_0000_0_0_00000_00000 | operands[0] << 5,
+    latency:                1,
+    clobbers:               0xFFFF_00FF,
+    flags:                  enum_set!(CodeFlags::SaveLinkReg),
+    units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
+    format:                 |operands, _| x_reg(operands[0]),
 };
 
 pub(super) static RET: Code = Code {
