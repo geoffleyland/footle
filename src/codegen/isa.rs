@@ -108,17 +108,6 @@ pub(super) static FDIV: Code = Code {
     format:                 |operands, address| f64_math_format(operands, address),
 };
 
-pub(super) static CFDIV: Code = Code {
-    name:                   "fdiv",
-    has_output:             true,
-    encode:                 |_operands| 0x1E60_1800 | 1 << 16,
-    latency:                10,
-    clobbers:               0xFFFF_00FF,
-    restore_regs:           false,
-    units:                  enum_set!(Unit::FP14),
-    format:                 |_, _| "d0, d0, d1".to_string(),
-};
-
 pub(super) static MOV_I64: Code = Code {
     name:                   "mov",
     has_output:             true,

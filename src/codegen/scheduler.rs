@@ -195,8 +195,6 @@ fn lower_expr<'arena>(
                     BinaryOperator::Multiply        => &isa::FMUL,
                     BinaryOperator::Divide          => &isa::FDIV,
 
-                    BinaryOperator::ConstrainedDivide   => &isa::CFDIV,
-
 //                    BinaryOperator::Power           => &machine::FADD,
 
                     _                               => todo!("More machine ops")
@@ -209,23 +207,9 @@ fn lower_expr<'arena>(
                     // BinaryOperator::GreaterEqual    => &machine::FADD,
                 };
 
-                if *op == BinaryOperator::ConstrainedDivide {
-                    let exprs = [lhs, rhs];
-                    let fixed_inputs = exprs.iter().enumerate()
-                        .map(|(reg, expr)| (
-                            if let Operand::Value(v) = lower_expr(arena, block, expr) {
-                                v
-                            } else { panic!("internal compiler error: constant as argument to return")},
-                            u8::try_from(reg).expect("internal compiler error: too many return values")
-                        ))
-                        .collect::<Vec<_>>();
-                        insert_value(arena, block, expr, vec![], fixed_inputs, Some(0u8),
-                            ValueDef::Instr(machine_instr)).1
-                } else {
-                    let operands = vec![lower_expr(arena, block, lhs), lower_expr(arena, block, rhs)];
-                    insert_value(arena, block, expr, operands, vec![], None,
-                        ValueDef::Instr(machine_instr)).1
-                }
+                let operands = vec![lower_expr(arena, block, lhs), lower_expr(arena, block, rhs)];
+                insert_value(arena, block, expr, operands, vec![], None,
+                    ValueDef::Instr(machine_instr)).1
             }
         }
     }
