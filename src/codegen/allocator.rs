@@ -1,5 +1,5 @@
 use std::cell::OnceCell;
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 use bit_set::BitSet;
 
@@ -9,6 +9,7 @@ use super::scheduler::Value;
 use super::scheduler;
 use super::isa;
 
+const NO_REG: u8 = u8::MAX;
 
 //-------------------------------------------------------------------------------------------------
 // Register Allocation
@@ -19,14 +20,13 @@ pub(super) fn run(
     scheduled:                           &[&Value<'_>]) -> (Vec<Instr>, Vec<u8>) {
     let (lowered, slot_count) = lower_to_slots_and_split(argument_count, slot_count, scheduled);
     let (regs, temp_regs) = allocate(argument_count, slot_count, &lowered);
-    let mut regs_to_save = HashSet::new();
+    let mut regs_to_save = BTreeSet::new();
     for r in &regs {
-        if *r != u8::MAX && isa::CALLEE_SAVED_REGS & (1 << r) != 0 {
+        if *r != NO_REG && isa::CALLEE_SAVED_REGS & (1 << r) != 0 {
             regs_to_save.insert(*r);
         }
     }
-    let mut regs_to_save: Vec<_> = regs_to_save.into_iter().collect();
-    regs_to_save.sort_unstable();
+    let regs_to_save: Vec<_> = regs_to_save.into_iter().collect();
     (
         lower_to_regs(&lowered, &regs, &temp_regs),
         regs_to_save
@@ -67,6 +67,7 @@ impl SlotInstr {
 }
 
 
+/// Lower the Scheduler's Values to Instrs, and split any live ranges that cross calls.
 fn lower_to_slots_and_split(
     argument_count:                     u8,
     slot_count:                         usize,
@@ -153,7 +154,7 @@ fn allocate(
     // If they are live, make sure they're not in a clobbered register.
     let mut live_slots = BitSet::new();
     let mut interfering_slots = vec![BitSet::new(); slot_count];
-    let mut available_regs = vec![0xFFFF_FFFFu32; slot_count];
+    let mut available_regs = vec![u32::MAX; slot_count];
 
     for instr in instrs.iter().rev() {
         live_slots.remove(instr.slot);
@@ -225,7 +226,10 @@ fn allocate(
     }
 
     (
-        regs.iter_mut().map(|c| c.take().unwrap_or(u8::MAX)).collect(),
+        regs.iter_mut().map(|c| c.take().unwrap_or(NO_REG)).collect(),
+        // Use the remaining available registers to find an available temporary register for each
+        // instruction, just in case it requires some register moves, and needs a temporary
+        // register for that.
         available_regs.iter().map(|&a| isa::REG_ORDER[a.trailing_zeros() as usize]).collect()
     )
 }

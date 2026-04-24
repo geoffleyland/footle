@@ -124,8 +124,21 @@ fn emit_function(
 }
 
 
+const NO_REG: u8 = u8::MAX;
+
+/// Given a list of register moves (source, dest), move values between registers.
+///
+/// To do this correctly, you have to be careful not to overwrite values before you've read them.
+///  * If all the moves are disjoint, it's easy, just do the moves.
+///  * If there are any chains, you have to move them from the destination end to the source end
+///    (otherwise you'll write a source to a destination, and then copy that source again, rather
+///    than the over-written value, to the next destination)
+///  * If there are any cycles, you can start anywhere, and work your way backwards around the
+///    cycle, using a temp register to hold the value of the first register you write to, and then
+///    moving the temp register into the last register you read from.  If you've already moved one
+///    of the values in the cycle as part of a chain, you can save yourself the temp register.
 fn move_regs(moves: &[(u8, u8)], temp_reg: u8, instrs: &mut Vec<Instr>) {
-    let mut sources = [0xFFu8; 32];
+    let mut sources = [NO_REG; 32];
     let mut destination_counts = [0u8; 32];
     for (source, destination) in moves {
         sources[usize::from(*destination)] = *source;
@@ -135,11 +148,11 @@ fn move_regs(moves: &[(u8, u8)], temp_reg: u8, instrs: &mut Vec<Instr>) {
     // Keep track of any copies we make of a value as we move them - they could be useful later
     // if we have to resolve a cycle including the value, where we could avoid using a temporary
     // register.
-    let mut copies = [0xFFu8; 32];
+    let mut copies = [NO_REG; 32];
     // Handle all the chains by starting from their ends
     for (_, destination) in moves {
         let source = sources[usize::from(*destination)];
-        if source != 0xFF && destination_counts[usize::from(*destination)] == 0 {
+        if source != NO_REG && destination_counts[usize::from(*destination)] == 0 {
             move_regs_backwards(*destination, &mut sources, &mut destination_counts, instrs);
             copies[usize::from(source)] = *destination;
         }
@@ -149,10 +162,10 @@ fn move_regs(moves: &[(u8, u8)], temp_reg: u8, instrs: &mut Vec<Instr>) {
     // need a temp
     for (_, destination) in moves {
         let source = sources[usize::from(*destination)];
-        if source == 0xFF { continue; }
+        if source == NO_REG { continue; }
         let copy = copies[usize::from(source)];
-        if copy == 0xFF { continue; }
-        sources[usize::from(*destination)] = 0xFF;
+        if copy == NO_REG { continue; }
+        sources[usize::from(*destination)] = NO_REG;
         move_regs_backwards(source, &mut sources, &mut destination_counts, instrs);
         assemble!(instrs, None, FMOV, Reg(*destination), Reg(copy));
     }
@@ -160,9 +173,9 @@ fn move_regs(moves: &[(u8, u8)], temp_reg: u8, instrs: &mut Vec<Instr>) {
     // Now do the ones where there's no other copy and we need a temp.
     for (_, destination) in moves {
         let source = sources[usize::from(*destination)];
-        if source == 0xFF { continue; }
+        if source == NO_REG { continue; }
         assemble!(instrs, None, FMOV, Reg(temp_reg), Reg(source));
-        sources[usize::from(*destination)] = 0xFF;
+        sources[usize::from(*destination)] = NO_REG;
         move_regs_backwards(source, &mut sources, &mut destination_counts, instrs);
         assemble!(instrs, None, FMOV, Reg(*destination), Reg(temp_reg));
     }
@@ -172,9 +185,9 @@ fn move_regs(moves: &[(u8, u8)], temp_reg: u8, instrs: &mut Vec<Instr>) {
 fn move_regs_backwards(mut destination: u8, sources: &mut[u8], destination_counts: &mut[u8], instrs: &mut Vec<Instr>) {
     loop {
         let source = sources[usize::from(destination)];
-        if source == 0xFF { return }
+        if source == NO_REG { return }
         assemble!(instrs, None, FMOV, Reg(destination), Reg(source));
-        sources[usize::from(destination)] = 0xFF;
+        sources[usize::from(destination)] = NO_REG;
         destination_counts[usize::from(source)] -= 1;
         if destination_counts[usize::from(source)] > 0 { return }
         destination = source;
@@ -193,7 +206,7 @@ fn emit_glue(argument_count: u8, return_count: u8, assembler: &mut Vec<Instr>) {
 
     // Move the output buffer and the return address to the stack, since they're about to get
     // overwritten and we need them later.
-    assemble!(assembler, None, STP_PRE_I64, Reg(1), Reg(30), Reg(31), Offset(-16));
+    assemble!(assembler, None, STP_PRE_I64, Reg(1), Reg(isa::LINK_REG), Reg(isa::STACK_REG), Offset(-16));
 
     // Move the arguments from the input buffer into the argument registers.
     for i in 0..argument_count {
@@ -206,7 +219,7 @@ fn emit_glue(argument_count: u8, return_count: u8, assembler: &mut Vec<Instr>) {
             .expect("internal compiler error: function too long for jump")));
 
     // Load the output buffer in to r16 and the return address to the appropriate spot
-    assemble!(assembler, None, LDP_POST_I64, Reg(16), Reg(30), Reg(31), Offset(16));
+    assemble!(assembler, None, LDP_POST_I64, Reg(16), Reg(isa::LINK_REG), Reg(isa::STACK_REG), Offset(16));
 
     for i in 0..return_count {
         assemble!(assembler, None, STR_OFFSET_F64, Reg(i), Reg(16), Offset(i32::from(i) * 8));

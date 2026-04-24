@@ -43,9 +43,7 @@ impl CompiledFn {
 
 
 impl Drop for CompiledFn {
-    fn drop(&mut self) {
-        sys::free_jit(self.ptr, self.size);
-    }
+    fn drop(&mut self) { sys::free_jit(self.ptr, self.size); }
 }
 
 
@@ -79,17 +77,17 @@ fn encode_instrs(
     constant_start_words:           usize,
     function_start_words:           usize) {
     use assembler::Operand::*;
-    for (address, instr) in instrs.iter().enumerate() {
+    for (word_index, instr) in instrs.iter().enumerate() {
         let operands = instr.operands.iter().map(|op| {
             match op {
                 Reg(i)                  => u32::from(*i),
-                Constant(i)             => u32::try_from((constant_start_words - address) * 4 + (*i * 8))
+                Constant(i)             => u32::try_from((constant_start_words - word_index) * 4 + (*i * 8))
                                             .expect("internal compiler error: constant offset too large"),
-                Function(i)             => u32::try_from((function_start_words - address) * 4 + (*i * 8))
+                Function(i)             => u32::try_from((function_start_words - word_index) * 4 + (*i * 8))
                                             .expect("internal compiler error: function offset too large"),
                 Offset(o)               => o.cast_unsigned(),
             }}).collect::<Vec<_>>();
-        words[address] = (instr.code.encode)(&operands);
+        words[word_index] = (instr.code.encode)(&operands);
     }
 }
 

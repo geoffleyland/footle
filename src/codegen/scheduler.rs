@@ -172,14 +172,7 @@ fn lower_vir<'arena>(arena: &'arena Arena<Value<'arena>>, input: &vir::Block) ->
             vir::StmtKind::Return(exprs) => {
                 // RETURN doesn't produce a value you can use, so add it to the instructions, but
                 // not to the operand_map.
-                let fixed_inputs = exprs.iter().enumerate()
-                    .map(|(reg, expr)| (
-                        if let Operand::Value(v) = lower_expr(arena, &mut builder, expr) { v }
-                        else { panic!("internal compiler error: constant as argument to return")},
-                        u8::try_from(reg).expect("internal compiler error: too many return values")
-                    ))
-                    .collect::<Vec<_>>();
-
+                let fixed_inputs = exprs_to_fixed_inputs(arena, &mut builder, exprs);
                 let ret = arena.alloc(Value::new(
                     arena.len(),
                     ValueDef::Instr(&isa::RET),
@@ -219,18 +212,10 @@ fn lower_expr<'arena>(
             }
             vir::ExprKind::Binary(op, lhs, rhs) => {
                 if *op == BinaryOperator::Power {
-                    let exprs = [lhs, rhs];
-                    let fixed_inputs = exprs.iter().enumerate()
-                        .map(|(reg, expr)| (
-                            if let Operand::Value(v) = lower_expr(arena, builder, expr) {
-                                v
-                            } else { panic!("internal compiler error: constant as argument to pow")},
-                            u8::try_from(reg).expect("internal compiler error: too many return values")
-                        ))
-                        .collect::<Vec<_>>();
-                        let function_value = intern_function(arena, builder, "pow", *expr.span());
-                        insert_value(arena, builder, expr, vec![function_value], fixed_inputs, Some(0u8),
-                            ValueDef::Instr(&isa::BLR)).1
+                    let fixed_inputs = exprs_to_fixed_inputs(arena, builder, &[lhs.clone(), rhs.clone()]);
+                    let function_value = intern_function(arena, builder, "pow", *expr.span());
+                    insert_value(arena, builder, expr, vec![function_value], fixed_inputs, Some(0u8),
+                        ValueDef::Instr(&isa::BLR)).1
                 } else {
                     let machine_instr = match op {
                         BinaryOperator::Add             => &isa::FADD,
@@ -239,13 +224,6 @@ fn lower_expr<'arena>(
                         BinaryOperator::Divide          => &isa::FDIV,
 
                         _                               => todo!("More machine ops")
-
-                        // BinaryOperator::Equal           => &machine::FADD,
-                        // BinaryOperator::NotEqual        => &machine::FADD,
-                        // BinaryOperator::LessThan        => &machine::FADD,
-                        // BinaryOperator::LessEqual       => &machine::FADD,
-                        // BinaryOperator::GreaterThan     => &machine::FADD,
-                        // BinaryOperator::GreaterEqual    => &machine::FADD,
                     };
 
                     let operands = vec![lower_expr(arena, builder, lhs), lower_expr(arena, builder, rhs)];
@@ -255,6 +233,25 @@ fn lower_expr<'arena>(
             }
         }
     }
+}
+
+
+fn exprs_to_fixed_inputs<'arena>(
+    arena:                                  &'arena Arena<Value<'arena>>,
+    builder:                                &mut Builder<'arena>,
+    exprs:                                  &[vir::Expr]) -> Vec<(&'arena Value<'arena>, u8)> {
+    exprs.iter().enumerate()
+        .map(|(reg, expr)|
+            (
+                if let Operand::Value(v) = lower_expr(arena, builder, expr) {
+                    v
+                } else {
+                    panic!("internal compiler error: constant as a fixed input")
+                },
+                u8::try_from(reg).expect("internal compiler error: too many return values")
+            )
+        )
+        .collect::<Vec<_>>()
 }
 
 
@@ -324,9 +321,14 @@ fn schedule<'arena>(values: &[&'arena Value<'arena>]) -> Vec<&'arena Value<'aren
     // And count the uses of each value
     let mut remaining_uses = values.iter().map(|v| users[v.slot].len() ).collect::<Vec<_>>();
 
-    // Find the critical path depths of each Value
-    let mut depths = vec![usize::MAX; values.len()];
-    for value in values { compute_depth(values, &users, &mut depths, value.slot); }
+    // Find the critical path depths of each Value.
+    // Because the Values are already topologically ordered, we can do this backwards and always
+    // find that the depths of our users that we need are already calculated.
+    let depths = values.iter().rev().fold(vec![0usize; values.len()], |mut d, value| {
+        d[value.slot] = usize::from(value.latency()) +
+            users[value.slot].iter().map(|&s| d[s]).max().unwrap_or(0);
+        d
+    });
     let mut current_critical_path_depth = depths.iter().copied().max().unwrap_or(0);
 
     let expected_length = values.iter().filter(|v| v.code().is_some()).count();
@@ -344,6 +346,14 @@ fn schedule<'arena>(values: &[&'arena Value<'arena>]) -> Vec<&'arena Value<'aren
     while scheduled.len() < expected_length {
         let mut free_units: EnumSet<isa::Unit> = EnumSet::all();
 
+        // Pick an instruction from those that:
+        //  * have all their operands ready
+        //  * can be executed on a free unit
+        //  * are on the critical path (if any)
+        //  * that retire the most registers
+        //  * that are deepest on the critical path (as in, if none are ON the critical path, and
+        //  *   more than one retires the most registers, pick the one deepest on the critical
+        //      path)
         while let Some(&best_instr) = ready_instrs.iter()
             .filter(|i| i.code().expect("internal compiler error: instruction without opcode").try_pick_unit(free_units).is_some())
             .max_by_key(|i| {
@@ -393,17 +403,6 @@ fn schedule<'arena>(values: &[&'arena Value<'arena>]) -> Vec<&'arena Value<'aren
     }
 
     scheduled
-}
-
-
-fn compute_depth<'arena>(values: &[&'arena Value<'arena>], users: &[Vec<usize>], depths: &mut [usize], slot: usize) -> usize {
-    if depths[slot] != usize::MAX { return depths[slot] }
-    let depth = usize::from(values[slot].latency()) +
-        users[slot].iter()
-            .map(|&user_slot| compute_depth(values, users, depths, user_slot))
-            .max().unwrap_or(0);
-    depths[slot] = depth;
-    depth
 }
 
 

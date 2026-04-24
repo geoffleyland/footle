@@ -21,6 +21,8 @@ enum CodeFlags {
     SaveLinkReg,
 }
 
+pub(super) const STACK_REG: u8 = 31;
+pub(super) const LINK_REG: u8 = 30;
 
 #[derive(Debug)]
 pub(super) struct Code {
@@ -82,7 +84,7 @@ pub(super) static FADD: Code = Code {
     clobbers:               0,
     flags:                  enum_set!(CodeFlags::HasOutput),
     units:                  enum_set!(Unit::FP11 | Unit::FP12 | Unit::FP13 | Unit::FP14),
-    format:                 |operands, address| f64_math_format(operands, address),
+    format:                 f64_math_format,
 };
 
 pub(super) static FSUB: Code = Code {
@@ -92,7 +94,7 @@ pub(super) static FSUB: Code = Code {
     clobbers:               0,
     flags:                  enum_set!(CodeFlags::HasOutput),
     units:                  enum_set!(Unit::FP11 | Unit::FP12 | Unit::FP13 | Unit::FP14),
-    format:                 |operands, address| f64_math_format(operands, address),
+    format:                 f64_math_format,
 };
 
 pub(super) static FMUL: Code = Code {
@@ -102,7 +104,7 @@ pub(super) static FMUL: Code = Code {
     clobbers:               0,
     flags:                  enum_set!(CodeFlags::HasOutput),
     units:                  enum_set!(Unit::FP11 | Unit::FP12 | Unit::FP13 | Unit::FP14),
-    format:                 |operands, address| f64_math_format(operands, address),
+    format:                 f64_math_format,
 };
 
 pub(super) static FDIV: Code = Code {
@@ -112,7 +114,7 @@ pub(super) static FDIV: Code = Code {
     clobbers:               0,
     flags:                  enum_set!(CodeFlags::HasOutput),
     units:                  enum_set!(Unit::FP14),
-    format:                 |operands, address| f64_math_format(operands, address),
+    format:                 f64_math_format,
 };
 
 pub(super) static MOV_I64: Code = Code {
