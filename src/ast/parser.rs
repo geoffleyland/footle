@@ -183,6 +183,9 @@ impl<S: Source> Parser<S> {
             }
             Ok(Identifier(name)) => {
                 self.advance();
+                if matches!(self.lookahead(0), (Ok(Token::LeftParenthesis), _)) {
+                    println!("HELLO ASSHOLES");
+                }
                 Ok(Expr::identifier(name, span))
             }
             Ok(LeftParenthesis) => {
@@ -236,7 +239,7 @@ impl<S: Source> Parser<S> {
     /// Parse a comma-separated list of items.
     ///
     /// Where the items are defined by `f`.
-    fn parse_comma_separated_list<R, F: FnMut(&mut Self) -> R>(&mut self, mut f: F) -> Nev<R> {
+    fn parse_comma_separated_nev<R, F: FnMut(&mut Self) -> R>(&mut self, mut f: F) -> Nev<R> {
         std::iter::successors(Some(f(self)), |_| {
             if self.lookahead(0).0 == Ok(Token::Comma) {
                 self.advance();
@@ -254,8 +257,8 @@ impl<S: Source> Parser<S> {
     /// This strictly parses only identifiers, so we're only expecting this after a variable
     /// declaration (local, mutable local or argument). The return vector contains the identifier
     /// (a string) and its location in the source file.
-    fn parse_identifier_list(&mut self) -> Nev<(Option<String>, Span)> {
-        self.parse_comma_separated_list(Self::expect_identifier)
+    fn parse_identifier_nev(&mut self) -> Nev<(Option<String>, Span)> {
+        self.parse_comma_separated_nev(Self::expect_identifier)
     }
 
 
@@ -266,15 +269,15 @@ impl<S: Source> Parser<S> {
     /// might be followed by an equals (if this proves to be an assignment), then, in that case
     /// (see `parse_assignments_or_exprs` below) we might have to convert it into a list of
     /// identifiers.
-    fn parse_expr_list(&mut self) -> Nev<Result<Expr, Span>> {
-        self.parse_comma_separated_list(Self::parse_expr)
+    fn parse_expr_nev(&mut self) -> Nev<Result<Expr, Span>> {
+        self.parse_comma_separated_nev(Self::parse_expr)
     }
 
 
     /// Parse 'argument' followed by a list of variable names.
     fn parse_arguments(&mut self) -> Option<Stmt> {
         let start = expect!(self, Token::Argument);
-        let names: Nev<_> = self.parse_identifier_list().into_iter()
+        let names: Nev<_> = self.parse_identifier_nev().into_iter()
             .map(|(maybe_name, span)| Some((maybe_name?, span)))
             .collect::<Option<Vec<_>>>()?.try_into().unwrap();
 
@@ -357,7 +360,7 @@ impl<S: Source> Parser<S> {
                 (maybe_rhs, statements, end)
             }
             _ => {
-                let maybe_rhs = self.parse_expr_list();
+                let maybe_rhs = self.parse_expr_nev();
                 let end = *maybe_rhs.last().as_ref().map_or_else(|s| s, |e| e.span());
                 (maybe_rhs, vec![], end)
             }
@@ -378,7 +381,7 @@ impl<S: Source> Parser<S> {
 
     /// Parse "local a, b = 1, 2" etc, including "local a, b = begin 1, 2 end"
     fn parse_local(&mut self, declaration: Declaration, span: Span) -> Option<Stmt> {
-        let lhs = self.parse_identifier_list();
+        let lhs = self.parse_identifier_nev();
         expect!(self, Token::Assign);
         self.parse_assignment(span, declaration, lhs)
     }
@@ -421,7 +424,7 @@ impl<S: Source> Parser<S> {
     ///
     /// We can't tell until after we're seen the "=" at the end of the the left-hand side list.
     fn parse_assignments_or_exprs(&mut self) -> Option<Stmt> {
-        let maybe_lhs = self.parse_expr_list();
+        let maybe_lhs = self.parse_expr_nev();
         if self.lookahead(0).0 == Ok(Token::Assign) {
             // We got an "=".  Turn our lhs list into a list of names, and parse an
             // assignment.
@@ -439,7 +442,7 @@ impl<S: Source> Parser<S> {
 
     /// Parse a list of expressions or assignments.
     fn parse_exprs(&mut self) -> Option<Stmt> {
-        let lhs = try_collect_nev(self.parse_expr_list())?;
+        let lhs = try_collect_nev(self.parse_expr_nev())?;
         let span = lhs.first().span().union(lhs.last().span());
         Some(Stmt::exprs(lhs, span))
     }
@@ -447,7 +450,7 @@ impl<S: Source> Parser<S> {
 
     fn parse_return(&mut self) -> Option<Stmt> {
         let start = expect!(self, Token::Return);
-        let values = try_collect_nev(self.parse_expr_list())?;
+        let values = try_collect_nev(self.parse_expr_nev())?;
         let span = start.union(values.last().span());
         Some(Stmt::return_stmt(values, span))
     }
