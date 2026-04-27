@@ -1,9 +1,11 @@
 use std::collections::HashMap;
+use std::mem::swap;
 
-use crate::core::ParseError;
+use crate::core::{BinaryOperator, ParseError};
 use crate::{ast, vir, nev};
 use super::symbol_table::{AssignmentError, SymbolTable};
 use super::expr_pool::ExprPool;
+use super::expr::ExprKind;
 use crate::parse_error;
 
 
@@ -143,11 +145,48 @@ impl Pass {
                 let span = lhs.span().union(rhs.span());
                 let lhs = self.transform_expr(lhs)?;
                 let rhs = self.transform_expr(rhs)?;
-                Ok(self.exprs.binary(*op, lhs, rhs, span))
+                Ok(self.exprs.intern(fold_binary(*op, lhs, rhs), span))
             }
         }
     }
 }
+
+
+/// Fold a binary expression.
+///
+/// If the left-hand-side and right-hand-side are both constants, then fold the constant, and
+/// intern the result as a constant.
+/// Alternatively one or both must be a variable or expression, and it'll help CSE to have
+/// them in a standard form (so it thinks A + B is the same as B + A).  So:
+///  * try to organise comparisons into Less and Less or Equal (rather that Greater)
+///  * if the operator is commutable then:
+///    * if there's a constant, try to get it on the right
+///    * if they're both expressions, put the one with the lower index on the left.
+fn fold_binary(op: BinaryOperator, lhs: vir::Expr, rhs: vir::Expr) -> ExprKind {
+        // Get comparison operators the standard way around.
+        let (op, mut reverse) = op.should_reverse().map_or(
+            (op, false),
+            |reverse_op| (reverse_op, true));
+
+        if let &ExprKind::Number(mut lhs_value) = lhs.kind() {
+            if let &ExprKind::Number(mut rhs_value) = rhs.kind() {
+                // Both operands are constants: fold them.
+                if reverse { swap(&mut lhs_value, &mut rhs_value); }
+                return ExprKind::Number(op.eval_constants(lhs_value, rhs_value))
+            }
+            // LHS is a constant, and RHS is a variable/expression - try to get the RHS first.
+            if op.is_commutable() { reverse = !reverse; }
+
+        } else if !matches!(rhs.kind(), ExprKind::Number(_))
+                && op.is_commutable()
+                && rhs.pool_index() < lhs.pool_index() {
+            // Both operands are variables/expressions - get the lowest-indexed one first.
+            reverse = !reverse;
+        }
+        // Turns out it's quite hard to swap lhs and rhs, so just do it this way.
+        if reverse  { ExprKind::Binary(op, rhs, lhs) }
+        else        { ExprKind::Binary(op, lhs, rhs) }
+    }
 
 
 //-------------------------------------------------------------------------------------------------

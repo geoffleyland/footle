@@ -184,7 +184,6 @@ impl<S: Source> Parser<S> {
             Ok(Identifier(name)) => {
                 self.advance();
                 if matches!(self.lookahead(0), (Ok(Token::LeftParenthesis), _)) {
-                    println!("HELLO ASSHOLES");
                 }
                 Ok(Expr::identifier(name, span))
             }
