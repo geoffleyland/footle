@@ -25,7 +25,7 @@ pub fn run(vir_block: &vir::Block) -> binary::CompiledFn {
 
 enum InstrOperand {
     Constant(usize),
-    Function(&'static str),
+    Function(String),
     Instr(usize),
 }
 
@@ -54,9 +54,9 @@ impl Styleable for Schedule {
         for instr in &self.instrs {
             let operands = instr.operands.iter().map(|o|
                 match o {
-                    InstrOperand::Constant(i)   => format!("K{i}"),
-                    InstrOperand::Instr(i)      => format!("I{i}"),
-                    InstrOperand::Function(s)   => s.to_string(),
+                    InstrOperand::Constant(i)           => format!("K{i}"),
+                    InstrOperand::Instr(i)              => format!("I{i}"),
+                    InstrOperand::Function(name)        => name.clone(),
                 }).collect::<Vec<_>>();
             writer.writeln(f, indent, Some(instr.span), &format!("I{}: {}{}{}{}{}",
                 instr.slot, instr.opcode,
@@ -85,7 +85,7 @@ pub fn schedule(vir_block: &vir::Block) -> Schedule {
                 match o {
                     scheduler::Operand::Constant(i)     => InstrOperand::Constant(*i),
                     scheduler::Operand::Value(v)        => InstrOperand::Instr(v.slot),
-                    scheduler::Operand::Function(s)     => InstrOperand::Function(s),
+                    scheduler::Operand::Function(s)     => InstrOperand::Function(s.clone()),
                 }).collect(),
             fixed_inputs:   c.fixed_inputs.iter().map(|(v, _)| v.slot).collect(),
             span:           c.span})

@@ -34,6 +34,7 @@ pub enum InstrKind {
     Number(f64),
     Binary(BinaryOperator, usize, usize),
     Return(Nev<usize>),
+    Call(String, Vec<usize>),
 }
 
 
@@ -53,7 +54,9 @@ impl Styleable for Instr {
             Number(value)                   => format!("{} I{address} = {value}", Token::Local),
             Binary(op, lhs, rhs)            => format!("{} I{address} = I{lhs} {op} I{rhs}", Token::Local),
             Return(addresses)               => format!("{} {}", Token::Return,
-                addresses.iter().map(|a| format!("I{a}")).collect::<Vec<_>>().join(", "))
+                addresses.iter().map(|a| format!("I{a}")).collect::<Vec<_>>().join(", ")),
+            Call(name, addresses)           => format!("{} I{address} = {name}({})", Token::Local,
+                addresses.iter().map(|a| format!("I{a}")).collect::<Vec<_>>().join(", ")),
 
         };
         writer.write(f, indent, Some(self.span), &line)

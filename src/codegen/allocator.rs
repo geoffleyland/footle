@@ -40,7 +40,7 @@ pub(super) fn run(
 #[derive(Debug)]
 enum SlotOperand {
     Constant(usize),
-    Function(&'static str),
+    Function(String),
     Slot(usize),
 }
 
@@ -100,7 +100,7 @@ fn lower_to_slots_and_split(
             match op {
                 scheduler::Operand::Constant(i)             => SlotOperand::Constant(*i),
                 scheduler::Operand::Value(v)                => SlotOperand::Slot(slot_map[v.slot]),
-                scheduler::Operand::Function(s)             => SlotOperand::Function(s),
+                scheduler::Operand::Function(s)             => SlotOperand::Function(s.clone()),
             }).collect();
         let fixed_inputs = value.fixed_inputs.iter().map(|(v, reg)| (slot_map[v.slot], *reg)).collect();
         let mut slot_moves: Vec<(usize, usize)> = vec![];
@@ -256,7 +256,7 @@ fn set_reg(
 #[derive(Debug)]
 pub(super) enum Operand {
     Constant(usize),
-    Function(&'static str),
+    Function(String),
     Reg(u8),
 }
 
@@ -281,7 +281,7 @@ fn lower_to_regs(
         for op in &instr.operands {
             match op {
                 SlotOperand::Constant(i)    => operands.push(Operand::Constant(*i)),
-                SlotOperand::Function(s)    => operands.push(Operand::Function(s)),
+                SlotOperand::Function(name) => operands.push(Operand::Function(name.clone())),
                 SlotOperand::Slot(s)        => operands.push(Operand::Reg(regs[*s])),
             }
         }

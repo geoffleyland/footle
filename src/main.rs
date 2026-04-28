@@ -9,6 +9,7 @@ use std::{
 use argh::FromArgs;
 use git_version::git_version;
 
+mod env;
 mod ast;
 mod core;
 mod lex;
@@ -16,6 +17,7 @@ mod vir;
 mod codegen;
 
 use core::Styleable;
+use env::Env;
 
 
 //-------------------------------------------------------------------------------------------------
@@ -92,7 +94,8 @@ fn run_file(file_name: &str) -> Result<(), Box<dyn Error>> {
         return Err("Syntax errors".into())
     }
 
-    let (vir_block, vir_errors) = vir::run(&stmts);
+    let env = Env::new();
+    let (vir_block, vir_errors) = vir::run(&env, &stmts);
     if vir_errors.is_empty() {
         let instrs = vir::instructions(&vir_block);
         println!("\nVIR instructions from '{file_name}':");
@@ -271,7 +274,8 @@ fn test_lines(
         compare_lines(&string_stmts, &expected["statements"], section, "statements")?;
     }
 
-    let (vir_stmts, vir_errors) = vir::run(&stmts);
+    let env = Env::new();
+    let (vir_stmts, vir_errors) = vir::run(&env, &stmts);
     checking |= section == "vir";
     if checking {
         if section == "source" { // only check errors the first time around

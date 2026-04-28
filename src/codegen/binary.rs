@@ -104,7 +104,7 @@ fn encode_constants(constants: &[Constant], words: &mut [u32], constant_start_wo
 }
 
 
-fn encode_functions(functions: &[&'static str], words: &mut [u32], function_start_words: usize) {
+fn encode_functions(functions: &[String], words: &mut [u32], function_start_words: usize) {
     let mut index = function_start_words;
     for f in functions {
         let ptr = sys::resolve_symbol(f);

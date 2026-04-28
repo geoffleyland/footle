@@ -184,8 +184,15 @@ impl<S: Source> Parser<S> {
             Ok(Identifier(name)) => {
                 self.advance();
                 if matches!(self.lookahead(0), (Ok(Token::LeftParenthesis), _)) {
+                    self.advance();
+                    let maybe_exprs = self.parse_expr_vec(Token::RightParenthesis)
+                        .into_iter().map(Result::ok).collect::<Option<Vec<_>>>();
+                    let end = expect!(self, RightParenthesis, "to match opening '(' here:", span);
+                    let span = span.union(&end);
+                    maybe_exprs.map_or(Err(span), |exprs| Ok(Expr::call(name, exprs, span)))
+                } else {
+                    Ok(Expr::identifier(name, span))
                 }
-                Ok(Expr::identifier(name, span))
             }
             Ok(LeftParenthesis) => {
                 self.advance();
@@ -238,6 +245,23 @@ impl<S: Source> Parser<S> {
     /// Parse a comma-separated list of items.
     ///
     /// Where the items are defined by `f`.
+    fn parse_comma_separated_vec<R, F: FnMut(&mut Self) -> R>(&mut self, mut f: F, terminator: Token) -> Vec<R> {
+        if self.lookahead(0).0 == Ok(terminator) { return vec![] }
+        std::iter::successors(Some(f(self)), |_| {
+            if self.lookahead(0).0 == Ok(Token::Comma) {
+                self.advance();
+                Some(f(self))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>()
+    }
+
+
+    /// Parse a comma-separated list of at least one items.
+    ///
+    /// Where the items are defined by `f`.
     fn parse_comma_separated_nev<R, F: FnMut(&mut Self) -> R>(&mut self, mut f: F) -> Nev<R> {
         std::iter::successors(Some(f(self)), |_| {
             if self.lookahead(0).0 == Ok(Token::Comma) {
@@ -261,7 +285,15 @@ impl<S: Source> Parser<S> {
     }
 
 
-    /// Parse a list of expressions.
+    /// Parse a vec of zero or more expressions.
+    ///
+    /// This is for lists of function arguments.
+    fn parse_expr_vec(&mut self, terminator: Token) -> Vec<Result<Expr, Span>> {
+        self.parse_comma_separated_vec(Self::parse_expr, terminator)
+    }
+
+
+    /// Parse a non-empty list of expressions.
     ///
     /// This could be the right hand side of an assignment, a list of values to return, or just a
     /// list of expressions.  Because when we start parsing an expression list, we don't know if it
@@ -608,6 +640,75 @@ mod test {
             |i, e| test_parse(&|mut p: Parser<&str>| p.parse_priority_expr(0).unwrap(), i, e);
         test("2.0 # comment\n + 3.0", "(2 + 3)");
         test("2.0 #(comment#) + 3.0", "(2 + 3)");
+    }
+
+    #[test]
+    fn test_bad_declarations() {
+        let test = |i, e| {
+            test_parse(
+                &|mut p: Parser<&str>| {
+                    let r = p.parse_stmts();
+                    display_parse_result(p, r)
+                },
+                i,
+                e,
+            )
+        };
+        test("a + 1 = 1", "invalid left-hand side of assignment");
+        test("a + b = 1", "invalid left-hand side of assignment");
+        test("f() = 1",   "invalid left-hand side of assignment");
+        test("f(x) = 1",  "invalid left-hand side of assignment");
+    }
+
+    #[test]
+    fn test_call_expr() {
+        let test =
+            |i, e| test_parse(&|mut p: Parser<&str>| p.parse_priority_expr(0).unwrap(), i, e);
+        test("f()",              "f()");
+        test("f(1)",             "f(1)");
+        test("f(1, 2, 3)",       "f(1, 2, 3)");
+        test("f(1 + 2)",         "f((1 + 2))");
+        test("f(1 + 2, 3 * 4)",  "f((1 + 2), (3 * 4))");
+        test("f(x)",             "f(x)");
+        test("f(1) + 2",         "(f(1) + 2)");
+        test("1 + f(2)",         "(1 + f(2))");
+        test("f(g(1))",          "f(g(1))");
+        test("f(g(), h(1, 2))",  "f(g(), h(1, 2))");
+    }
+
+    #[test]
+    fn test_call_stmt() {
+        let test = |i, e| {
+            test_parse(
+                &|mut p: Parser<&str>| {
+                    let r = p.parse_stmts();
+                    display_parse_result(p, r)
+                },
+                i,
+                e,
+            )
+        };
+        test("f()",          "f()");
+        test("f(1, 2)",      "f(1, 2)");
+        test("local a = f(1)",  "local a = f(1)");
+        test("return f(1)",  "return f(1)");
+    }
+
+    #[test]
+    fn test_call_errors() {
+        let test = |i, e| {
+            test_parse(
+                &|mut p: Parser<&str>| {
+                    let r = p.parse_stmts();
+                    display_parse_result(p, r)
+                },
+                i,
+                e,
+            )
+        };
+        test("f(1",  "expected ')'\nto match opening '(' here:");
+        test("f(1,)", "expected number or identifier, got ')'");
+        test("f(+)", "expected number or identifier, got '+'\nexpected number or identifier, got ')'");
     }
 
     #[test]

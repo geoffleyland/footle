@@ -11,10 +11,10 @@ use super::isa;
 
 //-------------------------------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(super) enum Operand<'arena> {
     Constant(usize),
-    Function(&'static str),
+    Function(String),
     Value(&'arena Value<'arena>),
 }
 
@@ -122,7 +122,7 @@ struct Builder<'arena> {
     constants:                              Vec<Constant>,
     return_count:                           u8,
     operand_map:                            HashMap<usize, Operand<'arena>>,
-    function_map:                           HashMap<&'static str, &'arena Value<'arena>>,
+    function_map:                           HashMap<String, &'arena Value<'arena>>,
 }
 
 impl Builder<'_> {
@@ -139,7 +139,7 @@ pub(super) struct Block<'arena> {
     pub(super) return_count:                u8,
     pub(super) instrs:                      Vec<&'arena Value<'arena>>,
     pub(super) constants:                   Vec<Constant>,
-    pub(super) functions:                   Vec<&'static str>,
+    pub(super) functions:                   Vec<String>,
 }
 
 
@@ -154,7 +154,7 @@ pub(super) fn run<'arena>(arena: &'arena Arena<Value<'arena>>, input: &vir::Bloc
     Block { argument_count, instrs,
         value_count: builder.values.len(), return_count: builder.return_count,
         constants: builder.constants,
-        functions: builder.function_map.keys().copied().collect()
+        functions: builder.function_map.keys().cloned().collect()
     }
 }
 
@@ -194,8 +194,8 @@ fn lower_expr<'arena>(
     arena:                                  &'arena Arena<Value<'arena>>,
     builder:                                &mut Builder<'arena>,
     expr:                                   &vir::Expr) -> Operand<'arena> {
-    if let Some(&operand) = builder.operand_map.get(&expr.pool_index()) {
-        operand
+    if let Some(operand) = builder.operand_map.get(&expr.pool_index()) {
+        operand.clone()
     } else {
         match expr.kind() {
             vir::ExprKind::Argument(index, name) => {
@@ -231,6 +231,12 @@ fn lower_expr<'arena>(
                         ValueDef::Instr(machine_instr)).1
                 }
             }
+            vir::ExprKind::Call(name, exprs) => {
+                let fixed_inputs = exprs_to_fixed_inputs(arena, builder, exprs);
+                let function_value = intern_function(arena, builder, name, *expr.span());
+                insert_value(arena, builder, expr, vec![function_value], fixed_inputs, Some(0u8),
+                    ValueDef::Instr(&isa::BLR)).1
+            }
         }
     }
 }
@@ -258,14 +264,14 @@ fn exprs_to_fixed_inputs<'arena>(
 fn intern_function<'arena>(
     arena:                                  &'arena Arena<Value<'arena>>,
     builder:                                &mut Builder<'arena>,
-    name:                                   &'static str,
+    name:                                   &str,
     span:                                   Span) -> Operand<'arena> {
     let v = if let Some(&v) = builder.function_map.get(name) {
         v
     } else {
-        let v = create_value(arena, builder, vec![Operand::Function(name)], vec![], None,
+        let v = create_value(arena, builder, vec![Operand::Function(name.into())], vec![], None,
             ValueDef::Instr(&isa::LDR_PC_I64), span);
-        builder.function_map.insert(name, v);
+        builder.function_map.insert(name.into(), v);
         v
     };
     Operand::Value(v)
@@ -296,7 +302,7 @@ fn insert_value<'arena>(
     def:                                    ValueDef) -> (&'arena Value<'arena>, Operand<'arena>)  {
     let value = create_value(arena, builder, operands, fixed_inputs, fixed_output, def, *expr.span());
     let operand = Operand::Value(value);
-    builder.operand_map.insert(expr.pool_index(), operand);
+    builder.operand_map.insert(expr.pool_index(), operand.clone());
     (value, operand)
 }
 

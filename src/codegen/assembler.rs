@@ -44,7 +44,7 @@ pub struct Block {
     pub(super) instrs:              Vec<Instr>,
     pub(super) glue_start_words:    usize,
     pub(super) constants:           Vec<Constant>,
-    pub(super) functions:           Vec<&'static str>,
+    pub(super) functions:           Vec<String>,
     pub(super) argument_count:      u8,
     pub(super) return_count:        u8,
 }
@@ -55,7 +55,7 @@ pub struct Block {
 pub(super) fn run(
     allocated:                      Vec<allocator::Instr>,
     constants:                      &[Constant],
-    functions:                      &[&'static str],
+    functions:                      &[String],
     argument_count:                 u8,
     return_count:                   u8,
     regs_to_save:                   &[u8]) -> Block{
@@ -64,7 +64,7 @@ pub(super) fn run(
     let glue_start_words = instrs.len();
     emit_glue(argument_count, return_count, &mut instrs);
 
-    Block{ instrs, glue_start_words, constants: constants.into(), functions: functions.into(),
+    Block{ instrs, glue_start_words, constants: constants.into(), functions: functions.to_vec(),
         argument_count, return_count }
 }
 
@@ -72,7 +72,7 @@ pub(super) fn run(
 fn emit_function(
     allocated:                      Vec<allocator::Instr>,
     instrs:                         &mut Vec<Instr>,
-    functions:                      &[&'static str],
+    functions:                      &[String],
     regs_to_save:                   &[u8]) {
     // Save any callee saved registers
     for pair in regs_to_save.chunks(2) {

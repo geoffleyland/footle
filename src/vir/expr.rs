@@ -11,6 +11,7 @@ pub enum ExprKind {
     Binary(BinaryOperator, Expr, Expr),
     Number(f64),
     Argument(usize, String),
+    Call(String, Vec<Expr>),
 }
 
 
@@ -28,6 +29,10 @@ impl Hash for ExprKind {
             Self::Argument(index, ..) => {
                 index.hash(state);
             }
+            Self::Call(name, exprs) => {
+                name.hash(state);
+                for e in exprs { Rc::as_ptr(&e.entry).hash(state); }
+            }
         }
     }
 }
@@ -43,6 +48,7 @@ impl PartialEq for ExprKind {
             }
             (Self::Number(value1), Self::Number(value2)) => { value1 == value2 }
             (Self::Argument(index1, ..), Self::Argument(index2, ..)) => { index1 == index2 }
+            // We don't do CSE on calls (until we can work out if functions are pure)
             _ => false
         }
     }

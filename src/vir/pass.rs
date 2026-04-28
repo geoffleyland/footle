@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::mem::swap;
 
+use crate::env::{Env, FunctionDef};
 use crate::core::{BinaryOperator, ParseError};
 use crate::{ast, vir, nev};
 use super::symbol_table::{AssignmentError, SymbolTable};
@@ -28,11 +29,11 @@ impl Block {
 
 //-------------------------------------------------------------------------------------------------
 
-pub fn run(stmts: &[ast::Stmt]) -> (Block, Vec<ParseError>) {
+pub fn run(env: &Env, stmts: &[ast::Stmt]) -> (Block, Vec<ParseError>) {
     let mut p = Pass::new();
 
     for stmt in stmts {
-        p.transform_stmt(stmt);
+        p.transform_stmt(env, stmt);
     }
     (p.block, p.errors)
 }
@@ -60,7 +61,7 @@ impl Pass {
 
     fn push_error(&mut self, error: ParseError) { self.errors.push(error); }
 
-    fn transform_stmt(&mut self, stmt: &ast::Stmt) {
+    fn transform_stmt(&mut self, env: &Env, stmt: &ast::Stmt) {
         match &stmt.kind {
             ast::StmtKind::Arguments(names) => {
                 for (name, span) in names {
@@ -71,7 +72,7 @@ impl Pass {
             }
             ast::StmtKind::Return(exprs) => {
                 let maybe_exprs = exprs.into_iter()
-                    .map(|expr| self.transform_expr(expr).ok())
+                    .map(|expr| self.transform_expr(env, expr).ok())
                     .collect::<Option<Vec<_>>>();
                 if let Some(exprs) = maybe_exprs {
                     self.block.stmts.push(vir::Stmt::return_stmt(exprs.try_into().unwrap(), stmt.span));
@@ -81,7 +82,7 @@ impl Pass {
                 if !assignment.stmts.is_empty() {
                     self.symbols.push_scope();
                     for stmt in &assignment.stmts {
-                        self.transform_stmt(stmt);
+                        self.transform_stmt(env, stmt);
                     }
                 }
                 // Transform all the right-hand-sides before we execute any of the assignments,
@@ -89,7 +90,7 @@ impl Pass {
                 // values, and things like `a, b = b, a` won't work.  (the `b = a` bit will think
                 // that `a` already equals `b` and the new `a` and `b` will be `b`)
                 let transformed_assignments = assignment.assignments.iter()
-                    .map(|(name, span, value)| (name, span, self.transform_expr(value)))
+                    .map(|(name, span, value)| (name, span, self.transform_expr(env, value)))
                     .collect::<Vec<_>>();
 
                 if !assignment.stmts.is_empty() {
@@ -128,7 +129,7 @@ impl Pass {
     }
 
 
-    fn transform_expr(&mut self, expr: &ast::Expr) -> Result<vir::Expr, ()> {
+    fn transform_expr(&mut self, env: &Env, expr: &ast::Expr) -> Result<vir::Expr, ()> {
         match expr.kind() {
             ast::ExprKind::Number(value) => {
                 Ok(self.exprs.number(*value, *expr.span()))
@@ -143,9 +144,30 @@ impl Pass {
             }
             ast::ExprKind::Binary(op, lhs, rhs) => {
                 let span = lhs.span().union(rhs.span());
-                let lhs = self.transform_expr(lhs)?;
-                let rhs = self.transform_expr(rhs)?;
+                let lhs = self.transform_expr(env, lhs)?;
+                let rhs = self.transform_expr(env, rhs)?;
                 Ok(self.exprs.intern(fold_binary(*op, lhs, rhs), span))
+            }
+            ast::ExprKind::Call(name, exprs) => {
+                let Some(def) = env.module.functions.get(name) else {
+                    parse_error!(self, format!("cannot find function '{name}' in this scope"), *expr.span());
+                    return Err(())
+                };
+                if def.arguments as usize != exprs.len() {
+                    parse_error!(self,
+                        format!("function '{name}' called with {} arguments, expected {}",
+                            exprs.len(),
+                            env.module.functions[name].arguments,
+                        ),
+                        *expr.span());
+                    return Err(())
+                }
+                let exprs = exprs.iter()
+                    .map(|e| self.transform_expr(env, e).ok())
+                    .collect::<Option<Vec<_>>>()
+                    .ok_or(())?;
+                // Ok(self.exprs.call(name, exprs.ok_or(())?, *expr.span()))
+                Ok(self.exprs.intern(fold_call(name, def, exprs), *expr.span()))
             }
         }
     }
@@ -163,30 +185,47 @@ impl Pass {
 ///    * if there's a constant, try to get it on the right
 ///    * if they're both expressions, put the one with the lower index on the left.
 fn fold_binary(op: BinaryOperator, lhs: vir::Expr, rhs: vir::Expr) -> ExprKind {
-        // Get comparison operators the standard way around.
-        let (op, mut reverse) = op.should_reverse().map_or(
-            (op, false),
-            |reverse_op| (reverse_op, true));
+    // Get comparison operators the standard way around.
+    let (op, mut reverse) = op.should_reverse().map_or(
+        (op, false),
+        |reverse_op| (reverse_op, true));
 
-        if let &ExprKind::Number(mut lhs_value) = lhs.kind() {
-            if let &ExprKind::Number(mut rhs_value) = rhs.kind() {
-                // Both operands are constants: fold them.
-                if reverse { swap(&mut lhs_value, &mut rhs_value); }
-                return ExprKind::Number(op.eval_constants(lhs_value, rhs_value))
-            }
-            // LHS is a constant, and RHS is a variable/expression - try to get the RHS first.
-            if op.is_commutable() { reverse = !reverse; }
-
-        } else if !matches!(rhs.kind(), ExprKind::Number(_))
-                && op.is_commutable()
-                && rhs.pool_index() < lhs.pool_index() {
-            // Both operands are variables/expressions - get the lowest-indexed one first.
-            reverse = !reverse;
+    if let &ExprKind::Number(mut lhs_value) = lhs.kind() {
+        if let &ExprKind::Number(mut rhs_value) = rhs.kind() {
+            // Both operands are constants: fold them.
+            if reverse { swap(&mut lhs_value, &mut rhs_value); }
+            return ExprKind::Number(op.eval_constants(lhs_value, rhs_value))
         }
-        // Turns out it's quite hard to swap lhs and rhs, so just do it this way.
-        if reverse  { ExprKind::Binary(op, rhs, lhs) }
-        else        { ExprKind::Binary(op, lhs, rhs) }
+        // LHS is a constant, and RHS is a variable/expression - try to get the RHS first.
+        if op.is_commutable() { reverse = !reverse; }
+
+    } else if !matches!(rhs.kind(), ExprKind::Number(_))
+            && op.is_commutable()
+            && rhs.pool_index() < lhs.pool_index() {
+        // Both operands are variables/expressions - get the lowest-indexed one first.
+        reverse = !reverse;
     }
+    // Turns out it's quite hard to swap lhs and rhs, so just do it this way.
+    if reverse  { ExprKind::Binary(op, rhs, lhs) }
+    else        { ExprKind::Binary(op, lhs, rhs) }
+}
+
+
+fn all_constants(exprs: &[vir::Expr]) -> Option<Vec<f64>> {
+    exprs.iter()
+        .map(|e| if let ExprKind::Number(v) = e.kind() { Some(*v) } else { None })
+        .collect()
+}
+
+
+fn fold_call(name: &str, def: &FunctionDef, exprs: Vec<vir::Expr>) -> ExprKind {
+    if let Some(fold) = def.const_fold &&
+        let Some(args) = all_constants(&exprs) {
+        ExprKind::Number((fold)(&args))
+    } else {
+        ExprKind::Call(name.to_string(), exprs)
+    }
+}
 
 
 //-------------------------------------------------------------------------------------------------
@@ -217,17 +256,26 @@ pub fn instructions(block: &Block) -> Vec<vir::Instr> {
 
 fn emit_expr(expr: &vir::Expr, instrs: &mut Vec<vir::Instr>, address_map: &mut HashMap<usize, usize>) {
     if !address_map.contains_key(&expr.pool_index()) {
-        if let vir::ExprKind::Binary(_, lhs, rhs) = expr.kind() {
-            emit_expr(lhs, instrs, address_map);
-            emit_expr(rhs, instrs, address_map);
+        match expr.kind() {
+            vir::ExprKind::Binary(_, lhs, rhs) => {
+                emit_expr(lhs, instrs, address_map);
+                emit_expr(rhs, instrs, address_map);
+            }
+            vir::ExprKind::Call(_, exprs) => {
+                for e in exprs { emit_expr(e, instrs, address_map); }
+            }
+            _ => {}
         }
+
         let address = instrs.len();
         address_map.insert(expr.pool_index(), address);
         let kind = match expr.kind() {
             vir::ExprKind::Number(v)            => vir::InstrKind::Number(*v),
             vir::ExprKind::Argument(..)         => vir::InstrKind::Argument,
             vir::ExprKind::Binary(op, lhs, rhs) =>
-                vir::InstrKind::Binary(*op, address_map[&lhs.pool_index()], address_map[&rhs.pool_index()])
+                vir::InstrKind::Binary(*op, address_map[&lhs.pool_index()], address_map[&rhs.pool_index()]),
+            vir::ExprKind::Call(name, exprs) =>
+                vir::InstrKind::Call(name.into(), exprs.iter().map(|e| address_map[&e.pool_index()]).collect()),
         };
         instrs.push(vir::Instr{kind, address, span: *expr.span()});
     }
