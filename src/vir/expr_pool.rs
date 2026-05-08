@@ -30,6 +30,9 @@ impl ExprPool {
         self.intern(ExprKind::Number(value), span)
     }
 
+    pub(super) fn bool(&mut self, value: bool, span: Span) -> Expr {
+        self.intern(ExprKind::Bool(value), span)
+    }
 
     pub(super) fn argument(&mut self, index: usize, name: &str, span: Span) -> Expr {
         self.intern(ExprKind::Argument(index, name.to_string()), span)

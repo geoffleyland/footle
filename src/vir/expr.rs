@@ -10,6 +10,7 @@ use crate::core::{BinaryOperator, Span};
 pub enum ExprKind {
     Binary(BinaryOperator, Expr, Expr),
     Number(f64),
+    Bool(bool),
     Argument(usize, String),
     Call(String, Vec<Expr>),
 }
@@ -25,6 +26,9 @@ impl Hash for ExprKind {
             }
             Self::Number(value) => {
                 value.to_bits().hash(state);
+            }
+            Self::Bool(value) => {
+                value.hash(state);
             }
             Self::Argument(index, ..) => {
                 index.hash(state);
@@ -47,6 +51,7 @@ impl PartialEq for ExprKind {
                 Rc::ptr_eq(&rhs1.entry, &rhs2.entry)
             }
             (Self::Number(value1), Self::Number(value2)) => { value1 == value2 }
+            (Self::Bool(value1), Self::Bool(value2)) => { value1 == value2 }
             (Self::Argument(index1, ..), Self::Argument(index2, ..)) => { index1 == index2 }
             // We don't do CSE on calls (until we can work out if functions are pure)
             _ => false

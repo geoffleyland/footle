@@ -413,6 +413,19 @@ mod test {
         expect_token("begin", Begin);
         expect_token("end", End);
         expect_token("return", Return);
+        expect_token("true", Bool(true));
+        expect_token("false", Bool(false));
+    }
+
+
+    #[test]
+    fn test_bool_literals() {
+        use Token::*;
+        // Prefix of a keyword is still an identifier
+        expect_identifier("trueish", "trueish");
+        expect_identifier("falsehood", "falsehood");
+        // Both together
+        assert_eq!(collect_lex("true false"), vec![Bool(true), Bool(false)]);
     }
 
 

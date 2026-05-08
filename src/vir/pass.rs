@@ -134,6 +134,9 @@ impl Pass {
             ast::ExprKind::Number(value) => {
                 Ok(self.exprs.number(*value, *expr.span()))
             }
+            ast::ExprKind::Bool(value) => {
+                Ok(self.exprs.bool(*value, *expr.span()))
+            }
             ast::ExprKind::Identifier(name) => {
                 self.symbols.find(name).map_or_else(|| {
                     parse_error!(self, format!("cannot find value '{name}' in this scope"), *expr.span());
@@ -271,6 +274,7 @@ fn emit_expr(expr: &vir::Expr, instrs: &mut Vec<vir::Instr>, address_map: &mut H
         address_map.insert(expr.pool_index(), address);
         let kind = match expr.kind() {
             vir::ExprKind::Number(v)            => vir::InstrKind::Number(*v),
+            vir::ExprKind::Bool(v)              => vir::InstrKind::Bool(*v),
             vir::ExprKind::Argument(..)         => vir::InstrKind::Argument,
             vir::ExprKind::Binary(op, lhs, rhs) =>
                 vir::InstrKind::Binary(*op, address_map[&lhs.pool_index()], address_map[&rhs.pool_index()]),

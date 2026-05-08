@@ -139,7 +139,10 @@ impl<S: Source> Parser<S> {
         let (token, span) = self.lookahead(0);
         match token {
             Ok(Argument)                        => self.parse_arguments(),
-            Ok(Number(_) | LeftParenthesis)     => self.parse_exprs(),
+            Ok(
+                Number(_) |
+                Bool(_) |
+                LeftParenthesis)                => self.parse_exprs(),
             Ok(Identifier(_))                   => self.parse_assignments_or_exprs(),
             Ok(Return)                          => self.parse_return(),
             Ok(Begin)                           => Some(self.parse_block()),
@@ -180,6 +183,10 @@ impl<S: Source> Parser<S> {
             Ok(Number(value)) => {
                 self.advance();
                 Ok(Expr::number(value, span))
+            }
+            Ok(Bool(value)) => {
+                self.advance();
+                Ok(Expr::bool(value, span))
             }
             Ok(Identifier(name)) => {
                 self.advance();
@@ -692,6 +699,31 @@ mod test {
         test("f(1, 2)",      "f(1, 2)");
         test("local a = f(1)",  "local a = f(1)");
         test("return f(1)",  "return f(1)");
+    }
+
+    #[test]
+    fn test_bool_literals() {
+        let test_expr =
+            |i, e| test_parse(&|mut p: Parser<&str>| p.parse_priority_expr(0).unwrap(), i, e);
+        test_expr("true",           "true");
+        test_expr("false",          "false");
+        test_expr("true == false",  "(true == false)");
+        test_expr("true != false",  "(true != false)");
+
+        let test_stmt = |i, e| {
+            test_parse(
+                &|mut p: Parser<&str>| {
+                    let r = p.parse_stmts();
+                    display_parse_result(p, r)
+                },
+                i,
+                e,
+            )
+        };
+        test_stmt("local a = true",         "local a = true");
+        test_stmt("local a = false",        "local a = false");
+        test_stmt("return true",            "return true");
+        test_stmt("return true, false",     "return true, false");
     }
 
     #[test]

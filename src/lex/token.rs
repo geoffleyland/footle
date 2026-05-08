@@ -7,6 +7,7 @@ use std::fmt;
 pub enum Token {
     Identifier(String),
     Number(f64),
+    Bool(bool),
 
     // Math Operators
     Plus,
@@ -52,6 +53,7 @@ impl std::fmt::Display for Token {
         match self {
             Identifier(v)                   => write!(f, "{v}"),
             Number(v)                       => write!(f, "{v}"),
+            Bool(v)                         => write!(f, "{v}"),
 
             // Math operators
             Plus                            => write!(f, "+"),
@@ -103,6 +105,8 @@ pub fn match_reserved_word(word: &str) -> Option<Token> {
         "begin"                             => Some(Begin),
         "end"                               => Some(End),
         "return"                            => Some(Return),
+        "true"                              => Some(Bool(true)),
+        "false"                             => Some(Bool(false)),
         _                                   => None
     }
 }

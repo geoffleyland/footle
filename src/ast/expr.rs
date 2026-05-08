@@ -9,6 +9,7 @@ use crate::core::{BinaryOperator, Span};
 pub enum ExprKind {
     Binary(BinaryOperator, Box<Expr>, Box<Expr>),
     Number(f64),
+    Bool(bool),
     Identifier(String),
     Call(String, Vec<Expr>),
 }
@@ -20,6 +21,7 @@ impl fmt::Display for ExprKind {
         match self {
             Binary(op, lhs, rhs)                    => write!(f, "({lhs} {op} {rhs})"),
             Number(value)                           => write!(f, "{value}"),
+            Bool(value)                             => write!(f, "{value}"),
             Identifier(name)                        => write!(f, "{name}"),
             Call(name, exprs) => {
                 write!(f, "{name}({})", exprs.iter()
@@ -46,6 +48,7 @@ impl Expr {
         Self { kind: ExprKind::Binary(op, Box::new(lhs), Box::new(rhs)), span }
     }
     pub fn number(value: f64, span: Span) -> Self { Self{ kind: ExprKind::Number(value), span } }
+    pub fn bool(value: bool, span: Span) -> Self { Self{ kind: ExprKind::Bool(value), span } }
     pub fn identifier(n: String, span: Span) -> Self { Self{ kind: ExprKind::Identifier(n), span } }
     pub fn call(n: String, exprs: Vec<Self>, span: Span) -> Self {
         Self{ kind: ExprKind::Call(n, exprs), span }

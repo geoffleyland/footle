@@ -210,6 +210,7 @@ fn lower_expr<'arena>(
                     vec![Operand::Constant(builder.constants.len() - 1)], vec![], None,
                     ValueDef::Instr(&isa::LDR_PC_F64)).1
             }
+            vir::ExprKind::Bool(..) => todo!(),
             vir::ExprKind::Binary(op, lhs, rhs) => {
                 if *op == BinaryOperator::Power {
                     let fixed_inputs = exprs_to_fixed_inputs(arena, builder, &[lhs.clone(), rhs.clone()]);

@@ -32,6 +32,7 @@ impl Stmt {
 pub enum InstrKind {
     Argument,
     Number(f64),
+    Bool(bool),
     Binary(BinaryOperator, usize, usize),
     Return(Nev<usize>),
     Call(String, Vec<usize>),
@@ -52,6 +53,7 @@ impl Styleable for Instr {
         let line = match &self.kind {
             Argument                        => format!("{} I{address}", Token::Argument),
             Number(value)                   => format!("{} I{address} = {value}", Token::Local),
+            Bool(value)                     => format!("{} I{address} = {value}", Token::Local),
             Binary(op, lhs, rhs)            => format!("{} I{address} = I{lhs} {op} I{rhs}", Token::Local),
             Return(addresses)               => format!("{} {}", Token::Return,
                 addresses.iter().map(|a| format!("I{a}")).collect::<Vec<_>>().join(", ")),
