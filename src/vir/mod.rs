@@ -6,5 +6,5 @@ mod symbol_table;
 mod pass;
 
 pub use expr::{Expr, ExprKind};
-pub use stmt::{Instr, InstrKind, Stmt, StmtKind};
-pub use pass::{Block, run, instructions};
+pub use stmt::{Stmt, StmtKind};
+pub use pass::{Block, run};

@@ -1,30 +1,15 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::mem::swap;
 
 use crate::env::{Env, FunctionDef};
-use crate::core::{BinaryOperator, ParseError};
+use crate::core::{BinaryOperator, ParseError, Span, Styleable, LineStyle};
 use crate::{ast, vir, nev};
+use crate::lex::Token;
 use super::symbol_table::{AssignmentError, SymbolTable};
 use super::expr_pool::ExprPool;
 use super::expr::ExprKind;
 use crate::parse_error;
-
-
-//-------------------------------------------------------------------------------------------------
-
-pub struct Block {
-    arguments:              Vec<vir::Expr>, // Only contains vir::ExprKind::Arguments.
-    stmts:                  Vec<vir::Stmt>,
-}
-
-
-impl Block {
-    fn new() -> Self {
-        Self { arguments: vec![], stmts: vec![] }
-    }
-    pub fn arguments(&self) -> &[vir::Expr] { &self.arguments }
-    pub fn stmts(&self) -> &[vir::Stmt] { &self.stmts }
-}
 
 
 //-------------------------------------------------------------------------------------------------
@@ -35,14 +20,25 @@ pub fn run(env: &Env, stmts: &[ast::Stmt]) -> (Block, Vec<ParseError>) {
     for stmt in stmts {
         p.transform_stmt(env, stmt);
     }
-    (p.block, p.errors)
+    (p.flatten(), p.errors)
 }
 
 
 //-------------------------------------------------------------------------------------------------
 
+pub struct Block {
+    pub arguments:          Vec<vir::Expr>,
+    pub instrs:             Vec<vir::Expr>,
+    pub return_values:      Vec<vir::Expr>,
+    pub return_span:        Span,
+}
+
+
+//------------------------------------------------------------------------------------------------
+
 struct Pass {
-    block:                      Block,
+    arguments:                  Vec<vir::Expr>, // Only contains vir::ExprKind::Arguments.
+    stmts:                      Vec<vir::Stmt>,
     symbols:                    SymbolTable,
     exprs:                      ExprPool,
     errors:                     Vec<ParseError>,
@@ -52,7 +48,8 @@ struct Pass {
 impl Pass {
     fn new() -> Self {
         Self {
-            block:              Block::new(),
+            arguments:          vec![],
+            stmts:              vec![],
             symbols:            SymbolTable::new(),
             exprs:              ExprPool::new(),
             errors:             vec![],
@@ -65,9 +62,9 @@ impl Pass {
         match &stmt.kind {
             ast::StmtKind::Arguments(names) => {
                 for (name, span) in names {
-                    let expr = self.exprs.argument(self.block.arguments.len(), name, *span);
+                    let expr = self.exprs.argument(self.arguments.len(), name, *span);
                     self.symbols.insert(false, name, *span, nev![expr.clone()]);
-                    self.block.arguments.push(expr);
+                    self.arguments.push(expr);
                 }
             }
             ast::StmtKind::Return(exprs) => {
@@ -75,7 +72,7 @@ impl Pass {
                     .map(|expr| self.transform_expr(env, expr).ok())
                     .collect::<Option<Vec<_>>>();
                 if let Some(exprs) = maybe_exprs {
-                    self.block.stmts.push(vir::Stmt::return_stmt(exprs.try_into().unwrap(), stmt.span));
+                    self.stmts.push(vir::Stmt::return_stmt(exprs.try_into().unwrap(), stmt.span));
                 }
             }
             ast::StmtKind::Assignment(assignment) => {
@@ -174,6 +171,23 @@ impl Pass {
             }
         }
     }
+
+    pub fn flatten(&self) -> Block {
+        let mut instrs = vec![];
+        let mut emitted = HashSet::<usize>::new();
+
+        for expr in &self.arguments {
+            emit_expr(expr, &mut instrs, &mut emitted);
+        }
+        let (return_values, return_span) = match self.stmts.last() {
+            Some(vir::Stmt{ span, kind: vir::StmtKind::Return(exprs)}) => {
+                for expr in exprs { emit_expr(expr, &mut instrs, &mut emitted); }
+                (exprs.to_vec(), *span)
+            }
+            _ => (vec![], Span::from((0, 0))),
+        };
+        Block { instrs, return_values, return_span, arguments: self.arguments.clone() }
+    }
 }
 
 
@@ -232,56 +246,56 @@ fn fold_call(name: &str, def: &FunctionDef, exprs: Vec<vir::Expr>) -> ExprKind {
 
 
 //-------------------------------------------------------------------------------------------------
-// Text output support
+// Emit expressions for flattening
 
-pub fn instructions(block: &Block) -> Vec<vir::Instr> {
-    let mut instrs = vec![];
-    let mut address_map = HashMap::<usize, usize>::new();
-    for expr in &block.arguments {
-        emit_expr(expr, &mut instrs, &mut address_map);
-    }
-    for stmt in &block.stmts {
-        match &stmt.kind {
-            vir::StmtKind::Return(exprs) => {
-                for expr in exprs {
-                    emit_expr(expr, &mut instrs, &mut address_map);
-                }
-                let addresses = exprs.iter()
-                    .map(|e| address_map[&e.pool_index()]).collect::<Vec<_>>().try_into().unwrap();
-                instrs.push(vir::Instr{
-                    kind: vir::InstrKind::Return(addresses), address: instrs.len(), span: stmt.span});
-            }
-        }
-    }
-    instrs
-}
-
-
-fn emit_expr(expr: &vir::Expr, instrs: &mut Vec<vir::Instr>, address_map: &mut HashMap<usize, usize>) {
-    if !address_map.contains_key(&expr.pool_index()) {
+fn emit_expr(expr: &vir::Expr, instrs: &mut Vec<vir::Expr>, emitted: &mut HashSet<usize>) {
+    if !emitted.contains(&expr.pool_index()) {
         match expr.kind() {
             vir::ExprKind::Binary(_, lhs, rhs) => {
-                emit_expr(lhs, instrs, address_map);
-                emit_expr(rhs, instrs, address_map);
+                emit_expr(lhs, instrs, emitted);
+                emit_expr(rhs, instrs, emitted);
             }
             vir::ExprKind::Call(_, exprs) => {
-                for e in exprs { emit_expr(e, instrs, address_map); }
+                for e in exprs { emit_expr(e, instrs, emitted); }
             }
             _ => {}
         }
+        emitted.insert(expr.pool_index());
+        instrs.push(expr.clone());
+    }
+}
 
-        let address = instrs.len();
-        address_map.insert(expr.pool_index(), address);
-        let kind = match expr.kind() {
-            vir::ExprKind::Number(v)            => vir::InstrKind::Number(*v),
-            vir::ExprKind::Bool(v)              => vir::InstrKind::Bool(*v),
-            vir::ExprKind::Argument(..)         => vir::InstrKind::Argument,
-            vir::ExprKind::Binary(op, lhs, rhs) =>
-                vir::InstrKind::Binary(*op, address_map[&lhs.pool_index()], address_map[&rhs.pool_index()]),
-            vir::ExprKind::Call(name, exprs) =>
-                vir::InstrKind::Call(name.into(), exprs.iter().map(|e| address_map[&e.pool_index()]).collect()),
-        };
-        instrs.push(vir::Instr{kind, address, span: *expr.span()});
+
+//-------------------------------------------------------------------------------------------------
+// Text output support
+
+impl Styleable for Block {
+    fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
+        let mut address_map = HashMap::<usize, usize>::new();
+        for (address, expr) in self.instrs.iter().enumerate() {
+            use ExprKind::*;
+            address_map.insert(expr.pool_index(), address);
+            let line = match &expr.kind() {
+                Argument(..)                    => format!("{} I{address}", Token::Argument),
+                Number(value)                   => format!("{} I{address} = {value}", Token::Local),
+                Bool(value)                     => format!("{} I{address} = {value}", Token::Local),
+                Binary(op, lhs, rhs)            => format!("{} I{address} = I{} {op} I{}",
+                    Token::Local, address_map[&lhs.pool_index()], address_map[&rhs.pool_index()]),
+                Call(name, exprs)               => format!("{} I{address} = {name}({})", Token::Local,
+                    exprs.iter().map(|e| format!("I{}", address_map[&e.pool_index()])).collect::<Vec<_>>().join(", ")),
+            };
+            writer.writeln(f, indent, Some(*expr.span()), &line)?;
+        }
+        let line = format!("{} {}", Token::Return,
+            self.return_values.iter().map(|e| format!("I{}", address_map[&e.pool_index()])).collect::<Vec<_>>().join(", "));
+        writer.write(f, indent, Some(self.return_span), &line)
+    }
+}
+
+
+impl std::fmt::Display for Block {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.fmt_styled(f)
     }
 }
 
