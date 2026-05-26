@@ -27,7 +27,7 @@ pub fn run(env: &Env, stmts: &[ast::Stmt]) -> (Block, Vec<ParseError>) {
 //-------------------------------------------------------------------------------------------------
 
 pub struct Block {
-    pub arguments:          Vec<vir::Expr>,
+    pub argument_count:     usize,
     pub instrs:             Vec<vir::Expr>,
     pub return_values:      Vec<vir::Expr>,
     pub return_span:        Span,
@@ -183,10 +183,12 @@ impl Pass {
             }
             _ => (vec![], Span::from((0, 0))),
         };
-        Block { instrs, return_values, return_span, arguments: self.arguments.clone() }
+        Block { instrs, return_values, return_span, argument_count: self.arguments.len() }
     }
 }
 
+
+//-------------------------------------------------------------------------------------------------
 
 /// Fold a binary expression.
 ///
