@@ -98,7 +98,7 @@ fn run_file(file_name: &str) -> Result<(), Box<dyn Error>> {
     let (vir_block, vir_errors) = vir::run(&env, &stmts);
     if vir_errors.is_empty() {
         println!("\nVIR instructions from '{file_name}':");
-        println!("{}", vir_block.flatten().styled(1, &style));
+        println!("{}", vir_block.styled(1, &style));
     } else {
         println!("\nErrors from '{file_name}':");
         for e in vir_errors {
@@ -272,7 +272,7 @@ fn test_lines(
     }
 
     let env = Env::new();
-    let (vir_stmts, vir_errors) = vir::run(&env, &stmts);
+    let (vir_block, vir_errors) = vir::run(&env, &stmts);
     checking |= section == "vir";
     if checking {
         if section == "source" { // only check errors the first time around
@@ -285,7 +285,7 @@ fn test_lines(
     }
 
     if checking && expected.contains_key("vir") {
-        compare_lines(&block_to_strings(&vir_stmts.flatten()), &expected["vir"], section, "vir")?;
+        compare_lines(&block_to_strings(&vir_block), &expected["vir"], section, "vir")?;
     }
 
     // Once we get to the scheduling and assembler passes, we only do that for the source pass
@@ -294,17 +294,17 @@ fn test_lines(
     // expected output is present (because the compiler is being implemented bit by bit and if
     // we run something NYI, we get an NYI and a panic.)
     if expected.contains_key("schedule") && section == "source" {
-        let schedule = codegen::schedule(&vir_stmts);
+        let schedule = codegen::schedule(&vir_block);
         compare_lines(&block_to_strings(&schedule), &expected["schedule"], section, "schedule")?;
     }
 
     if expected.contains_key("assembler") && section == "source" {
-        let assembler = codegen::assemble(&vir_stmts);
+        let assembler = codegen::assemble(&vir_block);
         compare_lines(&block_to_strings(&assembler), &expected["assembler"], section, "assembler")?;
     }
 
     if (expected.contains_key("assembler") || expected.contains_key("results")) && section == "source" {
-        let func = codegen::run(&vir_stmts);
+        let func = codegen::run(&vir_block);
 
         if expected.contains_key("assembler") {
             let disassembled = &codegen::disassemble(&func);

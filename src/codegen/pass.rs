@@ -76,7 +76,7 @@ pub fn schedule(vir_block: &vir::Block) -> Schedule {
     let arena = Arena::<scheduler::Value>::new();
     let scheduled_block = scheduler::run(&arena, vir_block);
 
-    let arguments = vir_block.arguments().iter().enumerate().map(|(i, e)| (i, *e.span())).collect::<Vec<_>>();
+    let arguments = vir_block.arguments.iter().enumerate().map(|(i, e)| (i, *e.span())).collect::<Vec<_>>();
     let instrs = scheduled_block.instrs.iter().map(|c|
         Instr{
             slot:           c.slot,

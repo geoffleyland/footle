@@ -14,37 +14,31 @@ use crate::parse_error;
 
 //-------------------------------------------------------------------------------------------------
 
-pub struct Block {
-    arguments:              Vec<vir::Expr>, // Only contains vir::ExprKind::Arguments.
-    stmts:                  Vec<vir::Stmt>,
-}
-
-
-impl Block {
-    fn new() -> Self {
-        Self { arguments: vec![], stmts: vec![] }
-    }
-    pub fn arguments(&self) -> &[vir::Expr] { &self.arguments }
-    pub fn stmts(&self) -> &[vir::Stmt] { &self.stmts }
-}
-
-
-//-------------------------------------------------------------------------------------------------
-
 pub fn run(env: &Env, stmts: &[ast::Stmt]) -> (Block, Vec<ParseError>) {
     let mut p = Pass::new();
 
     for stmt in stmts {
         p.transform_stmt(env, stmt);
     }
-    (p.block, p.errors)
+    (p.flatten(), p.errors)
 }
 
 
 //-------------------------------------------------------------------------------------------------
 
+pub struct Block {
+    pub arguments:          Vec<vir::Expr>,
+    pub instrs:             Vec<vir::Expr>,
+    pub return_values:      Vec<vir::Expr>,
+    pub return_span:        Span,
+}
+
+
+//------------------------------------------------------------------------------------------------
+
 struct Pass {
-    block:                      Block,
+    arguments:                  Vec<vir::Expr>, // Only contains vir::ExprKind::Arguments.
+    stmts:                      Vec<vir::Stmt>,
     symbols:                    SymbolTable,
     exprs:                      ExprPool,
     errors:                     Vec<ParseError>,
@@ -54,7 +48,8 @@ struct Pass {
 impl Pass {
     fn new() -> Self {
         Self {
-            block:              Block::new(),
+            arguments:          vec![],
+            stmts:              vec![],
             symbols:            SymbolTable::new(),
             exprs:              ExprPool::new(),
             errors:             vec![],
@@ -67,9 +62,9 @@ impl Pass {
         match &stmt.kind {
             ast::StmtKind::Arguments(names) => {
                 for (name, span) in names {
-                    let expr = self.exprs.argument(self.block.arguments.len(), name, *span);
+                    let expr = self.exprs.argument(self.arguments.len(), name, *span);
                     self.symbols.insert(false, name, *span, nev![expr.clone()]);
-                    self.block.arguments.push(expr);
+                    self.arguments.push(expr);
                 }
             }
             ast::StmtKind::Return(exprs) => {
@@ -77,7 +72,7 @@ impl Pass {
                     .map(|expr| self.transform_expr(env, expr).ok())
                     .collect::<Option<Vec<_>>>();
                 if let Some(exprs) = maybe_exprs {
-                    self.block.stmts.push(vir::Stmt::return_stmt(exprs.try_into().unwrap(), stmt.span));
+                    self.stmts.push(vir::Stmt::return_stmt(exprs.try_into().unwrap(), stmt.span));
                 }
             }
             ast::StmtKind::Assignment(assignment) => {
@@ -173,6 +168,23 @@ impl Pass {
             }
         }
     }
+
+    pub fn flatten(&self) -> Block {
+        let mut instrs = vec![];
+        let mut emitted = HashSet::<usize>::new();
+
+        for expr in &self.arguments {
+            emit_expr(expr, &mut instrs, &mut emitted);
+        }
+        let (return_values, return_span) = match self.stmts.last() {
+            Some(vir::Stmt{ span, kind: vir::StmtKind::Return(exprs)}) => {
+                for expr in exprs { emit_expr(expr, &mut instrs, &mut emitted); }
+                (exprs.to_vec(), *span)
+            }
+            _ => (vec![], Span::from((0, 0))),
+        };
+        Block { instrs, return_values, return_span, arguments: self.arguments.clone() }
+    }
 }
 
 
@@ -231,32 +243,7 @@ fn fold_call(name: &str, def: &FunctionDef, exprs: Vec<vir::Expr>) -> ExprKind {
 
 
 //-------------------------------------------------------------------------------------------------
-
-
-pub struct Block2 {
-    instrs:                 Vec<vir::Expr>,
-    return_values:          Vec<vir::Expr>,
-    return_span:            Span,
-}
-
-
-impl Block {
-    pub fn flatten(&self) -> Block2 {
-        let mut instrs = vec![];
-        let mut emitted = HashSet::<usize>::new();
-
-        for expr in &self.arguments {
-            emit_expr(expr, &mut instrs, &mut emitted);
-        }
-        let return_stmt = self.stmts.last().expect("internal compiler error: block has no statements");
-        let vir::StmtKind::Return(exprs) = &return_stmt.kind; // {
-        for expr in exprs { emit_expr(expr, &mut instrs, &mut emitted); }
-        Block2 { instrs,
-            return_values: exprs.to_vec(),
-            return_span: return_stmt.span }
-    }
-}
-
+// Emit expressions for flattening
 
 fn emit_expr(expr: &vir::Expr, instrs: &mut Vec<vir::Expr>, emitted: &mut HashSet<usize>) {
     if !emitted.contains(&expr.pool_index()) {
@@ -279,7 +266,7 @@ fn emit_expr(expr: &vir::Expr, instrs: &mut Vec<vir::Expr>, emitted: &mut HashSe
 //-------------------------------------------------------------------------------------------------
 // Text output support
 
-impl Styleable for Block2 {
+impl Styleable for Block {
     fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
         let mut address_map = HashMap::<usize, usize>::new();
         for (address, expr) in self.instrs.iter().enumerate() {
@@ -302,7 +289,7 @@ impl Styleable for Block2 {
 }
 
 
-impl std::fmt::Display for Block2 {
+impl std::fmt::Display for Block {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.fmt_styled(f)
     }
