@@ -1,9 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::mem::swap;
 
 use crate::env::{Env, FunctionDef};
-use crate::core::{BinaryOperator, ParseError};
+use crate::core::{BinaryOperator, ParseError, Styleable, LineStyle};
 use crate::{ast, vir, nev};
+use crate::lex::Token;
 use super::symbol_table::{AssignmentError, SymbolTable};
 use super::expr_pool::ExprPool;
 use super::expr::ExprKind;
@@ -229,24 +231,18 @@ fn fold_call(name: &str, def: &FunctionDef, exprs: Vec<vir::Expr>) -> ExprKind {
 
 
 //-------------------------------------------------------------------------------------------------
-// Text output support
 
-pub fn instructions(block: &Block) -> Vec<vir::Instr> {
+pub fn flatten(block: &Block) -> Vec<vir::Expr> {
     let mut instrs = vec![];
-    let mut address_map = HashMap::<usize, usize>::new();
+    let mut emitted = HashSet::<usize>::new();
+
     for expr in &block.arguments {
-        emit_expr(expr, &mut instrs, &mut address_map);
+        emit_expr(expr, &mut instrs, &mut emitted);
     }
     for stmt in &block.stmts {
         match &stmt.kind {
             vir::StmtKind::Return(exprs) => {
-                for expr in exprs {
-                    emit_expr(expr, &mut instrs, &mut address_map);
-                }
-                let addresses = exprs.iter()
-                    .map(|e| address_map[&e.pool_index()]).collect::<Vec<_>>().try_into().unwrap();
-                instrs.push(vir::Instr{
-                    kind: vir::InstrKind::Return(addresses), address: instrs.len(), span: stmt.span});
+                for expr in exprs { emit_expr(expr, &mut instrs, &mut emitted); }
             }
         }
     }
@@ -254,30 +250,61 @@ pub fn instructions(block: &Block) -> Vec<vir::Instr> {
 }
 
 
-fn emit_expr(expr: &vir::Expr, instrs: &mut Vec<vir::Instr>, address_map: &mut HashMap<usize, usize>) {
-    if !address_map.contains_key(&expr.pool_index()) {
+fn emit_expr(expr: &vir::Expr, instrs: &mut Vec<vir::Expr>, emitted: &mut HashSet<usize>) {
+    if !emitted.contains(&expr.pool_index()) {
         match expr.kind() {
             vir::ExprKind::Binary(_, lhs, rhs) => {
-                emit_expr(lhs, instrs, address_map);
-                emit_expr(rhs, instrs, address_map);
+                emit_expr(lhs, instrs, emitted);
+                emit_expr(rhs, instrs, emitted);
             }
             vir::ExprKind::Call(_, exprs) => {
-                for e in exprs { emit_expr(e, instrs, address_map); }
+                for e in exprs { emit_expr(e, instrs, emitted); }
             }
             _ => {}
         }
+        emitted.insert(expr.pool_index());
+        instrs.push(expr.clone());
+    }
+}
 
-        let address = instrs.len();
-        address_map.insert(expr.pool_index(), address);
-        let kind = match expr.kind() {
-            vir::ExprKind::Number(v)            => vir::InstrKind::Number(*v),
-            vir::ExprKind::Argument(..)         => vir::InstrKind::Argument,
-            vir::ExprKind::Binary(op, lhs, rhs) =>
-                vir::InstrKind::Binary(*op, address_map[&lhs.pool_index()], address_map[&rhs.pool_index()]),
-            vir::ExprKind::Call(name, exprs) =>
-                vir::InstrKind::Call(name.into(), exprs.iter().map(|e| address_map[&e.pool_index()]).collect()),
-        };
-        instrs.push(vir::Instr{kind, address, span: *expr.span()});
+
+//-------------------------------------------------------------------------------------------------
+// Text output support
+
+impl Styleable for Block {
+    fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
+        let exprs = flatten(self);
+        let mut address_map = HashMap::<usize, usize>::new();
+        for (address, expr) in exprs.iter().enumerate() {
+            use ExprKind::*;
+            address_map.insert(expr.pool_index(), address);
+            let line = match &expr.kind() {
+                Argument(..)                    => format!("{} I{address}", Token::Argument),
+                Number(value)                   => format!("{} I{address} = {value}", Token::Local),
+                Binary(op, lhs, rhs)            => format!("{} I{address} = I{} {op} I{}",
+                    Token::Local, address_map[&lhs.pool_index()], address_map[&rhs.pool_index()]),
+                Call(name, exprs)               => format!("{} I{address} = {name}({})", Token::Local,
+                    exprs.iter().map(|e| format!("I{}", address_map[&e.pool_index()])).collect::<Vec<_>>().join(", ")),
+            };
+            writer.writeln(f, indent, Some(*expr.span()), &line)?;
+        }
+        for stmt in &self.stmts {
+            match &stmt.kind {
+                vir::StmtKind::Return(exprs) => {
+                    let line = format!("{} {}", Token::Return,
+                        exprs.iter().map(|e| format!("I{}", address_map[&e.pool_index()])).collect::<Vec<_>>().join(", "));
+                    writer.write(f, indent, Some(stmt.span), &line)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+
+impl std::fmt::Display for Block {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.fmt_styled(f)
     }
 }
 

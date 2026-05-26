@@ -97,11 +97,8 @@ fn run_file(file_name: &str) -> Result<(), Box<dyn Error>> {
     let env = Env::new();
     let (vir_block, vir_errors) = vir::run(&env, &stmts);
     if vir_errors.is_empty() {
-        let instrs = vir::instructions(&vir_block);
         println!("\nVIR instructions from '{file_name}':");
-        for instr in &instrs {
-            println!("{}", instr.styled(1, &style));
-        }
+        println!("{}", vir_block.styled(1, &style));
     } else {
         println!("\nErrors from '{file_name}':");
         for e in vir_errors {
@@ -288,9 +285,7 @@ fn test_lines(
     }
 
     if checking && expected.contains_key("vir") {
-        let vir_instrs = vir::instructions(&vir_stmts);
-        let string_instrs = stmts_to_strings(&vir_instrs);
-        compare_lines(&string_instrs, &expected["vir"], section, "vir")?;
+        compare_lines(&block_to_strings(&vir_stmts), &expected["vir"], section, "vir")?;
     }
 
     // Once we get to the scheduling and assembler passes, we only do that for the source pass
@@ -300,14 +295,12 @@ fn test_lines(
     // we run something NYI, we get an NYI and a panic.)
     if expected.contains_key("schedule") && section == "source" {
         let schedule = codegen::schedule(&vir_stmts);
-        let schedule_strings = stmts_to_strings(&[schedule]);
-        compare_lines(&schedule_strings, &expected["schedule"], section, "schedule")?;
+        compare_lines(&block_to_strings(&schedule), &expected["schedule"], section, "schedule")?;
     }
 
     if expected.contains_key("assembler") && section == "source" {
         let assembler = codegen::assemble(&vir_stmts);
-        let assembler_strings = stmts_to_strings(&[assembler]);
-        compare_lines(&assembler_strings, &expected["assembler"], section, "assembler")?;
+        compare_lines(&block_to_strings(&assembler), &expected["assembler"], section, "assembler")?;
     }
 
     if (expected.contains_key("assembler") || expected.contains_key("results")) && section == "source" {
@@ -386,6 +379,20 @@ fn stmts_to_strings<S: core::Styleable>(stmts: &[S]) -> Vec<String> {
                 .collect::<Vec<_>>()
         })
         .collect()
+}
+
+
+/// Turn anything Styleable into a list of strings
+///
+/// The thing can return multiple lines so we format the whole lot and split on
+/// newlines to get a flat list of non-empty lines for comparison.
+fn block_to_strings<S: core::Styleable>(block: &S) -> Vec<String> {
+    let style = core::IndentedStyle::new(2);
+    format!("{}", block.styled(0, &style))
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>()
 }
 
 
