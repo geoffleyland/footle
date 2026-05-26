@@ -98,7 +98,7 @@ fn run_file(file_name: &str) -> Result<(), Box<dyn Error>> {
     let (vir_block, vir_errors) = vir::run(&env, &stmts);
     if vir_errors.is_empty() {
         println!("\nVIR instructions from '{file_name}':");
-        println!("{}", vir_block.styled(1, &style));
+        println!("{}", vir_block.flatten().styled(1, &style));
     } else {
         println!("\nErrors from '{file_name}':");
         for e in vir_errors {
@@ -285,7 +285,7 @@ fn test_lines(
     }
 
     if checking && expected.contains_key("vir") {
-        compare_lines(&block_to_strings(&vir_stmts), &expected["vir"], section, "vir")?;
+        compare_lines(&block_to_strings(&vir_stmts.flatten()), &expected["vir"], section, "vir")?;
     }
 
     // Once we get to the scheduling and assembler passes, we only do that for the source pass

@@ -3,7 +3,7 @@ use std::fmt;
 use std::mem::swap;
 
 use crate::env::{Env, FunctionDef};
-use crate::core::{BinaryOperator, ParseError, Styleable, LineStyle};
+use crate::core::{BinaryOperator, ParseError, Span, Styleable, LineStyle};
 use crate::{ast, vir, nev};
 use crate::lex::Token;
 use super::symbol_table::{AssignmentError, SymbolTable};
@@ -232,21 +232,29 @@ fn fold_call(name: &str, def: &FunctionDef, exprs: Vec<vir::Expr>) -> ExprKind {
 
 //-------------------------------------------------------------------------------------------------
 
-pub fn flatten(block: &Block) -> Vec<vir::Expr> {
-    let mut instrs = vec![];
-    let mut emitted = HashSet::<usize>::new();
 
-    for expr in &block.arguments {
-        emit_expr(expr, &mut instrs, &mut emitted);
-    }
-    for stmt in &block.stmts {
-        match &stmt.kind {
-            vir::StmtKind::Return(exprs) => {
-                for expr in exprs { emit_expr(expr, &mut instrs, &mut emitted); }
-            }
+pub struct Block2 {
+    instrs:                 Vec<vir::Expr>,
+    return_values:          Vec<vir::Expr>,
+    return_span:            Span,
+}
+
+
+impl Block {
+    pub fn flatten(&self) -> Block2 {
+        let mut instrs = vec![];
+        let mut emitted = HashSet::<usize>::new();
+
+        for expr in &self.arguments {
+            emit_expr(expr, &mut instrs, &mut emitted);
         }
+        let return_stmt = self.stmts.last().expect("internal compiler error: block has no statements");
+        let vir::StmtKind::Return(exprs) = &return_stmt.kind; // {
+        for expr in exprs { emit_expr(expr, &mut instrs, &mut emitted); }
+        Block2 { instrs,
+            return_values: exprs.to_vec(),
+            return_span: return_stmt.span }
     }
-    instrs
 }
 
 
@@ -271,11 +279,10 @@ fn emit_expr(expr: &vir::Expr, instrs: &mut Vec<vir::Expr>, emitted: &mut HashSe
 //-------------------------------------------------------------------------------------------------
 // Text output support
 
-impl Styleable for Block {
+impl Styleable for Block2 {
     fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
-        let exprs = flatten(self);
         let mut address_map = HashMap::<usize, usize>::new();
-        for (address, expr) in exprs.iter().enumerate() {
+        for (address, expr) in self.instrs.iter().enumerate() {
             use ExprKind::*;
             address_map.insert(expr.pool_index(), address);
             let line = match &expr.kind() {
@@ -288,21 +295,14 @@ impl Styleable for Block {
             };
             writer.writeln(f, indent, Some(*expr.span()), &line)?;
         }
-        for stmt in &self.stmts {
-            match &stmt.kind {
-                vir::StmtKind::Return(exprs) => {
-                    let line = format!("{} {}", Token::Return,
-                        exprs.iter().map(|e| format!("I{}", address_map[&e.pool_index()])).collect::<Vec<_>>().join(", "));
-                    writer.write(f, indent, Some(stmt.span), &line)?;
-                }
-            }
-        }
-        Ok(())
+        let line = format!("{} {}", Token::Return,
+            self.return_values.iter().map(|e| format!("I{}", address_map[&e.pool_index()])).collect::<Vec<_>>().join(", "));
+        writer.write(f, indent, Some(self.return_span), &line)
     }
 }
 
 
-impl std::fmt::Display for Block {
+impl std::fmt::Display for Block2 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.fmt_styled(f)
     }
