@@ -42,6 +42,7 @@ struct Pass {
     symbols:                    SymbolTable,
     exprs:                      ExprPool,
     errors:                     Vec<ParseError>,
+    reassignments:              Vec<(String, vir::Expr, vir::Expr, Span)>,
 }
 
 
@@ -53,6 +54,7 @@ impl Pass {
             symbols:            SymbolTable::new(),
             exprs:              ExprPool::new(),
             errors:             vec![],
+            reassignments:      vec![],
         }
     }
 
@@ -93,8 +95,10 @@ impl Pass {
                 if !assignment.stmts.is_empty() {
                     for (variable, span, values) in self.symbols.pop_scope() {
                         if !assignment.assignments.iter().any(|(name, ..)| variable.matches(name)) {
-                            variable.try_push(self.symbols.scope_depth(), span, values)
+                            let new_value = values[0].clone();
+                            let initial_values = variable.try_push(self.symbols.scope_depth(), span, values)
                                 .expect("internal compiler error: internal block assignment to immutable variable");
+                            self.reassignments.push((variable.name().into(), initial_values[0].clone(), new_value, span));
                         }
                     }
                 }
@@ -105,7 +109,7 @@ impl Pass {
                             self.symbols.insert(assignment.declaration.is_mutable(), name, *span,
                                 nev![v]);
                         } else {
-                            match self.symbols.try_push(name, *span, nev![v]) {
+                            match self.symbols.try_push(name, *span, nev![v.clone()]) {
                                 Err(AssignmentError::NoSuchVariable) => {
                                     parse_error!(self,
                                         format!("cannot find value '{name}' in this scope"), *span);
@@ -115,7 +119,9 @@ impl Pass {
                                         format!("cannot assign twice to the immutable variable '{name}'"), *span,
                                         format!("the declaration of '{name}' is here:"), declaration_span);
                                 }
-                                Ok(..) => {}
+                                Ok(initial_values) => {
+                                    self.reassignments.push((name.into(), initial_values[0].clone(), v, *span));
+                                }
                             }
                         }
                     }
