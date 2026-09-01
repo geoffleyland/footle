@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::mem::swap;
 
 use crate::env::{Env, FunctionDef};
 use crate::core::{BinaryOperator, ParseError, Span, Styleable, LineStyle};
@@ -9,6 +8,7 @@ use crate::lex::Token;
 use super::symbol_table::{AssignmentError, SymbolTable};
 use super::expr_pool::ExprPool;
 use super::expr::ExprKind;
+use super::operators::fold_constants;
 use crate::parse_error;
 
 
@@ -201,22 +201,18 @@ impl Pass {
 ///    * if there's a constant, try to get it on the right
 ///    * if they're both expressions, put the one with the lower index on the left.
 fn fold_binary(op: BinaryOperator, lhs: vir::Expr, rhs: vir::Expr) -> ExprKind {
+    // See if we can fold to a constant
+    if let Some(value) = fold_constants(op, lhs.kind(), rhs.kind()) { return value }
+
     // Get comparison operators the standard way around.
     let (op, mut reverse) = op.should_reverse().map_or(
         (op, false),
         |reverse_op| (reverse_op, true));
 
-    if let &ExprKind::Number(mut lhs_value) = lhs.kind() {
-        if let &ExprKind::Number(mut rhs_value) = rhs.kind() {
-            // Both operands are constants: fold them.
-            if reverse { swap(&mut lhs_value, &mut rhs_value); }
-            return ExprKind::Number(op.eval_constants(lhs_value, rhs_value))
-        }
         // LHS is a constant, and RHS is a variable/expression - try to get the RHS first.
-        if op.is_commutable() { reverse = !reverse; }
+    if lhs.is_constant() && !rhs.is_constant() && op.is_commutable() { reverse = !reverse }
 
-    } else if !matches!(rhs.kind(), ExprKind::Number(_))
-            && op.is_commutable()
+    if !lhs.is_constant() && !rhs.is_constant() && op.is_commutable()
             && rhs.pool_index() < lhs.pool_index() {
         // Both operands are variables/expressions - get the lowest-indexed one first.
         reverse = !reverse;
