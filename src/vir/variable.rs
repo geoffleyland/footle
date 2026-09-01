@@ -52,7 +52,7 @@ impl Variable {
         }
     }
 
-    fn name(&self) -> &str                  { &self.name }
+    pub fn name(&self) -> &str              { &self.name }
     pub fn declaration_span(&self) -> Span  { self.declaration_span }
     fn declaration_scope(&self) -> usize    { self.versions.borrow().first().assignment_scope }
     pub fn current_version(&self) -> Rc<Binding>
@@ -61,11 +61,12 @@ impl Variable {
     pub fn matches(&self, n: &str) -> bool  { self.name() == n }
     pub fn live_at(&self, s: usize) -> bool { self.declaration_scope() <= s }
 
-    pub fn try_push(&self, scope_depth: usize, span: Span, values: Nev<Expr>) -> Result<(), ()> {
+    pub fn try_push(&self, scope_depth: usize, span: Span, values: Nev<Expr>) -> Result<Nev<Expr>, ()> {
         if self.mutable {
+            let old_value = self.versions.borrow().last().values().clone();
             let binding = Binding::new(span, scope_depth, values);
             self.versions.borrow_mut().push(Rc::new(binding));
-            Ok(())
+            Ok(old_value)
         } else { Err(()) }
     }
 

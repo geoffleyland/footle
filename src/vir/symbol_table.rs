@@ -61,7 +61,8 @@ impl SymbolTable {
     }
 
 
-    pub fn try_push(&mut self, name: &str, span: Span, values: Nev<Expr>) -> Result<(), AssignmentError> {
+    pub fn try_push(&mut self, name: &str, span: Span, values: Nev<Expr>
+    ) -> Result<Nev<Expr>, AssignmentError> {
         if let Some(v) = self.variables.iter_mut().rev().find(|v| v.matches(name)) {
             v.try_push(self.scope_depth, span, values).map_err(
                 |()| AssignmentError::Immutable(v.declaration_span()))
