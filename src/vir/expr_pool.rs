@@ -9,6 +9,7 @@ use super::expr::{ExprKind, ExprEntry, Expr};
 
 pub struct ExprPool {
     exprs:                      HashMap<ExprKind, Rc<ExprEntry>>,
+    ordered:                    Vec<Expr>
 }
 
 
@@ -16,14 +17,20 @@ impl ExprPool {
     pub fn new() -> Self {
         Self {
             exprs:              HashMap::new(),
+            ordered:            vec![],
         }
     }
 
+    pub(super) fn len(&self) -> usize   { self.exprs.len() }
+    pub(super) fn iter(&self) -> std::slice::Iter<'_, Expr>
+        { self.ordered.iter() }
 
     pub(super) fn intern(&mut self, kind: ExprKind, span: Span) -> Expr {
         let index = self.exprs.len();
-        Expr::new(self.exprs.entry(kind.clone())
-            .or_insert_with(|| Rc::new(ExprEntry::new(kind, index, span))).clone())
+        let expr = Expr::new(self.exprs.entry(kind.clone())
+            .or_insert_with(|| Rc::new(ExprEntry::new(kind, index, span))).clone());
+        self.ordered.push(expr.clone());
+        expr
     }
 
     pub(super) fn number(&mut self, value: f64, span: Span) -> Expr {
