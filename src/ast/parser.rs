@@ -645,6 +645,9 @@ mod test {
         test_stmt("local a = false",        "local a = false");
         test_stmt("return true",            "return true");
         test_stmt("return true, false",     "return true, false");
+
+        // Error case: true/false are reserved words, not valid identifiers
+        test_stmts("local true = 1", "expected identifier\nexpected '='\nexpected statement");
     }
 
     #[test]
