@@ -536,19 +536,23 @@ mod test {
         }
     }
 
-    fn test_expr(input: &str, expected: &str) {
-        test_parse(&|mut p: Parser<&str>| p.parse_priority_expr(0).unwrap(), input, expected)
-    }
-
-    fn test_stmt(input: &str, expected: &str) {
-        test_fallible_parse(&|mut p: Parser<&str>| p.parse_stmt().map(|s| s), input, expected)
-    }
 
     fn test_stmts(input: &str, expected: &str) {
         test_parse(&|mut p: Parser<&str>| {
             let r = p.parse_stmts();
             display_parse_result(p, r)
-        }, input, expected)
+        }, input, expected);
+    }
+
+    fn test_stmt(input: &str, expected: &str) {
+        test_fallible_parse(&|mut p: Parser<&str>| p.parse_stmt().map(|s| s), input, expected);
+        test_stmts(input, expected);
+    }
+
+    fn test_expr(input: &str, expected: &str) {
+        test_parse(&|mut p: Parser<&str>| p.parse_priority_expr(0).unwrap(), input, expected);
+        test_stmt(input, expected);
+        test_stmts(input, expected);
     }
 
 
@@ -610,17 +614,17 @@ mod test {
     }
 
     #[test]
-    fn test_single_statement() {
-        test_stmt("1 + 2", "(1 + 2)");
-        test_stmt("local a = 3", "local a = 3");
-        test_stmt("local a = 1 + 2", "local a = (1 + 2)");
-    }
-
-    #[test]
     fn test_declarations() {
         test_stmt("local a = 3", "local a = 3");
+        test_stmt("local a = 1 + 2", "local a = (1 + 2)");
         test_stmt("mutable local a = 3", "mutable local a = 3");
         test_stmt("a = 3", "a = 3");
+
+        // Error cases
+        test_stmts("a + 1 = 1", "invalid left-hand side of assignment");
+        test_stmts("a + b = 1", "invalid left-hand side of assignment");
+        test_stmts("f() = 1",   "invalid left-hand side of assignment");
+        test_stmts("f(x) = 1",  "invalid left-hand side of assignment");
     }
 
     #[test]
@@ -652,37 +656,24 @@ mod test {
     }
 
     #[test]
-    fn test_bad_declarations() {
-        test_stmts("a + 1 = 1", "invalid left-hand side of assignment");
-        test_stmts("a + b = 1", "invalid left-hand side of assignment");
-        test_stmts("f() = 1",   "invalid left-hand side of assignment");
-        test_stmts("f(x) = 1",  "invalid left-hand side of assignment");
-    }
+    fn test_call() {
+        test_expr("f()",                "f()");
+        test_expr("f(1, 2)",            "f(1, 2)");
+        test_expr("f(1)",               "f(1)");
+        test_expr("f(1, 2, 3)",         "f(1, 2, 3)");
+        test_expr("f(1 + 2)",           "f((1 + 2))");
+        test_expr("f(1 + 2, 3 * 4)",    "f((1 + 2), (3 * 4))");
+        test_expr("f(x)",               "f(x)");
+        test_expr("f(1) + 2",           "(f(1) + 2)");
+        test_expr("1 + f(2)",           "(1 + f(2))");
+        test_expr("f(g(1))",            "f(g(1))");
+        test_expr("f(g(), h(1, 2))",    "f(g(), h(1, 2))");
 
-    #[test]
-    fn test_call_expr() {
-        test_expr("f()",              "f()");
-        test_expr("f(1)",             "f(1)");
-        test_expr("f(1, 2, 3)",       "f(1, 2, 3)");
-        test_expr("f(1 + 2)",         "f((1 + 2))");
-        test_expr("f(1 + 2, 3 * 4)",  "f((1 + 2), (3 * 4))");
-        test_expr("f(x)",             "f(x)");
-        test_expr("f(1) + 2",         "(f(1) + 2)");
-        test_expr("1 + f(2)",         "(1 + f(2))");
-        test_expr("f(g(1))",          "f(g(1))");
-        test_expr("f(g(), h(1, 2))",  "f(g(), h(1, 2))");
-    }
+        // As statements
+        test_stmt("local a = f(1)",     "local a = f(1)");
+        test_stmt("return f(1)",        "return f(1)");
 
-    #[test]
-    fn test_call_stmt() {
-        test_stmts("f()",          "f()");
-        test_stmts("f(1, 2)",      "f(1, 2)");
-        test_stmts("local a = f(1)",  "local a = f(1)");
-        test_stmts("return f(1)",  "return f(1)");
-    }
-
-    #[test]
-    fn test_call_errors() {
+        // Errors
         test_stmts("f(1",  "expected ')'\nto match opening '(' here:");
         test_stmts("f(1,)", "expected number or identifier, got ')'");
         test_stmts("f(+)", "expected number or identifier, got '+'\nexpected number or identifier, got ')'");
