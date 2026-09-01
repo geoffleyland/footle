@@ -60,6 +60,12 @@ impl PartialEq for ExprKind {
 }
 impl Eq for ExprKind {}
 
+impl ExprKind {
+    fn is_constant(&self) -> bool {
+        matches!(self, Self::Number(..))
+    }
+}
+
 
 //-------------------------------------------------------------------------------------------------
 
@@ -103,6 +109,7 @@ impl Expr {
     pub fn kind(&self) -> &ExprKind         { self.entry.kind() }
     pub fn pool_index(&self) -> usize       { self.entry.pool_index() }
     pub fn span(&self) -> &Span             { self.entry.span() }
+    pub fn is_constant(&self) -> bool       { self.entry.kind().is_constant() }
 }
 
 

@@ -1,4 +1,5 @@
 mod expr;
+mod operators;
 mod expr_pool;
 mod stmt;
 mod variable;
