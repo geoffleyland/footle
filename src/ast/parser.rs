@@ -222,7 +222,7 @@ impl<S: Source> Parser<S> {
             };
 
             let (left_priority, right_priority) = operator.priority();
-            if left_priority < min_priority {
+            if left_priority <= min_priority {
                 break;
             }
 
@@ -567,11 +567,24 @@ mod test {
         test("2.0 + 1", "(2 + 1)");
         test("1.0 + (2.0 + 3.0)", "(1 + (2 + 3))");
         test("(1.0 + 2.0) + 3.0", "((1 + 2) + 3)");
-        test("1.0 + 2.0 + 3.0", "(1 + (2 + 3))");
+        test("1.0 + 2.0 + 3.0", "((1 + 2) + 3)");
         test("1.0 * 2.0 + 3.0", "((1 * 2) + 3)");
         test("1.0 + 2.0 * 3.0", "(1 + (2 * 3))");
         test("1.0 + 2.0 ^ 3.0", "(1 + (2 ^ 3))");
         test("1.0 ^ 2.0 * 3.0", "((1 ^ 2) * 3)");
+    }
+
+    #[test]
+    fn test_associativity() {
+        let test =
+            |i, e| test_parse(&|mut p: Parser<&str>| p.parse_priority_expr(0).unwrap(), i, e);
+        test("1.0 - 2.0 - 3.0", "((1 - 2) - 3)");
+        test("1.0 + 2.0 - 3.0", "((1 + 2) - 3)");
+        test("1.0 - 2.0 + 3.0", "((1 - 2) + 3)");
+        test("1.0 / 2.0 / 3.0", "((1 / 2) / 3)");
+        test("1.0 * 2.0 / 3.0", "((1 * 2) / 3)");
+        test("1.0 / 2.0 * 3.0", "((1 / 2) * 3)");
+        test("1.0 ^ 2.0 ^ 3.0", "(1 ^ (2 ^ 3))");
     }
 
     #[test]
