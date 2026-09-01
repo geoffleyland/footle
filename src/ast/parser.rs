@@ -536,112 +536,102 @@ mod test {
         }
     }
 
+    fn test_expr(input: &str, expected: &str) {
+        test_parse(&|mut p: Parser<&str>| p.parse_priority_expr(0).unwrap(), input, expected)
+    }
+
+    fn test_stmt(input: &str, expected: &str) {
+        test_fallible_parse(&|mut p: Parser<&str>| p.parse_stmt().map(|s| s), input, expected)
+    }
+
+    fn test_stmts(input: &str, expected: &str) {
+        test_parse(&|mut p: Parser<&str>| {
+            let r = p.parse_stmts();
+            display_parse_result(p, r)
+        }, input, expected)
+    }
+
+
+    #[test]
+    fn test_numbers() {
+        test_expr("2.0", "2");
+        test_expr("2.1", "2.1");
+    }
+
     #[test]
     fn test_math_operators() {
-        let test =
-            |i, e| test_parse(&|mut p: Parser<&str>| p.parse_priority_expr(0).unwrap(), i, e);
-        test("1 + 2", "(1 + 2)");
-        test("1 - 2", "(1 - 2)");
-        test("1 * 2", "(1 * 2)");
-        test("1 / 2", "(1 / 2)");
-        test("1 ^ 2", "(1 ^ 2)");
+        test_expr("1 + 2", "(1 + 2)");
+        test_expr("1 - 2", "(1 - 2)");
+        test_expr("1 * 2", "(1 * 2)");
+        test_expr("1 / 2", "(1 / 2)");
+        test_expr("1 ^ 2", "(1 ^ 2)");
     }
 
     #[test]
     fn test_comparison_operators() {
-        let test =
-            |i, e| test_parse(&|mut p: Parser<&str>| p.parse_priority_expr(0).unwrap(), i, e);
-        test("1 == 2", "(1 == 2)");
-        test("1 != 2", "(1 != 2)");
-        test("1 < 2", "(1 < 2)");
-        test("1 <= 2", "(1 <= 2)");
-        test("1 > 2", "(1 > 2)");
-        test("1 >= 2", "(1 >= 2)");
-    }
-
-    #[test]
-    fn test_numbers() {
-        let test =
-            |i, e| test_parse(&|mut p: Parser<&str>| p.parse_priority_expr(0).unwrap(), i, e);
-        test("2.0", "2");
-        test("2.1", "2.1");
+        test_expr("1 == 2", "(1 == 2)");
+        test_expr("1 != 2", "(1 != 2)");
+        test_expr("1 < 2", "(1 < 2)");
+        test_expr("1 <= 2", "(1 <= 2)");
+        test_expr("1 > 2", "(1 > 2)");
+        test_expr("1 >= 2", "(1 >= 2)");
     }
 
     #[test]
     fn test_parentheses() {
-        let test =
-            |i, e| test_parse(&|mut p: Parser<&str>| p.parse_priority_expr(0).unwrap(), i, e);
-        test("1.0 + (2.0 + 3.0)", "(1 + (2 + 3))");
-        test("(1.0 + 2.0) + 3.0", "((1 + 2) + 3)");
-        test("1.0 ^ (2.0 + 3.0)", "(1 ^ (2 + 3))");
+        test_expr("1.0 + (2.0 + 3.0)", "(1 + (2 + 3))");
+        test_expr("(1.0 + 2.0) + 3.0", "((1 + 2) + 3)");
+        test_expr("1.0 ^ (2.0 + 3.0)", "(1 ^ (2 + 3))");
     }
 
     #[test]
     fn test_priority() {
-        let test =
-            |i, e| test_parse(&|mut p: Parser<&str>| p.parse_priority_expr(0).unwrap(), i, e);
-        test("1.0 + 2.0 * 3.0", "(1 + (2 * 3))");
-        test("1.0 * 2.0 + 3.0", "((1 * 2) + 3)");
-        test("1.0 - 2.0 * 3.0", "(1 - (2 * 3))");
-        test("1.0 * 2.0 - 3.0", "((1 * 2) - 3)");
-        test("1.0 + 2.0 / 3.0", "(1 + (2 / 3))");
-        test("1.0 / 2.0 + 3.0", "((1 / 2) + 3)");
-        test("1.0 * 2.0 ^ 3.0", "(1 * (2 ^ 3))");
-        test("1.0 ^ 2.0 * 3.0", "((1 ^ 2) * 3)");
-        test("1.0 / 2.0 ^ 3.0", "(1 / (2 ^ 3))");
-        test("1.0 ^ 2.0 / 3.0", "((1 ^ 2) / 3)");
+        test_expr("1.0 + 2.0 * 3.0", "(1 + (2 * 3))");
+        test_expr("1.0 * 2.0 + 3.0", "((1 * 2) + 3)");
+        test_expr("1.0 - 2.0 * 3.0", "(1 - (2 * 3))");
+        test_expr("1.0 * 2.0 - 3.0", "((1 * 2) - 3)");
+        test_expr("1.0 + 2.0 / 3.0", "(1 + (2 / 3))");
+        test_expr("1.0 / 2.0 + 3.0", "((1 / 2) + 3)");
+        test_expr("1.0 * 2.0 ^ 3.0", "(1 * (2 ^ 3))");
+        test_expr("1.0 ^ 2.0 * 3.0", "((1 ^ 2) * 3)");
+        test_expr("1.0 / 2.0 ^ 3.0", "(1 / (2 ^ 3))");
+        test_expr("1.0 ^ 2.0 / 3.0", "((1 ^ 2) / 3)");
     }
 
     #[test]
     fn test_associativity() {
-        let test =
-            |i, e| test_parse(&|mut p: Parser<&str>| p.parse_priority_expr(0).unwrap(), i, e);
-        test("1.0 - 2.0 - 3.0", "((1 - 2) - 3)");
-        test("1.0 + 2.0 - 3.0", "((1 + 2) - 3)");
-        test("1.0 - 2.0 + 3.0", "((1 - 2) + 3)");
-        test("1.0 / 2.0 / 3.0", "((1 / 2) / 3)");
-        test("1.0 * 2.0 / 3.0", "((1 * 2) / 3)");
-        test("1.0 / 2.0 * 3.0", "((1 / 2) * 3)");
-        test("1.0 ^ 2.0 ^ 3.0", "(1 ^ (2 ^ 3))");
+        test_expr("1.0 - 2.0 - 3.0", "((1 - 2) - 3)");
+        test_expr("1.0 + 2.0 - 3.0", "((1 + 2) - 3)");
+        test_expr("1.0 - 2.0 + 3.0", "((1 - 2) + 3)");
+        test_expr("1.0 / 2.0 / 3.0", "((1 / 2) / 3)");
+        test_expr("1.0 * 2.0 / 3.0", "((1 * 2) / 3)");
+        test_expr("1.0 / 2.0 * 3.0", "((1 / 2) * 3)");
+        test_expr("1.0 ^ 2.0 ^ 3.0", "(1 ^ (2 ^ 3))");
     }
 
     #[test]
     fn test_single_statement() {
-        let test =
-            |i, e| test_fallible_parse(&|mut p: Parser<&str>| p.parse_stmt().map(|s| s), i, e);
-        test("1 + 2", "(1 + 2)");
-        test("local a = 3", "local a = 3");
-        test("local a = 1 + 2", "local a = (1 + 2)");
+        test_stmt("1 + 2", "(1 + 2)");
+        test_stmt("local a = 3", "local a = 3");
+        test_stmt("local a = 1 + 2", "local a = (1 + 2)");
     }
 
     #[test]
     fn test_declarations() {
-        let test =
-            |i, e| test_fallible_parse(&|mut p: Parser<&str>| p.parse_stmt().map(|s| s), i, e);
-        test("local a = 3", "local a = 3");
-        test("mutable local a = 3", "mutable local a = 3");
-        test("a = 3", "a = 3");
+        test_stmt("local a = 3", "local a = 3");
+        test_stmt("mutable local a = 3", "mutable local a = 3");
+        test_stmt("a = 3", "a = 3");
     }
 
     #[test]
     fn test_statements() {
-        let test = |i, e| {
-            test_parse(
-                &|mut p: Parser<&str>| {
-                    let r = p.parse_stmts();
-                    display_parse_result(p, r)
-                },
-                i,
-                e,
-            )
-        };
-        test("local a = 3\nlocal b = a + 2", "local a = 3\nlocal b = (a + 2)");
-        test("local a = 3\nlocal b = c + 2", "local a = 3\nlocal b = (c + 2)");
-        test("local a = 3\na = 4", "local a = 3\na = 4");
-        test("local a = 3\nb = 4", "local a = 3\nb = 4");
-        test("mutable local a = 3\na = 4", "mutable local a = 3\na = 4");
-        test("local a = 3\nreturn a + 4", "local a = 3\nreturn (a + 4)");
-        test(
+        test_stmts("local a = 3\nlocal b = a + 2", "local a = 3\nlocal b = (a + 2)");
+        test_stmts("local a = 3\nlocal b = c + 2", "local a = 3\nlocal b = (c + 2)");
+        test_stmts("local a = 3\na = 4", "local a = 3\na = 4");
+        test_stmts("local a = 3\nb = 4", "local a = 3\nb = 4");
+        test_stmts("mutable local a = 3\na = 4", "mutable local a = 3\na = 4");
+        test_stmts("local a = 3\nreturn a + 4", "local a = 3\nreturn (a + 4)");
+        test_stmts(
             "mutable local a = 3\na = 4\nlocal b = a + 3",
             "mutable local a = 3\na = 4\nlocal b = (a + 3)",
         );
@@ -649,105 +639,59 @@ mod test {
 
     #[test]
     fn test_multiple_items() {
-        let test = |i, e| {
-            test_parse(
-                &|mut p: Parser<&str>| {
-                    let r = p.parse_stmts();
-                    display_parse_result(p, r)
-                },
-                i,
-                e,
-            )
-        };
-        test("argument a, b", "argument a, b");
-        test("return 1 + 2, 3 * 4", "return (1 + 2), (3 * 4)");
-        test("argument a, a, b", "argument a, a, b");
-        test("local a = 1 return a + 1, a + 2", "local a = 1\nreturn (a + 1), (a + 2)");
+        test_stmts("argument a, b", "argument a, b");
+        test_stmts("return 1 + 2, 3 * 4", "return (1 + 2), (3 * 4)");
+        test_stmts("argument a, a, b", "argument a, a, b");
+        test_stmts("local a = 1 return a + 1, a + 2", "local a = 1\nreturn (a + 1), (a + 2)");
     }
 
     #[test]
     fn test_comments() {
-        let test =
-            |i, e| test_parse(&|mut p: Parser<&str>| p.parse_priority_expr(0).unwrap(), i, e);
-        test("2.0 # comment\n + 3.0", "(2 + 3)");
-        test("2.0 #(comment#) + 3.0", "(2 + 3)");
+        test_expr("2.0 # comment\n + 3.0", "(2 + 3)");
+        test_expr("2.0 #(comment#) + 3.0", "(2 + 3)");
     }
 
     #[test]
     fn test_bad_declarations() {
-        let test = |i, e| {
-            test_parse(
-                &|mut p: Parser<&str>| {
-                    let r = p.parse_stmts();
-                    display_parse_result(p, r)
-                },
-                i,
-                e,
-            )
-        };
-        test("a + 1 = 1", "invalid left-hand side of assignment");
-        test("a + b = 1", "invalid left-hand side of assignment");
-        test("f() = 1",   "invalid left-hand side of assignment");
-        test("f(x) = 1",  "invalid left-hand side of assignment");
+        test_stmts("a + 1 = 1", "invalid left-hand side of assignment");
+        test_stmts("a + b = 1", "invalid left-hand side of assignment");
+        test_stmts("f() = 1",   "invalid left-hand side of assignment");
+        test_stmts("f(x) = 1",  "invalid left-hand side of assignment");
     }
 
     #[test]
     fn test_call_expr() {
-        let test =
-            |i, e| test_parse(&|mut p: Parser<&str>| p.parse_priority_expr(0).unwrap(), i, e);
-        test("f()",              "f()");
-        test("f(1)",             "f(1)");
-        test("f(1, 2, 3)",       "f(1, 2, 3)");
-        test("f(1 + 2)",         "f((1 + 2))");
-        test("f(1 + 2, 3 * 4)",  "f((1 + 2), (3 * 4))");
-        test("f(x)",             "f(x)");
-        test("f(1) + 2",         "(f(1) + 2)");
-        test("1 + f(2)",         "(1 + f(2))");
-        test("f(g(1))",          "f(g(1))");
-        test("f(g(), h(1, 2))",  "f(g(), h(1, 2))");
+        test_expr("f()",              "f()");
+        test_expr("f(1)",             "f(1)");
+        test_expr("f(1, 2, 3)",       "f(1, 2, 3)");
+        test_expr("f(1 + 2)",         "f((1 + 2))");
+        test_expr("f(1 + 2, 3 * 4)",  "f((1 + 2), (3 * 4))");
+        test_expr("f(x)",             "f(x)");
+        test_expr("f(1) + 2",         "(f(1) + 2)");
+        test_expr("1 + f(2)",         "(1 + f(2))");
+        test_expr("f(g(1))",          "f(g(1))");
+        test_expr("f(g(), h(1, 2))",  "f(g(), h(1, 2))");
     }
 
     #[test]
     fn test_call_stmt() {
-        let test = |i, e| {
-            test_parse(
-                &|mut p: Parser<&str>| {
-                    let r = p.parse_stmts();
-                    display_parse_result(p, r)
-                },
-                i,
-                e,
-            )
-        };
-        test("f()",          "f()");
-        test("f(1, 2)",      "f(1, 2)");
-        test("local a = f(1)",  "local a = f(1)");
-        test("return f(1)",  "return f(1)");
+        test_stmts("f()",          "f()");
+        test_stmts("f(1, 2)",      "f(1, 2)");
+        test_stmts("local a = f(1)",  "local a = f(1)");
+        test_stmts("return f(1)",  "return f(1)");
     }
 
     #[test]
     fn test_call_errors() {
-        let test = |i, e| {
-            test_parse(
-                &|mut p: Parser<&str>| {
-                    let r = p.parse_stmts();
-                    display_parse_result(p, r)
-                },
-                i,
-                e,
-            )
-        };
-        test("f(1",  "expected ')'\nto match opening '(' here:");
-        test("f(1,)", "expected number or identifier, got ')'");
-        test("f(+)", "expected number or identifier, got '+'\nexpected number or identifier, got ')'");
+        test_stmts("f(1",  "expected ')'\nto match opening '(' here:");
+        test_stmts("f(1,)", "expected number or identifier, got ')'");
+        test_stmts("f(+)", "expected number or identifier, got '+'\nexpected number or identifier, got ')'");
     }
 
     #[test]
     fn test_block() {
-        let test =
-            |i, e| test_fallible_parse(&|mut p: Parser<&str>| p.parse_stmt().map(|s| s), i, e);
-        test("begin\nlocal a = 3\nend", "begin\n  local a = 3\nend");
-        test("begin begin local a = 3 end end", "begin\n  begin\n    local a = 3\n  end\nend");
+        test_stmt("begin\nlocal a = 3\nend", "begin\n  local a = 3\nend");
+        test_stmt("begin begin local a = 3 end end", "begin\n  begin\n    local a = 3\n  end\nend");
     }
 }
 
