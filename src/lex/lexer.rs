@@ -296,12 +296,12 @@ mod test {
     use crate::core::SourceMap;
 
 
+    #[allow(clippy::needless_pass_by_value)]
     fn expect_token(s: &str, expected: Token) {
         assert_eq!(expected, Lexer::new(s)
             .next_token().0
-            .map_or_else(
-                |e| panic!("expected {expected}, got '{e:?}'"),
-                |obtained| obtained));
+            .unwrap_or_else(|e| panic!("expected {expected}, got '{e:?}'"))
+        );
     }
 
 
@@ -419,9 +419,10 @@ mod test {
     #[test]
     fn test_identifiers_and_spaces() {
         assert_eq!(collect_lex("Hello \tworld"),
-            vec!(
+            vec![
                 Token::Identifier("Hello".to_string()),
-                Token::Identifier("world".to_string())));
+                Token::Identifier("world".to_string())
+            ]);
     }
 
 
@@ -454,10 +455,12 @@ mod test {
 
         // All of them
         assert_eq!(collect_lex("+-*/^()===!=<<=>>=,"),
-            vec!(Plus, Minus, Times, Divide, Power,
+            vec![
+                Plus, Minus, Times, Divide, Power,
                 LeftParenthesis, RightParenthesis,
                 Equal, Assign, NotEqual, LessThan, LessEqual, GreaterThan, GreaterEqual,
-                Comma));
+                Comma
+            ]);
     }
 
 
@@ -465,9 +468,10 @@ mod test {
     fn test_single_line_comment() {
         expect_token("# Comment", Token::Eof);
         assert_eq!(collect_lex("Hello # comment\nworld"),
-            vec!(
+            vec![
                 Token::Identifier("Hello".to_string()),
-                Token::Identifier("world".to_string())));
+                Token::Identifier("world".to_string())
+            ]);
     }
 
 
@@ -475,13 +479,15 @@ mod test {
     fn test_block_comment() {
         use Token::Identifier;
         assert_eq!(collect_lex("Hello #( comment\n comment #) world"),
-            vec!(
+            vec![
                 Identifier("Hello".to_string()),
-                Identifier("world".to_string())));
+                Identifier("world".to_string())
+            ]);
         assert_eq!(collect_lex("Hello #( comment #( ###\n #) comment #) world"),
-            vec!(
+            vec![
                 Identifier("Hello".to_string()),
-                Identifier("world".to_string())));
+                Identifier("world".to_string())
+            ]);
 
         let mut lex = Lexer::new("hello #( broken block\ncomment");
         let token = lex.next_token().0.unwrap();
@@ -552,8 +558,9 @@ and with a newline #) continues #) elsewhere"),
 
 
 //-------------------------------------------------------------------------------------------------
-/// Number tests
+// Number tests
 
+    #[allow(clippy::float_cmp)]
     fn expect_number(s: &str, expected: f64) {
         let t = Lexer::new(s).next_token();
         if let (Ok(Token::Number(obtained)), ..) = t {
@@ -568,14 +575,14 @@ and with a newline #) continues #) elsewhere"),
     fn test_numbers() {
         expect_number("3", 3.0);
         expect_number("3.0", 3.0);
-        expect_number("314159", 314159.0);
-        expect_number("3.14159", 3.14159);
-        expect_number("314159e-5", 3.14159);
-        expect_number("0.314159e1", 3.14159);
-        expect_number("0.314159e+1", 3.14159);
-        expect_number("0.314159e+11", 31415900000.0);
-        expect_number("31415926535897932384626", 31415926535897932300000.0);
-        expect_number("31415926535897932384626.0", 31415926535897932300000.0);
+        expect_number("12345", 12345.0);
+        expect_number("1.2345", 1.2345);
+        expect_number("12345e-4", 1.2345);
+        expect_number("0.12345e1", 1.2345);
+        expect_number("0.12345e+1", 1.2345);
+        expect_number("0.12345e+10", 1_234_500_000.0);
+        expect_number("12345678901234567890123", 12_345_678_901_234_567_741_440.0);
+        expect_number("12345678901234567890123.0", 12_345_678_901_234_567_741_440.0);
 
         // Error messages
         expect_error("0.", "expected at least one digit after decimal point");

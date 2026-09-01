@@ -510,7 +510,7 @@ mod test {
     {
         let p = Parser::new(input);
         let result = format!("{}", f(p));
-        assert_eq!(result, expected)
+        assert_eq!(result, expected);
     }
 
     fn test_fallible_parse<R, F>(f: F, input: &str, expected: &str)
@@ -520,37 +520,37 @@ mod test {
     {
         let p = Parser::new(input);
         if let Some(n) = f(p) {
-            let result = format!("{}", n);
-            assert_eq!(result, expected)
+            let result = format!("{n}");
+            assert_eq!(result, expected);
         } else {
-            assert_eq!(expected, "#parse error#")
+            assert_eq!(expected, "#parse error#");
         }
     }
 
-    fn display_parse_result(p: Parser<&str>, stmts: Vec<Stmt>) -> String {
+    fn display_parse_result(p: Parser<&str>, stmts: &[Stmt]) -> String {
         let (errors, ..) = p.close();
         if errors.is_empty() {
-            stmts.iter().map(|s| format!("{}", s)).collect::<Vec<_>>().join("\n")
+            stmts.iter().map(|s| format!("{s}")).collect::<Vec<_>>().join("\n")
         } else {
-            errors.iter().map(|e| e.messages()).collect::<Vec<_>>().join("\n")
+            errors.iter().map(ParseError::messages).collect::<Vec<_>>().join("\n")
         }
     }
 
 
     fn test_stmts(input: &str, expected: &str) {
-        test_parse(&|mut p: Parser<&str>| {
+        test_parse(|mut p: Parser<&str>| {
             let r = p.parse_stmts();
-            display_parse_result(p, r)
+            display_parse_result(p, &r)
         }, input, expected);
     }
 
     fn test_stmt(input: &str, expected: &str) {
-        test_fallible_parse(&|mut p: Parser<&str>| p.parse_stmt().map(|s| s), input, expected);
+        test_fallible_parse(|mut p: Parser<&str>| p.parse_stmt(), input, expected);
         test_stmts(input, expected);
     }
 
     fn test_expr(input: &str, expected: &str) {
-        test_parse(&|mut p: Parser<&str>| p.parse_priority_expr(0).unwrap(), input, expected);
+        test_parse(|mut p: Parser<&str>| p.parse_priority_expr(0).unwrap(), input, expected);
         test_stmt(input, expected);
         test_stmts(input, expected);
     }
