@@ -34,7 +34,7 @@ impl CompiledFn {
     }
 
     pub fn call(&self, input: &[f64]) -> Vec<f64> {
-        assert!(input.len() == usize::from(self.argument_count));
+        assert_eq!(input.len(), usize::from(self.argument_count));
         let mut output = vec![0.0; usize::from(self.return_count)];
         (self.func)(input.as_ptr(), output.as_mut_ptr());
         output
