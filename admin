@@ -13,7 +13,7 @@ case $1 in
         case $2 in
 
             test)
-                RUST_BACKTRACE=1 watchexec -w src -w ${3:-$TEST_DIR} -w Cargo.toml -c -- "cargo test && cargo run -q -- --test ${3:-$TEST_DIR} && cargo clippy"
+                RUST_BACKTRACE=1 watchexec -w src -w ${3:-$TEST_DIR} -w Cargo.toml -c -- "cargo test && cargo run -q -- --test ${3:-$TEST_DIR} && cargo clippy --tests"
                 ;;
 
             **)
