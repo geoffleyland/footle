@@ -115,7 +115,7 @@ impl Pass {
                                         format!("cannot assign twice to the immutable variable '{name}'"), *span,
                                         format!("the declaration of '{name}' is here:"), declaration_span);
                                 }
-                                Ok(()) => {}
+                                Ok(..) => {}
                             }
                         }
                     }
