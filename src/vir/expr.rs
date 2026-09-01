@@ -62,7 +62,7 @@ impl Eq for ExprKind {}
 
 impl ExprKind {
     fn is_constant(&self) -> bool {
-        matches!(self, Self::Number(..))
+        matches!(self, Self::Number(..) | Self::Bool(..))
     }
 }
 
