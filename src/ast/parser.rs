@@ -662,6 +662,7 @@ mod test {
         test_stmts("local a = 3\nb = 4", "local a = 3\nb = 4");
         test_stmts("mutable local a = 3\na = 4", "mutable local a = 3\na = 4");
         test_stmts("local a = 3\nreturn a + 4", "local a = 3\nreturn (a + 4)");
+        test_stmts("local a = 1 return a + 1, a + 2", "local a = 1\nreturn (a + 1), (a + 2)");
         test_stmts(
             "mutable local a = 3\na = 4\nlocal b = a + 3",
             "mutable local a = 3\na = 4\nlocal b = (a + 3)",
@@ -669,11 +670,16 @@ mod test {
     }
 
     #[test]
-    fn test_multiple_items() {
-        test_stmts("argument a, b", "argument a, b");
-        test_stmts("return 1 + 2, 3 * 4", "return (1 + 2), (3 * 4)");
-        test_stmts("argument a, a, b", "argument a, a, b");
-        test_stmts("local a = 1 return a + 1, a + 2", "local a = 1\nreturn (a + 1), (a + 2)");
+    fn test_arguments() {
+        test_stmt("argument a", "argument a");
+        test_stmt("argument a, b", "argument a, b");
+        test_stmt("argument a, a, b", "argument a, a, b");
+    }
+
+    #[test]
+    fn test_return() {
+        test_stmt("return 1", "return 1");
+        test_stmt("return 1 + 2, 3 * 4", "return (1 + 2), (3 * 4)");
     }
 
     #[test]
