@@ -560,18 +560,36 @@ mod test {
     }
 
     #[test]
-    fn test_exprs() {
+    fn test_numbers() {
         let test =
             |i, e| test_parse(&|mut p: Parser<&str>| p.parse_priority_expr(0).unwrap(), i, e);
         test("2.0", "2");
-        test("2.0 + 1", "(2 + 1)");
+        test("2.1", "2.1");
+    }
+
+    #[test]
+    fn test_parentheses() {
+        let test =
+            |i, e| test_parse(&|mut p: Parser<&str>| p.parse_priority_expr(0).unwrap(), i, e);
         test("1.0 + (2.0 + 3.0)", "(1 + (2 + 3))");
         test("(1.0 + 2.0) + 3.0", "((1 + 2) + 3)");
-        test("1.0 + 2.0 + 3.0", "((1 + 2) + 3)");
-        test("1.0 * 2.0 + 3.0", "((1 * 2) + 3)");
+        test("1.0 ^ (2.0 + 3.0)", "(1 ^ (2 + 3))");
+    }
+
+    #[test]
+    fn test_priority() {
+        let test =
+            |i, e| test_parse(&|mut p: Parser<&str>| p.parse_priority_expr(0).unwrap(), i, e);
         test("1.0 + 2.0 * 3.0", "(1 + (2 * 3))");
-        test("1.0 + 2.0 ^ 3.0", "(1 + (2 ^ 3))");
+        test("1.0 * 2.0 + 3.0", "((1 * 2) + 3)");
+        test("1.0 - 2.0 * 3.0", "(1 - (2 * 3))");
+        test("1.0 * 2.0 - 3.0", "((1 * 2) - 3)");
+        test("1.0 + 2.0 / 3.0", "(1 + (2 / 3))");
+        test("1.0 / 2.0 + 3.0", "((1 / 2) + 3)");
+        test("1.0 * 2.0 ^ 3.0", "(1 * (2 ^ 3))");
         test("1.0 ^ 2.0 * 3.0", "((1 ^ 2) * 3)");
+        test("1.0 / 2.0 ^ 3.0", "(1 / (2 ^ 3))");
+        test("1.0 ^ 2.0 / 3.0", "((1 ^ 2) / 3)");
     }
 
     #[test]
