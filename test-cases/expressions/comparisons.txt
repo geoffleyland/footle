@@ -22,8 +22,8 @@ return c, d, e, f, g, h
 
 #( expected vir
 
-  local I0 = 1
-  local I1 = 0
+  local I0 = true
+  local I1 = false
   return I0, I1, I0, I1, I1, I0
 
 #)
