@@ -628,6 +628,33 @@ mod test {
     }
 
     #[test]
+    fn test_block() {
+        test_stmt("begin\nlocal a = 3\nend", "begin\n  local a = 3\nend");
+        test_stmt("begin begin local a = 3 end end", "begin\n  begin\n    local a = 3\n  end\nend");
+    }
+
+    #[test]
+    fn test_multiple_assignments() {
+        test_stmt("local a, b = 1, 2", "local a, b = 1, 2");
+        test_stmt("a, b = 1, 2", "a, b = 1, 2");
+        test_stmt("local a, b = begin 1, 2 end", "local a, b = 1, 2");
+        test_stmt(
+            "local a, b = begin\nlocal x = 1\nx, x + 1\nend",
+            "local a, b = begin\n  local x = 1\n  x, (x + 1)\nend",
+        );
+
+        // Error cases
+        test_stmts("local a, b = 1",
+            "no right-hand-side value for 'b'\nthe right hand side is here:");
+        test_stmts("local a = 1, 2",
+            "no left-hand-side name for this right-hand-side value\nthe left hand side is here:");
+        test_stmts("local a = begin end",
+            "block assignments must contain at least a list of expressions to assign");
+        test_stmts("local a = begin local x = 1 end",
+            "the last statement in a block assignment must be a list of expressions");
+    }
+
+    #[test]
     fn test_statements() {
         test_stmts("local a = 3\nlocal b = a + 2", "local a = 3\nlocal b = (a + 2)");
         test_stmts("local a = 3\nlocal b = c + 2", "local a = 3\nlocal b = (c + 2)");
@@ -677,12 +704,6 @@ mod test {
         test_stmts("f(1",  "expected ')'\nto match opening '(' here:");
         test_stmts("f(1,)", "expected number or identifier, got ')'");
         test_stmts("f(+)", "expected number or identifier, got '+'\nexpected number or identifier, got ')'");
-    }
-
-    #[test]
-    fn test_block() {
-        test_stmt("begin\nlocal a = 3\nend", "begin\n  local a = 3\nend");
-        test_stmt("begin begin local a = 3 end end", "begin\n  begin\n    local a = 3\n  end\nend");
     }
 }
 
