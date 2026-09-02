@@ -185,6 +185,20 @@ fn lower_vir<'arena>(arena: &'arena Arena<Value<'arena>>, input: &vir::Block) ->
                     let function_value = intern_function(arena, &mut builder, "pow", *expr.span());
                     insert_value(arena, &mut builder, expr, vec![function_value], fixed_inputs, Some(0u8),
                         ValueDef::Instr(&isa::BLR));
+                } else if *op == BinaryOperator::Modulo {
+                    let lhs_operand = builder.operand_map[&lhs.pool_index()].clone();
+                    let rhs_operand = builder.operand_map[&rhs.pool_index()].clone();
+
+                    // AArch64 has no fmod; compute a - trunc(a / b) * b instead.
+                    let quotient = create_value(arena, &mut builder,
+                        vec![lhs_operand.clone(), rhs_operand.clone()], vec![], None,
+                        ValueDef::Instr(&isa::FDIV), *expr.span());
+                    let truncated = create_value(arena, &mut builder,
+                        vec![Operand::Value(quotient)], vec![], None,
+                        ValueDef::Instr(&isa::FRINTZ), *expr.span());
+                    insert_value(arena, &mut builder, expr,
+                        vec![Operand::Value(truncated), rhs_operand, lhs_operand], vec![], None,
+                        ValueDef::Instr(&isa::FMSUB));
                 } else {
                     let machine_instr = match op {
                         BinaryOperator::Add             => &isa::FADD,

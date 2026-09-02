@@ -137,6 +137,7 @@ impl<S: Source> Lexer<S> {
                 '*'                             => self.char_token(Times, start),
                 '/'                             => self.char_token(Divide, start),
                 '^'                             => self.char_token(Power, start),
+                '%'                             => self.char_token(Modulo, start),
                 // Parentheses
                 '('                             => self.char_token(LeftParenthesis, start),
                 ')'                             => self.char_token(RightParenthesis, start),
@@ -448,6 +449,7 @@ mod test {
         expect_token("*",    Times);
         expect_token("/",    Divide);
         expect_token("^",    Power);
+        expect_token("%",    Modulo);
 
         // Parentheses
         expect_token("(",    LeftParenthesis);
@@ -467,9 +469,8 @@ mod test {
         expect_error("!x",   "Expected '=' after '!'");
 
         // All of them
-        assert_eq!(collect_lex("+-*/^()===!=<<=>>=,"),
-            vec![
-                Plus, Minus, Times, Divide, Power,
+        assert_eq!(collect_lex("+-*/^%()===!=<<=>>=,"),
+            vec![Plus, Minus, Times, Divide, Power, Modulo,
                 LeftParenthesis, RightParenthesis,
                 Equal, Assign, NotEqual, LessThan, LessEqual, GreaterThan, GreaterEqual,
                 Comma

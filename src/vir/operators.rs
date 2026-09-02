@@ -12,6 +12,7 @@ pub fn fold_constants(op: BinaryOperator, lhs_expr: &ExprKind, rhs_expr: &ExprKi
             Multiply                        => ExprKind::Number(lhs * rhs),
             Divide                          => ExprKind::Number(lhs / rhs),
             Power                           => ExprKind::Number(f64::powf(*lhs, *rhs)),
+            Modulo                          => ExprKind::Number(lhs % rhs),
 
             // Comparison operators
             Equal                           => ExprKind::Bool(lhs == rhs),
@@ -51,6 +52,7 @@ mod test {
         assert_eq!(fold_constants(Multiply, &n(3.0), &n(4.0)), Some(n(12.0)));
         assert_eq!(fold_constants(Divide, &n(9.0), &n(3.0)),   Some(n(3.0)));
         assert_eq!(fold_constants(Power, &n(2.0), &n(10.0)),   Some(n(1024.0)));
+        assert_eq!(fold_constants(Modulo, &n(3.0), &n(2.0)),   Some(n(1.0)));
 
         // Comparison operators on numbers — now fold to Bool, not 1.0/0.0
         assert_eq!(fold_constants(Equal, &n(1.0), &n(1.0)),        Some(b(true)));

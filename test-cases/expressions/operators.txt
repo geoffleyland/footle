@@ -4,7 +4,8 @@ local d = a - b
 local e = a * b
 local f = a / b
 local g = a ^ b
-return c, d, e, f, g
+local h = a % b
+return c, d, e, f, g, h
 
 #( expected statements
 
@@ -14,6 +15,7 @@ return c, d, e, f, g
     local e = (a * b)
     local f = (a / b)
     local g = (a ^ b)
-    return c, d, e, f, g
+    local h = (a % b)
+    return c, d, e, f, g, h
 
 #)
