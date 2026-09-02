@@ -116,23 +116,6 @@ pub(super) struct Constant {
 }
 
 
-struct Builder<'arena> {
-    arguments:                              Vec<&'arena Value<'arena>>,
-    values:                                 Vec<&'arena Value<'arena>>,
-    constants:                              Vec<Constant>,
-    return_count:                           u8,
-    operand_map:                            HashMap<usize, Operand<'arena>>,
-    function_map:                           HashMap<String, &'arena Value<'arena>>,
-}
-
-impl Builder<'_> {
-    fn new() -> Self {
-        Self { arguments: vec![], values: vec![], constants: vec![], return_count: 0,
-            operand_map: HashMap::new(), function_map: HashMap::new() }
-    }
-}
-
-
 pub(super) struct Block<'arena> {
     pub(super) value_count:                 usize,
     pub(super) argument_count:              u8,
@@ -146,7 +129,8 @@ pub(super) struct Block<'arena> {
 //-------------------------------------------------------------------------------------------------
 
 pub(super) fn run<'arena>(arena: &'arena Arena<Value<'arena>>, input: &vir::Block) -> Block<'arena> {
-    let builder = lower_vir(arena, input);
+    let mut builder = Builder::new();
+    builder.lower_vir(arena, input);
     let argument_count = u8::try_from(builder.arguments.len())
         .expect("internal compiler error: too many arguments");
     let instrs = schedule(&builder.values);
@@ -162,79 +146,93 @@ pub(super) fn run<'arena>(arena: &'arena Arena<Value<'arena>>, input: &vir::Bloc
 //-------------------------------------------------------------------------------------------------
 // Generate instructions
 
-fn lower_vir<'arena>(arena: &'arena Arena<Value<'arena>>, input: &vir::Block) -> Builder<'arena> {
-    let mut builder = Builder::new();
-    for expr in &input.instrs {
-        match expr.kind() {
-            vir::ExprKind::Argument(index, name) => {
-                let value = insert_value(arena, &mut builder, expr,
-                    vec![], vec![], None, ValueDef::Argument(*index, name.clone()));
-                builder.arguments.push(value);
-            }
-            vir::ExprKind::Number(v) => {
-                builder.constants.push(Constant{ value: *v, span: *expr.span() });
-                let constant_index = builder.constants.len() - 1;
-                insert_value(arena, &mut builder, expr,
-                    vec![Operand::Constant(constant_index)], vec![], None,
-                    ValueDef::Instr(&isa::LDR_PC_F64));
-            }
-            vir::ExprKind::Binary(op, lhs, rhs) => {
-                if *op == BinaryOperator::Power {
-                    let fixed_inputs = exprs_to_fixed_inputs(&builder, &[lhs.clone(), rhs.clone()]);
-                    let function_value = intern_function(arena, &mut builder, "pow", *expr.span());
-                    insert_value(arena, &mut builder, expr, vec![function_value], fixed_inputs, Some(0u8),
-                        ValueDef::Instr(&isa::BLR));
-                } else if *op == BinaryOperator::Modulo {
-                    let lhs_operand = builder.operand_map[&lhs.pool_index()].clone();
-                    let rhs_operand = builder.operand_map[&rhs.pool_index()].clone();
+struct Builder<'arena> {
+    arguments:                              Vec<&'arena Value<'arena>>,
+    values:                                 Vec<&'arena Value<'arena>>,
+    constants:                              Vec<Constant>,
+    return_count:                           u8,
+    operand_map:                            HashMap<usize, Operand<'arena>>,
+    function_map:                           HashMap<String, &'arena Value<'arena>>,
+}
 
-                    // AArch64 has no fmod; compute a - trunc(a / b) * b instead.
-                    let quotient = create_value(arena, &mut builder,
-                        vec![lhs_operand.clone(), rhs_operand.clone()], vec![], None,
-                        ValueDef::Instr(&isa::FDIV), *expr.span());
-                    let truncated = create_value(arena, &mut builder,
-                        vec![Operand::Value(quotient)], vec![], None,
-                        ValueDef::Instr(&isa::FRINTZ), *expr.span());
-                    insert_value(arena, &mut builder, expr,
-                        vec![Operand::Value(truncated), rhs_operand, lhs_operand], vec![], None,
-                        ValueDef::Instr(&isa::FMSUB));
-                } else {
-                    let machine_instr = match op {
-                        BinaryOperator::Add             => &isa::FADD,
-                        BinaryOperator::Subtract        => &isa::FSUB,
-                        BinaryOperator::Multiply        => &isa::FMUL,
-                        BinaryOperator::Divide          => &isa::FDIV,
-
-                        _                               => todo!("More machine ops")
-                    };
-
-                    let operands = vec![builder.operand_map[&lhs.pool_index()].clone(), builder.operand_map[&rhs.pool_index()].clone()];
-                    insert_value(arena, &mut builder, expr, operands, vec![], None,
-                        ValueDef::Instr(machine_instr));
-                }
-            }
-            vir::ExprKind::Call(name, exprs) => {
-                let fixed_inputs = exprs_to_fixed_inputs(&builder, exprs);
-                let function_value = intern_function(arena, &mut builder, name, *expr.span());
-                insert_value(arena, &mut builder, expr, vec![function_value], fixed_inputs, Some(0u8),
-                    ValueDef::Instr(&isa::BLR));
-            }
-        }
+impl<'arena> Builder<'arena> {
+    fn new() -> Self {
+        Self { arguments: vec![], values: vec![], constants: vec![], return_count: 0,
+            operand_map: HashMap::new(), function_map: HashMap::new() }
     }
 
-    let fixed_inputs = exprs_to_fixed_inputs(&builder, &input.return_values);
-    let ret = arena.alloc(Value::new(
-        arena.len(),
-        ValueDef::Instr(&isa::RET),
-        vec![],
-        fixed_inputs,
-        None,
-        input.return_span));
-    builder.values.push(ret);
-    builder.return_count = u8::try_from(input.return_values.len())
-        .expect("internal compiler error: too many return values");
 
-    builder
+    fn lower_vir(&mut self, arena: &'arena Arena<Value<'arena>>, input: &vir::Block) {
+        for expr in &input.instrs {
+            match expr.kind() {
+                vir::ExprKind::Argument(index, name) => {
+                    let value = insert_value(arena, self, expr,
+                        vec![], vec![], None, ValueDef::Argument(*index, name.clone()));
+                    self.arguments.push(value);
+                }
+                vir::ExprKind::Number(v) => {
+                    self.constants.push(Constant{ value: *v, span: *expr.span() });
+                    let constant_index = self.constants.len() - 1;
+                    insert_value(arena, self, expr,
+                        vec![Operand::Constant(constant_index)], vec![], None,
+                        ValueDef::Instr(&isa::LDR_PC_F64));
+                }
+                vir::ExprKind::Binary(op, lhs, rhs) => {
+                    if *op == BinaryOperator::Power {
+                        let fixed_inputs = exprs_to_fixed_inputs(self, &[lhs.clone(), rhs.clone()]);
+                        let function_value = intern_function(arena, self, "pow", *expr.span());
+                        insert_value(arena, self, expr, vec![function_value], fixed_inputs, Some(0u8),
+                            ValueDef::Instr(&isa::BLR));
+                    } else if *op == BinaryOperator::Modulo {
+                        let lhs_operand = self.operand_map[&lhs.pool_index()].clone();
+                        let rhs_operand = self.operand_map[&rhs.pool_index()].clone();
+
+                        // AArch64 has no fmod; compute a - trunc(a / b) * b instead.
+                        let quotient = create_value(arena, self,
+                            vec![lhs_operand.clone(), rhs_operand.clone()], vec![], None,
+                            ValueDef::Instr(&isa::FDIV), *expr.span());
+                        let truncated = create_value(arena, self,
+                            vec![Operand::Value(quotient)], vec![], None,
+                            ValueDef::Instr(&isa::FRINTZ), *expr.span());
+                        insert_value(arena, self, expr,
+                            vec![Operand::Value(truncated), rhs_operand, lhs_operand], vec![], None,
+                            ValueDef::Instr(&isa::FMSUB));
+                    } else {
+                        let machine_instr = match op {
+                            BinaryOperator::Add             => &isa::FADD,
+                            BinaryOperator::Subtract        => &isa::FSUB,
+                            BinaryOperator::Multiply        => &isa::FMUL,
+                            BinaryOperator::Divide          => &isa::FDIV,
+
+                            _                               => todo!("More machine ops")
+                        };
+
+                        let operands = vec![self.operand_map[&lhs.pool_index()].clone(), self.operand_map[&rhs.pool_index()].clone()];
+                        insert_value(arena, self, expr, operands, vec![], None,
+                            ValueDef::Instr(machine_instr));
+                    }
+                }
+                vir::ExprKind::Call(name, exprs) => {
+                    let fixed_inputs = exprs_to_fixed_inputs(self, exprs);
+                    let function_value = intern_function(arena, self, name, *expr.span());
+                    insert_value(arena, self, expr, vec![function_value], fixed_inputs, Some(0u8),
+                        ValueDef::Instr(&isa::BLR));
+                }
+            }
+        }
+
+        let fixed_inputs = exprs_to_fixed_inputs(self, &input.return_values);
+        let ret = arena.alloc(Value::new(
+            arena.len(),
+            ValueDef::Instr(&isa::RET),
+            vec![],
+            fixed_inputs,
+            None,
+            input.return_span));
+        self.values.push(ret);
+        self.return_count = u8::try_from(input.return_values.len())
+            .expect("internal compiler error: too many return values");
+    }
 }
 
 
