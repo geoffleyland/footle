@@ -387,7 +387,7 @@ impl Typer {
                 match op {
                     BinaryOperator::Add | BinaryOperator::Subtract |
                     BinaryOperator::Multiply | BinaryOperator::Divide |
-                    BinaryOperator::Power => {
+                    BinaryOperator::Modulo | BinaryOperator::Power => {
                         self.set_type(pool_index, TypeInfo::F64, span)?;
                         self.set_type(lhs.pool_index(), TypeInfo::F64, span)?;
                         self.set_type(rhs.pool_index(), TypeInfo::F64, span)?;
