@@ -166,35 +166,35 @@ impl<'arena> Builder<'arena> {
         for expr in &input.instrs {
             match expr.kind() {
                 vir::ExprKind::Argument(index, name) => {
-                    let value = insert_value(arena, self, expr,
+                    let value = self.insert_value(arena, expr,
                         vec![], vec![], None, ValueDef::Argument(*index, name.clone()));
                     self.arguments.push(value);
                 }
                 vir::ExprKind::Number(v) => {
                     self.constants.push(Constant{ value: *v, span: *expr.span() });
                     let constant_index = self.constants.len() - 1;
-                    insert_value(arena, self, expr,
+                    self.insert_value(arena, expr,
                         vec![Operand::Constant(constant_index)], vec![], None,
                         ValueDef::Instr(&isa::LDR_PC_F64));
                 }
                 vir::ExprKind::Binary(op, lhs, rhs) => {
                     if *op == BinaryOperator::Power {
-                        let fixed_inputs = exprs_to_fixed_inputs(self, &[lhs.clone(), rhs.clone()]);
-                        let function_value = intern_function(arena, self, "pow", *expr.span());
-                        insert_value(arena, self, expr, vec![function_value], fixed_inputs, Some(0u8),
+                        let fixed_inputs = self.exprs_to_fixed_inputs(&[lhs.clone(), rhs.clone()]);
+                        let function_value = self.intern_function(arena, "pow", *expr.span());
+                        self.insert_value(arena, expr, vec![function_value], fixed_inputs, Some(0u8),
                             ValueDef::Instr(&isa::BLR));
                     } else if *op == BinaryOperator::Modulo {
                         let lhs_operand = self.operand_map[&lhs.pool_index()].clone();
                         let rhs_operand = self.operand_map[&rhs.pool_index()].clone();
 
                         // AArch64 has no fmod; compute a - trunc(a / b) * b instead.
-                        let quotient = create_value(arena, self,
+                        let quotient = self.create_value(arena,
                             vec![lhs_operand.clone(), rhs_operand.clone()], vec![], None,
                             ValueDef::Instr(&isa::FDIV), *expr.span());
-                        let truncated = create_value(arena, self,
+                        let truncated = self.create_value(arena,
                             vec![Operand::Value(quotient)], vec![], None,
                             ValueDef::Instr(&isa::FRINTZ), *expr.span());
-                        insert_value(arena, self, expr,
+                        self.insert_value(arena, expr,
                             vec![Operand::Value(truncated), rhs_operand, lhs_operand], vec![], None,
                             ValueDef::Instr(&isa::FMSUB));
                     } else {
@@ -208,20 +208,20 @@ impl<'arena> Builder<'arena> {
                         };
 
                         let operands = vec![self.operand_map[&lhs.pool_index()].clone(), self.operand_map[&rhs.pool_index()].clone()];
-                        insert_value(arena, self, expr, operands, vec![], None,
+                        self.insert_value(arena, expr, operands, vec![], None,
                             ValueDef::Instr(machine_instr));
                     }
                 }
                 vir::ExprKind::Call(name, exprs) => {
-                    let fixed_inputs = exprs_to_fixed_inputs(self, exprs);
-                    let function_value = intern_function(arena, self, name, *expr.span());
-                    insert_value(arena, self, expr, vec![function_value], fixed_inputs, Some(0u8),
+                    let fixed_inputs = self.exprs_to_fixed_inputs(exprs);
+                    let function_value = self.intern_function(arena, name, *expr.span());
+                    self.insert_value(arena, expr, vec![function_value], fixed_inputs, Some(0u8),
                         ValueDef::Instr(&isa::BLR));
                 }
             }
         }
 
-        let fixed_inputs = exprs_to_fixed_inputs(self, &input.return_values);
+        let fixed_inputs = self.exprs_to_fixed_inputs(&input.return_values);
         let ret = arena.alloc(Value::new(
             arena.len(),
             ValueDef::Instr(&isa::RET),
@@ -233,70 +233,70 @@ impl<'arena> Builder<'arena> {
         self.return_count = u8::try_from(input.return_values.len())
             .expect("internal compiler error: too many return values");
     }
-}
 
 
-fn exprs_to_fixed_inputs<'arena>(
-    builder:                                &Builder<'arena>,
-    exprs:                                  &[vir::Expr]) -> Vec<(&'arena Value<'arena>, u8)> {
-    exprs.iter().enumerate()
-        .map(|(reg, expr)|
-            (
-                if let Operand::Value(v) = builder.operand_map[&expr.pool_index()] {
-                    v
-                } else {
-                    panic!("internal compiler error: constant as a fixed input")
-                },
-                u8::try_from(reg).expect("internal compiler error: too many return values")
+    fn insert_value(
+        &mut self,
+        arena:                                  &'arena Arena<Value<'arena>>,
+        expr:                                   &vir::Expr,
+        operands:                               Vec<Operand<'arena>>,
+        fixed_inputs:                           Vec<(&'arena Value<'arena>, u8)>,
+        fixed_output:                           Option<u8>,
+        def:                                    ValueDef) -> &'arena Value<'arena> {
+        let value = self.create_value(arena, operands, fixed_inputs, fixed_output, def, *expr.span());
+        let operand = Operand::Value(value);
+        self.operand_map.insert(expr.pool_index(), operand.clone());
+        value
+    }
+
+
+    fn intern_function(
+        &mut self,
+        arena:                                  &'arena Arena<Value<'arena>>,
+        name:                                   &str,
+        span:                                   Span) -> Operand<'arena> {
+        let v = if let Some(&v) = self.function_map.get(name) {
+            v
+        } else {
+            let v = self.create_value(arena, vec![Operand::Function(name.into())], vec![], None,
+                ValueDef::Instr(&isa::LDR_PC_I64), span);
+            self.function_map.insert(name.into(), v);
+            v
+        };
+        Operand::Value(v)
+    }
+
+
+    fn create_value(
+        &mut self,
+        arena:                                  &'arena Arena<Value<'arena>>,
+        operands:                               Vec<Operand<'arena>>,
+        fixed_inputs:                           Vec<(&'arena Value<'arena>, u8)>,
+        fixed_output:                           Option<u8>,
+        def:                                    ValueDef,
+        span:                                   Span) -> &'arena Value<'arena>  {
+        let value = arena.alloc(Value::new(arena.len(), def, operands, fixed_inputs, fixed_output, span));
+        self.values.push(value);
+        value
+    }
+
+
+    fn exprs_to_fixed_inputs(
+        &self,
+        exprs:                                  &[vir::Expr]) -> Vec<(&'arena Value<'arena>, u8)> {
+        exprs.iter().enumerate()
+            .map(|(reg, expr)|
+                (
+                    if let Operand::Value(v) = self.operand_map[&expr.pool_index()] {
+                        v
+                    } else {
+                        panic!("internal compiler error: constant as a fixed input")
+                    },
+                    u8::try_from(reg).expect("internal compiler error: too many return values")
+                )
             )
-        )
-        .collect::<Vec<_>>()
-}
-
-
-fn intern_function<'arena>(
-    arena:                                  &'arena Arena<Value<'arena>>,
-    builder:                                &mut Builder<'arena>,
-    name:                                   &str,
-    span:                                   Span) -> Operand<'arena> {
-    let v = if let Some(&v) = builder.function_map.get(name) {
-        v
-    } else {
-        let v = create_value(arena, builder, vec![Operand::Function(name.into())], vec![], None,
-            ValueDef::Instr(&isa::LDR_PC_I64), span);
-        builder.function_map.insert(name.into(), v);
-        v
-    };
-    Operand::Value(v)
-}
-
-
-fn create_value<'arena>(
-    arena:                                  &'arena Arena<Value<'arena>>,
-    builder:                                &mut Builder<'arena>,
-    operands:                               Vec<Operand<'arena>>,
-    fixed_inputs:                           Vec<(&'arena Value<'arena>, u8)>,
-    fixed_output:                           Option<u8>,
-    def:                                    ValueDef,
-    span:                                   Span) -> &'arena Value<'arena>  {
-    let value = arena.alloc(Value::new(arena.len(), def, operands, fixed_inputs, fixed_output, span));
-    builder.values.push(value);
-    value
-}
-
-
-fn insert_value<'arena>(
-    arena:                                  &'arena Arena<Value<'arena>>,
-    builder:                                &mut Builder<'arena>,
-    expr:                                   &vir::Expr,
-    operands:                               Vec<Operand<'arena>>,
-    fixed_inputs:                           Vec<(&'arena Value<'arena>, u8)>,
-    fixed_output:                           Option<u8>,
-    def:                                    ValueDef) -> &'arena Value<'arena> {
-    let value = create_value(arena, builder, operands, fixed_inputs, fixed_output, def, *expr.span());
-    let operand = Operand::Value(value);
-    builder.operand_map.insert(expr.pool_index(), operand.clone());
-    value
+            .collect::<Vec<_>>()
+    }
 }
 
 
