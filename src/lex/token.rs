@@ -14,6 +14,7 @@ pub enum Token {
     Times,
     Divide,
     Power,
+    Modulo,
 
     // Comparison Operators
     Equal,
@@ -59,6 +60,7 @@ impl std::fmt::Display for Token {
             Times                           => write!(f, "*"),
             Divide                          => write!(f, "/"),
             Power                           => write!(f, "^"),
+            Modulo                          => write!(f, "%"),
 
             // Comparison operators
             Equal                           => write!(f, "=="),

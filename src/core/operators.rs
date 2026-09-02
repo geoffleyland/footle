@@ -13,6 +13,7 @@ pub enum BinaryOperator {
     Multiply,
     Divide,
     Power,
+    Modulo,
 
     // Comparison operators
     Equal,
@@ -32,7 +33,7 @@ impl BinaryOperator {
 
             // Math operators
             Add | Subtract              => (10, 10),
-            Multiply | Divide           => (11, 11),
+            Multiply | Divide | Modulo  => (11, 11),
             Power                       => (14, 13), // Right associative
 
             Equal | NotEqual | LessThan | LessEqual | GreaterThan | GreaterEqual
@@ -50,6 +51,7 @@ impl BinaryOperator {
             Multiply                    => "*",
             Divide                      => "/",
             Power                       => "^",
+            Modulo                      => "%",
 
             // Comparison operators
             Equal                       => "==",
@@ -91,6 +93,7 @@ impl TryFrom<Token> for BinaryOperator {
             Times                       => Ok(Self::Multiply),
             Divide                      => Ok(Self::Divide),
             Power                       => Ok(Self::Power),
+            Modulo                      => Ok(Self::Modulo),
 
             // Comparison operators
             Equal                       => Ok(Self::Equal),
