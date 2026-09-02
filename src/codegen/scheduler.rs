@@ -129,8 +129,8 @@ pub(super) struct Block<'arena> {
 //-------------------------------------------------------------------------------------------------
 
 pub(super) fn run<'arena>(arena: &'arena Arena<Value<'arena>>, input: &vir::Block) -> Block<'arena> {
-    let mut builder = Builder::new();
-    builder.lower_vir(arena, input);
+    let mut builder = Builder::new(arena);
+    builder.lower_vir(input);
     let argument_count = u8::try_from(builder.arguments.len())
         .expect("internal compiler error: too many arguments");
     let instrs = schedule(&builder.values);
@@ -175,6 +175,7 @@ macro_rules! operands {
 }
 
 struct Builder<'arena> {
+    arena:                                  &'arena Arena<Value<'arena>>,
     arguments:                              Vec<&'arena Value<'arena>>,
     values:                                 Vec<&'arena Value<'arena>>,
     constants:                              Vec<Constant>,
@@ -184,42 +185,42 @@ struct Builder<'arena> {
 }
 
 impl<'arena> Builder<'arena> {
-    fn new() -> Self {
-        Self { arguments: vec![], values: vec![], constants: vec![], return_count: 0,
+    fn new(arena: &'arena Arena<Value<'arena>>) -> Self {
+        Self { arena, arguments: vec![], values: vec![], constants: vec![], return_count: 0,
             operand_map: HashMap::new(), function_map: HashMap::new() }
     }
 
 
-    fn lower_vir(&mut self, arena: &'arena Arena<Value<'arena>>, input: &vir::Block) {
+    fn lower_vir(&mut self, input: &vir::Block) {
         for expr in &input.instrs {
             match expr.kind() {
                 vir::ExprKind::Argument(index, name) => {
-                    let value = self.insert_value(arena, expr,
+                    let value = self.insert_value(expr,
                         vec![], vec![], None, ValueDef::Argument(*index, name.clone()));
                     self.arguments.push(value);
                 }
                 vir::ExprKind::Number(v) => {
                     self.constants.push(Constant{ value: *v, span: *expr.span() });
                     let constant_index = self.constants.len() - 1;
-                    self.insert_value(arena, expr,
+                    self.insert_value(expr,
                         vec![Operand::Constant(constant_index)], vec![], None,
                         ValueDef::Instr(&isa::LDR_PC_F64));
                 }
                 vir::ExprKind::Binary(op, lhs, rhs) => {
                     if *op == BinaryOperator::Power {
                         let fixed_inputs = self.exprs_to_fixed_inputs(&[lhs.clone(), rhs.clone()]);
-                        let function_value = self.intern_function(arena, "pow", *expr.span());
-                        self.insert_value(arena, expr, operands!(self, function_value), fixed_inputs, Some(0u8),
+                        let function_value = self.intern_function("pow", *expr.span());
+                        self.insert_value(expr, operands!(self, function_value), fixed_inputs, Some(0u8),
                             ValueDef::Instr(&isa::BLR));
                     } else if *op == BinaryOperator::Modulo {
                         // AArch64 has no fmod; compute a - trunc(a / b) * b instead.
-                        let quotient = self.create_value(arena,
+                        let quotient = self.create_value(
                             operands!(self, lhs, rhs), vec![], None,
                             ValueDef::Instr(&isa::FDIV), *expr.span());
-                        let truncated = self.create_value(arena,
+                        let truncated = self.create_value(
                             operands!(self, quotient), vec![], None,
                             ValueDef::Instr(&isa::FRINTZ), *expr.span());
-                        self.insert_value(arena, expr,
+                        self.insert_value(expr,
                             operands!(self, truncated, rhs, lhs), vec![], None,
                             ValueDef::Instr(&isa::FMSUB));
                     } else {
@@ -232,22 +233,22 @@ impl<'arena> Builder<'arena> {
                             _                               => todo!("More machine ops")
                         };
 
-                        self.insert_value(arena, expr, operands!(self, lhs, rhs), vec![], None,
+                        self.insert_value(expr, operands!(self, lhs, rhs), vec![], None,
                             ValueDef::Instr(machine_instr));
                     }
                 }
                 vir::ExprKind::Call(name, exprs) => {
                     let fixed_inputs = self.exprs_to_fixed_inputs(exprs);
-                    let function_value = self.intern_function(arena, name, *expr.span());
-                    self.insert_value(arena, expr, operands!(self, function_value), fixed_inputs, Some(0u8),
+                    let function_value = self.intern_function(name, *expr.span());
+                    self.insert_value(expr, operands!(self, function_value), fixed_inputs, Some(0u8),
                         ValueDef::Instr(&isa::BLR));
                 }
             }
         }
 
         let fixed_inputs = self.exprs_to_fixed_inputs(&input.return_values);
-        let ret = arena.alloc(Value::new(
-            arena.len(),
+        let ret = self.arena.alloc(Value::new(
+            self.arena.len(),
             ValueDef::Instr(&isa::RET),
             vec![],
             fixed_inputs,
@@ -261,13 +262,12 @@ impl<'arena> Builder<'arena> {
 
     fn insert_value(
         &mut self,
-        arena:                                  &'arena Arena<Value<'arena>>,
         expr:                                   &vir::Expr,
         operands:                               Vec<Operand<'arena>>,
         fixed_inputs:                           Vec<(&'arena Value<'arena>, u8)>,
         fixed_output:                           Option<u8>,
         def:                                    ValueDef) -> &'arena Value<'arena> {
-        let value = self.create_value(arena, operands, fixed_inputs, fixed_output, def, *expr.span());
+        let value = self.create_value(operands, fixed_inputs, fixed_output, def, *expr.span());
         let operand = value.into_operand(self);
         self.operand_map.insert(expr.pool_index(), operand.clone());
         value
@@ -276,13 +276,12 @@ impl<'arena> Builder<'arena> {
 
     fn intern_function(
         &mut self,
-        arena:                                  &'arena Arena<Value<'arena>>,
         name:                                   &str,
         span:                                   Span) -> Operand<'arena> {
         let v = if let Some(&v) = self.function_map.get(name) {
             v
         } else {
-            let v = self.create_value(arena, vec![Operand::Function(name.into())], vec![], None,
+            let v = self.create_value(vec![Operand::Function(name.into())], vec![], None,
                 ValueDef::Instr(&isa::LDR_PC_I64), span);
             self.function_map.insert(name.into(), v);
             v
@@ -293,13 +292,12 @@ impl<'arena> Builder<'arena> {
 
     fn create_value(
         &mut self,
-        arena:                                  &'arena Arena<Value<'arena>>,
         operands:                               Vec<Operand<'arena>>,
         fixed_inputs:                           Vec<(&'arena Value<'arena>, u8)>,
         fixed_output:                           Option<u8>,
         def:                                    ValueDef,
         span:                                   Span) -> &'arena Value<'arena>  {
-        let value = arena.alloc(Value::new(arena.len(), def, operands, fixed_inputs, fixed_output, span));
+        let value = self.arena.alloc(Value::new(self.arena.len(), def, operands, fixed_inputs, fixed_output, span));
         self.values.push(value);
         value
     }
