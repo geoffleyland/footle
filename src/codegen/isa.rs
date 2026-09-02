@@ -117,6 +117,26 @@ pub(super) static FDIV: Code = Code {
     format:                 f64_math_format,
 };
 
+pub(super) static FRINTZ: Code = Code {
+    name:                   "frintz",
+    encode:                 |operands| 0x1E65_C000 | (operands[1] << 5) | operands[0],
+    latency:                3,
+    clobbers:               0,
+    flags:                  enum_set!(CodeFlags::HasOutput),
+    units:                  enum_set!(Unit::FP11 | Unit::FP12 | Unit::FP13 | Unit::FP14),
+    format:                 |operands, _| format!("d{}, d{}", operands[0], operands[1]),
+};
+
+pub(super) static FMSUB: Code = Code {
+    name:                   "fmsub",
+    encode:                 |operands| 0x1F40_8000 | (operands[2] << 16) | (operands[3] << 10) | (operands[1] << 5) | operands[0],
+    latency:                4,
+    clobbers:               0,
+    flags:                  enum_set!(CodeFlags::HasOutput),
+    units:                  enum_set!(Unit::FP11 | Unit::FP12 | Unit::FP13 | Unit::FP14),
+    format:                 |operands, _| format!("d{}, d{}, d{}, d{}", operands[0], operands[1], operands[2], operands[3]),
+};
+
 pub(super) static MOV_I64: Code = Code {
     name:                   "mov",
     encode:                 |operands| 0b1_01_01010_00_0_00000_000000_11111_00000 | (operands[1] << 16) | operands[0],
