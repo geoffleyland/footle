@@ -19,7 +19,7 @@ pub(super) const LINK_REG: u8 = 30;
 
 #[derive(Debug)]
 pub(super) struct Code {
-    pub(super) name:            &'static str,
+    name:                       &'static str,
     pub(super) encode:          fn(&[u32]) -> u32,
     pub(super) latency:         u8,
     has_output:                 bool,
@@ -30,6 +30,7 @@ pub(super) struct Code {
 
 
 impl Code {
+    pub fn name(&self) -> String        { self.name.to_string() }
     pub fn try_pick_unit(&self, free_units: EnumSet<Unit>) -> Option<Unit> {
         (self.units & free_units).iter().next()
     }

@@ -253,7 +253,7 @@ impl Styleable for Block {
             let address = i32::try_from(0x1000 + i * 4).unwrap();
             writer.writeln(f, indent, instr.span, &format!("{:#06x}: {} {}",
                 address,
-                instr.code.name,
+                instr.code.name(),
                 (instr.code.format)(&operands, address)))?;
         }
         for (i, c) in self.constants.iter().enumerate() {
