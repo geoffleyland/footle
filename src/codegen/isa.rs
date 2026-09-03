@@ -14,13 +14,6 @@ pub(super) enum Unit {
 }
 
 
-#[derive(Debug, EnumSetType)]
-enum CodeFlags {
-    HasOutput,
-    RestoreRegs,
-    SaveLinkReg,
-}
-
 pub(super) const STACK_REG: u8 = 31;
 pub(super) const LINK_REG: u8 = 30;
 
@@ -29,8 +22,7 @@ pub(super) struct Code {
     pub(super) name:            &'static str,
     pub(super) encode:          fn(&[u32]) -> u32,
     pub(super) latency:         u8,
-    pub(super) clobbers:        u32,
-    flags:                      EnumSet<CodeFlags>,
+    has_output:                 bool,
     units:                      EnumSet<Unit>,
 
     pub(super) format:          fn(&[i32], i32) -> String,
@@ -42,9 +34,12 @@ impl Code {
         (self.units & free_units).iter().next()
     }
 
-    pub fn has_output(&self) -> bool    { self.flags.contains(CodeFlags::HasOutput) }
-    pub fn restore_regs(&self) -> bool  { self.flags.contains(CodeFlags::RestoreRegs) }
-    pub fn save_link_reg(&self) -> bool { self.flags.contains(CodeFlags::SaveLinkReg) }
+    pub fn has_output(&self) -> bool    { self.has_output }
+    pub fn restore_regs(&self) -> bool  { std::ptr::eq(self, &raw const RET) }
+    pub fn save_link_reg(&self) -> bool {
+        std::ptr::eq(self, &raw const BL) || std::ptr::eq(self, &raw const BLR)
+    }
+    pub fn clobbers(&self) -> u32       { if self.save_link_reg() { 0xFFFF_00FF} else { 0 }}
 }
 
 
@@ -81,8 +76,7 @@ pub(super) static FADD: Code = Code {
     name:                   "fadd",
     encode:                 |operands| 0x1E60_2800 | (operands[2] << 16) | (operands[1] << 5) | operands[0],
     latency:                1,
-    clobbers:               0,
-    flags:                  enum_set!(CodeFlags::HasOutput),
+    has_output:             true,
     units:                  enum_set!(Unit::FP11 | Unit::FP12 | Unit::FP13 | Unit::FP14),
     format:                 f64_math_format,
 };
@@ -91,8 +85,7 @@ pub(super) static FSUB: Code = Code {
     name:                   "fsub",
     encode:                 |operands| 0x1E60_3800 | (operands[2] << 16) | (operands[1] << 5) | operands[0],
     latency:                1,
-    clobbers:               0,
-    flags:                  enum_set!(CodeFlags::HasOutput),
+    has_output:             true,
     units:                  enum_set!(Unit::FP11 | Unit::FP12 | Unit::FP13 | Unit::FP14),
     format:                 f64_math_format,
 };
@@ -101,8 +94,7 @@ pub(super) static FMUL: Code = Code {
     name:                   "fmul",
     encode:                 |operands| 0x1E60_0800 | (operands[2] << 16) | (operands[1] << 5) | operands[0],
     latency:                4,
-    clobbers:               0,
-    flags:                  enum_set!(CodeFlags::HasOutput),
+    has_output:             true,
     units:                  enum_set!(Unit::FP11 | Unit::FP12 | Unit::FP13 | Unit::FP14),
     format:                 f64_math_format,
 };
@@ -111,8 +103,7 @@ pub(super) static FDIV: Code = Code {
     name:                   "fdiv",
     encode:                 |operands| 0x1E60_1800 | (operands[2] << 16) | (operands[1] << 5) | operands[0],
     latency:                10,
-    clobbers:               0,
-    flags:                  enum_set!(CodeFlags::HasOutput),
+    has_output:             true,
     units:                  enum_set!(Unit::FP14),
     format:                 f64_math_format,
 };
@@ -121,8 +112,7 @@ pub(super) static FRINTZ: Code = Code {
     name:                   "frintz",
     encode:                 |operands| 0x1E65_C000 | (operands[1] << 5) | operands[0],
     latency:                3,
-    clobbers:               0,
-    flags:                  enum_set!(CodeFlags::HasOutput),
+    has_output:             true,
     units:                  enum_set!(Unit::FP11 | Unit::FP12 | Unit::FP13 | Unit::FP14),
     format:                 |operands, _| format!("d{}, d{}", operands[0], operands[1]),
 };
@@ -131,8 +121,7 @@ pub(super) static FMSUB: Code = Code {
     name:                   "fmsub",
     encode:                 |operands| 0x1F40_8000 | (operands[2] << 16) | (operands[3] << 10) | (operands[1] << 5) | operands[0],
     latency:                4,
-    clobbers:               0,
-    flags:                  enum_set!(CodeFlags::HasOutput),
+    has_output:             true,
     units:                  enum_set!(Unit::FP11 | Unit::FP12 | Unit::FP13 | Unit::FP14),
     format:                 |operands, _| format!("d{}, d{}, d{}, d{}", operands[0], operands[1], operands[2], operands[3]),
 };
@@ -141,8 +130,7 @@ pub(super) static MOV_I64: Code = Code {
     name:                   "mov",
     encode:                 |operands| 0b1_01_01010_00_0_00000_000000_11111_00000 | (operands[1] << 16) | operands[0],
     latency:                2,
-    clobbers:               0,
-    flags:                  enum_set!(CodeFlags::HasOutput),
+    has_output:             true,
     units:                  enum_set!(Unit::FP11 | Unit::FP12 | Unit::FP13 | Unit::FP14),
     format:                 |operands, _| format!("{}, {}", x_reg(operands[0]), x_reg(operands[1])),
 };
@@ -151,8 +139,7 @@ pub(super) static FMOV: Code = Code {
     name:                   "fmov",
     encode:                 |operands| 0x1E60_4000 | (operands[1] << 5) | operands[0],
     latency:                2,
-    clobbers:               0,
-    flags:                  enum_set!(CodeFlags::HasOutput),
+    has_output:             true,
     units:                  enum_set!(Unit::FP11 | Unit::FP12 | Unit::FP13 | Unit::FP14),
     format:                 |operands, _| format!("d{}, d{}", operands[0], operands[1]),
 };
@@ -161,8 +148,7 @@ pub(super) static LDR_PC_I64: Code = Code {
     name:                   "ldr",
     encode:                 |operands| 0b01_011_0_00_0000000000000000000_00000 | operands[0] | (((operands[1] >> 2) & 0x7_FFFF) << 5),
     latency:                10,
-    clobbers:               0,
-    flags:                  enum_set!(CodeFlags::HasOutput),
+    has_output:             true,
     units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
     format:                 |operands, address| format!("x{}, #{:#x}", operands[0], address + operands[1]),
 };
@@ -171,8 +157,7 @@ pub(super) static LDR_PC_F64: Code = Code {
     name:                   "ldr",
     encode:                 |operands| 0x5C00_0000 | (((operands[1] >> 2) & 0x7_FFFF) << 5) | operands[0],
     latency:                10,
-    clobbers:               0,
-    flags:                  enum_set!(CodeFlags::HasOutput),
+    has_output:             true,
     units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
     format:                 |operands, address| format!("d{}, #{:#x}", operands[0], address + operands[1]),
 };
@@ -181,8 +166,7 @@ pub(super) static LDR_OFFSET_F64: Code = Code {
     name:                   "ldr",
     encode:                 |operands| 0b11_111_1_01_01_000000000000_00000_00000 | operands[0] | operands[1] << 5 | (((operands[2] >> 3) & 0x7FF) << 10),
     latency:                10,
-    clobbers:               0,
-    flags:                  enum_set!(CodeFlags::HasOutput),
+    has_output:             true,
     units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
     format:                 |operands, _| format!("d{}, {}", operands[0], format_reg_offset(operands[1], operands[2])),
 };
@@ -191,8 +175,7 @@ pub(super) static LDR_POST_I64: Code = Code {
     name:                   "ldr",
     encode:                 |operands| 0b11_111_0_00_01_0_000000000_01_00000_00000 | operands[0] | operands[1] << 5 | ((operands[2] & 0x1FF) << 12),
     latency:                10,
-    clobbers:               0,
-    flags:                  enum_set!(CodeFlags::HasOutput),
+    has_output:             true,
     units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
     format:                 |operands, _| format!("x{}, [{}], {}", operands[0], x_reg(operands[1]), format_offset(operands[2])),
 };
@@ -201,8 +184,7 @@ pub(super) static LDR_POST_F64: Code = Code {
     name:                   "ldr",
     encode:                 |operands| 0b11_111_1_00_01_0_000000000_01_00000_00000 | operands[0] | operands[1] << 5 | ((operands[2] & 0x1FF) << 12),
     latency:                10,
-    clobbers:               0,
-    flags:                  enum_set!(CodeFlags::HasOutput),
+    has_output:             true,
     units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
     format:                 |operands, _| format!("d{}, [{}], {}", operands[0], x_reg(operands[1]), format_offset(operands[2])),
 };
@@ -211,8 +193,7 @@ pub(super) static LDP_POST_I64: Code = Code {
     name:                   "ldp",
     encode:                 |operands| 0b10_101_0_001_1_0000000_00000_00000_00000 | operands[0] | operands[1] << 10 | operands[2] << 5 | ((operands[3] >> 3) & 0x7F) << 15,
     latency:                10,
-    clobbers:               0,
-    flags:                  enum_set!(),
+    has_output:             false,
     units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
     format:                 |operands, _| format!("x{}, x{}, [{}], {}", operands[0], operands[1], x_reg(operands[2]), format_offset(operands[3])),
 };
@@ -221,8 +202,7 @@ pub(super) static LDP_POST_F64: Code = Code {
     name:                   "ldp",
     encode:                 |operands| 0b01_101_1_001_1_0000000_00000_00000_00000 | operands[0] | operands[1] << 10 | operands[2] << 5 | ((operands[3] >> 3) & 0x7F) << 15,
     latency:                10,
-    clobbers:               0,
-    flags:                  enum_set!(),
+    has_output:             false,
     units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
     format:                 |operands, _| format!("d{}, d{}, [{}], {}", operands[0], operands[1], x_reg(operands[2]), format_offset(operands[3])),
 };
@@ -231,8 +211,7 @@ pub(super) static STR_OFFSET_F64: Code = Code {
     name:                   "str",
     encode:                 |operands| 0b11_111_1_01_00_000000000000_00000_00000 | (((operands[2] >> 3) & 0x7FF) << 10) | operands[1] << 5 | operands[0],
     latency:                10,
-    clobbers:               0,
-    flags:                  enum_set!(),
+    has_output:             false,
     units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
     format:                 |operands, _| format!("d{}, {}", operands[0], format_reg_offset(operands[1], operands[2])),
 };
@@ -241,8 +220,7 @@ pub(super) static STR_PRE_I64: Code = Code {
     name:                   "str",
     encode:                 |operands| 0b11_111_0_00_00_0_000000000_11_00000_00000 | ((operands[2] & 0x1FF) << 12) | operands[1] << 5 | operands[0],
     latency:                10,
-    clobbers:               0,
-    flags:                  enum_set!(),
+    has_output:             false,
     units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
     format:                 |operands, _| format!("x{}, {}!", operands[0], format_reg_offset(operands[1], operands[2])),
 };
@@ -251,8 +229,7 @@ pub(super) static STR_PRE_F64: Code = Code {
     name:                   "str",
     encode:                 |operands| 0b11_111_1_00_00_0_000000000_11_00000_00000 | ((operands[2] & 0x1FF) << 12) | operands[1] << 5 | operands[0],
     latency:                10,
-    clobbers:               0,
-    flags:                  enum_set!(),
+    has_output:             false,
     units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
     format:                 |operands, _| format!("d{}, {}!", operands[0], format_reg_offset(operands[1], operands[2])),
 };
@@ -261,8 +238,7 @@ pub(super) static STP_PRE_I64: Code = Code {
     name:                   "stp",
     encode:                 |operands| 0b10_101_0_011_0_0000000_00000_00000_00000 | operands[0] | operands[1] << 10 | operands[2] << 5 | ((operands[3] >> 3) & 0x7F) << 15,
     latency:                10,
-    clobbers:               0,
-    flags:                  enum_set!(),
+    has_output:             false,
     units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
     format:                 |operands, _| format!("x{}, x{}, [{}, {}]!", operands[0], operands[1], x_reg(operands[2]), format_offset(operands[3])),
 };
@@ -271,8 +247,7 @@ pub(super) static STP_PRE_F64: Code = Code {
     name:                   "stp",
     encode:                 |operands| 0b01_101_1_011_0_0000000_00000_00000_00000 | operands[0] | operands[1] << 10 | operands[2] << 5 | ((operands[3] >> 3) & 0x7F) << 15,
     latency:                10,
-    clobbers:               0,
-    flags:                  enum_set!(),
+    has_output:             false,
     units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
     format:                 |operands, _| format!("d{}, d{}, [{}, {}]!", operands[0], operands[1], x_reg(operands[2]), format_offset(operands[3])),
 };
@@ -281,8 +256,7 @@ pub(super) static BL: Code = Code {
     name:                   "bl",
     encode:                 |operands| 0b1_00_101_00000000000000000000000000 | ((operands[0] >> 2) & 0x03FF_FFFF),
     latency:                1,
-    clobbers:               0xFFFF_00FF,
-    flags:                  enum_set!(CodeFlags::SaveLinkReg),
+    has_output:             false,
     units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
     format:                 |operands, address| format!("#{:#x}", address + operands[0]),
 };
@@ -291,8 +265,7 @@ pub(super) static BLR: Code = Code {
     name:                   "blr",
     encode:                 |operands| 0b110_101_1_0_0_01_11111_0000_0_0_00000_00000 | operands[0] << 5,
     latency:                1,
-    clobbers:               0xFFFF_00FF,
-    flags:                  enum_set!(CodeFlags::SaveLinkReg),
+    has_output:             false,
     units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
     format:                 |operands, _| x_reg(operands[0]),
 };
@@ -301,8 +274,7 @@ pub(super) static RET: Code = Code {
     name:                   "ret",
     encode:                 |_| 0xD65F_03C0,
     latency:                1,
-    clobbers:               0,
-    flags:                  enum_set!(CodeFlags::RestoreRegs),
+    has_output:             false,
     units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
     format:                 |_, _| String::new(),
 };
