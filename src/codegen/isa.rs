@@ -1,6 +1,7 @@
 #![allow(clippy::unusual_byte_groupings, non_upper_case_globals)]
 
 use enumset::{EnumSet, EnumSetType, enum_set};
+use paste::paste;
 
 #[derive(Debug, EnumSetType)]
 pub(super) enum Unit {
@@ -11,6 +12,14 @@ pub(super) enum Unit {
     FP12,
     FP13,
     FP14,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) enum AddressingMode {
+    None,
+    Pre,
+    Post,
+    Offset,
 }
 
 
@@ -30,26 +39,87 @@ pub(super) struct Code {
 
 
 impl Code {
-    pub fn name(&self) -> String        { self.name.to_string() }
-    pub fn try_pick_unit(&self, free_units: EnumSet<Unit>) -> Option<Unit> {
-        (self.units & free_units).iter().next()
-    }
-
+    pub fn name(&self) -> &str          { self.name }
     pub fn has_output(&self) -> bool    { self.has_output }
+    pub fn clobbers(&self) -> u32       { if self.save_link_reg() { 0xFFFF_00FF} else { 0 }}
     pub fn restore_regs(&self) -> bool  { std::ptr::eq(self, &raw const ret) }
     pub fn save_link_reg(&self) -> bool {
         std::ptr::eq(self, &raw const bl) || std::ptr::eq(self, &raw const blr)
     }
-    pub fn clobbers(&self) -> u32       { if self.save_link_reg() { 0xFFFF_00FF} else { 0 }}
+    pub fn try_pick_unit(&self, free_units: EnumSet<Unit>) -> Option<Unit> {
+        (self.units & free_units).iter().next()
+    }
 }
 
 
-fn format_offset(n: i32) -> String {
-    if n > -10 && n < 10 { format!("#{n}")}
-    else if n < 0 { format!("#-{:#x}", -n) }
-    else { format!("#{n:#x}") }
+fn format_operands(
+    addressing_mode:    AddressingMode,
+    operands:           &[i32],
+    address:            i32,
+    formatters:         &[fn(i32, i32, AddressingMode) -> String]
+) -> String {
+    debug_assert_eq!(operands.len(), formatters.len());
+    formatters.iter().zip(operands)
+        .map(|(f, &v)| f(v, address, addressing_mode))
+        .fold(String::new(), |mut acc, piece| {
+            if !acc.is_empty() && !piece.starts_with(']') {
+                acc.push_str(", ");
+            }
+            acc.push_str(&piece);
+            acc
+        })
 }
 
+macro_rules! format_operand {
+    (dd)    => { format_d_reg };
+    (dn)    => { format_d_reg };
+    (dm)    => { format_d_reg };
+    (da)    => { format_d_reg };
+    (dt)    => { format_d_reg };
+    (dt1)   => { format_d_reg };
+    (dt2)   => { format_d_reg };
+    (xd)    => { format_x_reg };
+    (xn)    => { format_xn };
+    (xm)    => { format_x_reg };
+    (xa)    => { format_x_reg };
+    (xt)    => { format_x_reg };
+    (xt1)   => { format_x_reg };
+    (xt2)   => { format_x_reg };
+    (imm7)  => { format_imm };
+    (imm9)  => { format_imm };
+    (imm12) => { format_imm12 };
+    (imm19) => { format_address };
+    (imm26) => { format_address };
+}
+
+
+fn format_xn(n: i32, _address: i32, mode: AddressingMode) -> String {
+    let reg = x_reg(n);
+    match mode {
+        AddressingMode::Pre | AddressingMode::Offset => format!("[{reg}"),
+        AddressingMode::Post => format!("[{reg}]"),
+        AddressingMode::None => reg
+    }
+}
+fn format_d_reg(n: i32, _address: i32, _mode: AddressingMode) -> String { format!("d{n}") }
+fn format_x_reg(n: i32, _address: i32, _mode: AddressingMode) -> String  { x_reg(n) }
+fn format_address(n: i32, address: i32, _mode: AddressingMode) -> String  { format!("#{:#x}", address + n) }
+fn format_imm(n: i32, _address: i32, mode: AddressingMode) -> String
+{
+    let offset = if n > -10 && n < 10 { format!("#{n}")}
+        else if n < 0 { format!("#-{:#x}", -n) }
+        else { format!("#{n:#x}") };
+    match mode {
+        AddressingMode::Pre => format!("{offset}]!"),
+        _ => offset
+    }
+}
+fn format_imm12(n: i32, _address: i32, _mode: AddressingMode) -> String {
+    if n == 0                   { "]".to_string() }
+    else if n > -10 && n < 10   { format!("#{n}]")}
+    else if n < 0               { format!("#-{:#x}]", -n) }
+    else                        { format!("#{n:#x}]") }
+}
 
 fn x_reg(n: i32) -> String {
     match n {
@@ -59,226 +129,129 @@ fn x_reg(n: i32) -> String {
 }
 
 
-fn f64_math_format(operands: &[i32], _: i32) -> String {
-    format!("d{}, d{}, d{}", operands[0], operands[1], operands[2])
+macro_rules! reg {
+    (dd, $it:expr)    => { $it };
+    (dn, $it:expr)    => { $it << 5 };
+    (dm, $it:expr)    => { $it << 16 };
+    (da, $it:expr)    => { $it << 10 };
+    (dt, $it:expr)    => { $it };
+    (dt1, $it:expr)   => { $it };
+    (dt2, $it:expr)   => { $it << 10 };
+    (xd, $it:expr)    => { $it };
+    (xn, $it:expr)    => { $it << 5 };
+    (xm, $it:expr)    => { $it << 16 };
+    (xa, $it:expr)    => { $it << 10 };
+    (xt, $it:expr)    => { $it };
+    (xt1, $it:expr)   => { $it };
+    (xt2, $it:expr)   => { $it << 10 };
+    (imm7, $it:expr)  => { (($it >> 3) & 0x7F) << 15 };
+    (imm9, $it:expr)  => { ($it & 0x01FF) << 12 };
+    (imm12, $it:expr) => { (($it >> 3) & 0x0FFF) << 10 };
+    (imm19, $it:expr) => { (($it >> 2) & 0x7_FFFF) << 5 };
+    (imm26, $it:expr) => { ($it >> 2) & 0x03FF_FFFF };
+}
+
+macro_rules! output_reg {
+    (dd) => { true };
+    (dt) => { true };
+    (dt1) => { true };
+    (xd) => { true };
+    (xt) => { true };
+    (xt1) => { true };
+    ($other:tt) => { false };
+}
+
+macro_rules! code {
+    ($name:ident => $($rest:tt)*) => {
+        find_reg_bank!(nothing, None, $name, (), $($rest)*);
+    };
+    ($name:ident $rd:ident, imm19 => $($rest:tt)*) => {
+        find_reg_bank!($rd, @mode_suffix:_literal, None, $name, ($rd, imm19), $($rest)*);
+    };
+    ($name:ident $($rt:ident)? $(, $operands:ident)* => $($rest:tt)*) => {
+        find_reg_bank!($($rt,)? None, $name, ($($rt,)? $($operands),*), $($rest)*);
+    };
+    ($name:ident $rt1:ident, $($rt2:ident,)? [$xn:ident, # $imm:ident]! => $($rest:tt)*) => {
+        find_reg_bank!($rt1, @mode_suffix:_pre, Pre, $name, ($rt1, $($rt2,)? $xn, $imm), $($rest)*);
+    };
+    ($name:ident $rt1:ident, $($rt2:ident,)? [$xn:ident], # $imm:ident => $($rest:tt)*) => {
+        find_reg_bank!($rt1, @mode_suffix:_post, Post, $name, ($rt1, $($rt2,)? $xn, $imm), $($rest)*);
+    };
+    ($name:ident $rt1:ident, $($rt2:ident,)? [$xn:ident, # $imm:ident] => $($rest:tt)*) => {
+        find_reg_bank!($rt1, @mode_suffix:_offset, Offset, $name, ($rt1, $($rt2,)? $xn, $imm), $($rest)*);
+    };
 }
 
 
-fn format_reg_offset(reg: i32, offset: i32) -> String {
-    if offset == 0 {
-        format!("[{}]", x_reg(reg))
-    } else {
-        format!("[{}, {}]", x_reg(reg), format_offset(offset))
+macro_rules! find_reg_bank {
+    (xd, $($rest:tt)*) => { _code!(@reg_bank:_x, $($rest)*); };
+    (xt, $($rest:tt)*) => { _code!(@reg_bank:_x, $($rest)*); };
+    (xt1, $($rest:tt)*) => { _code!(@reg_bank:_x, $($rest)*); };
+    (dd, $($rest:tt)*) => { _code!(@reg_bank:_d, $($rest)*); };
+    (dt, $($rest:tt)*) => { _code!(@reg_bank:_d, $($rest)*); };
+    (dt1, $($rest:tt)*) => { _code!(@reg_bank:_d, $($rest)*); };
+    ($other:ident, $($rest:tt)*) => { _code!($($rest)*); };
+}
+
+
+macro_rules! _code {
+    (
+        $(@reg_bank:$reg_bank:ident,)?
+        $(@mode_suffix:$mode_suffix:ident,)?
+        $addressing_mode:ident,
+        $name:ident,
+        ($($reg:ident),* $(,)?),
+        $latency:literal,
+        [$($unit:ident)|+ $(|)?],
+        $pattern:literal
+    ) => {
+        paste!(pub(super) static [<$name $($reg_bank)? $($mode_suffix)?>]: Code = Code {
+            name:               stringify!($name),
+            has_output:         $( output_reg!($reg) ||)* false,
+            latency:            $latency,
+            units:              enum_set!($(Unit::$unit)|*),
+            encode: |operands: &[u32]| -> u32 {
+                // If there's no argument (ie `ret`), _it is unused, so the _ silences a warning.
+                let mut _it = operands.iter().copied();
+                $pattern $(| reg!($reg, _it.next().unwrap()))*
+            },
+            format: |operands, address|
+                format_operands(AddressingMode::$addressing_mode, operands, address, &[$(format_operand!($reg)),*]),
+            };);
     }
 }
 
 
-pub(super) static fadd_d: Code = Code {
-    name:                   "fadd",
-    encode:                 |operands| 0x1E60_2800 | (operands[2] << 16) | (operands[1] << 5) | operands[0],
-    latency:                1,
-    has_output:             true,
-    units:                  enum_set!(Unit::FP11 | Unit::FP12 | Unit::FP13 | Unit::FP14),
-    format:                 f64_math_format,
-};
+code!(fadd dd, dn, dm               =>  1, [FP11 | FP12 | FP13 | FP14], 0x1E60_2800);
+code!(fsub dd, dn, dm               =>  1, [FP11 | FP12 | FP13 | FP14], 0x1E60_3800);
+code!(fmul dd, dn, dm               =>  4, [FP11 | FP12 | FP13 | FP14], 0x1E60_0800);
+code!(fdiv dd, dn, dm               => 10, [FP11 | FP12 | FP13 | FP14], 0x1E60_1800);
+code!(fmsub dd, dn, dm, da          =>  4, [FP11 | FP12 | FP13 | FP14], 0x1F40_8000);
+code!(frintz dd, dn                 =>  3, [FP11 | FP12 | FP13 | FP14], 0x1E65_C000);
 
-pub(super) static fsub_d: Code = Code {
-    name:                   "fsub",
-    encode:                 |operands| 0x1E60_3800 | (operands[2] << 16) | (operands[1] << 5) | operands[0],
-    latency:                1,
-    has_output:             true,
-    units:                  enum_set!(Unit::FP11 | Unit::FP12 | Unit::FP13 | Unit::FP14),
-    format:                 f64_math_format,
-};
+code!(fmov dd, dn                   =>  2, [FP11 | FP12 | FP13 | FP14], 0x1E60_4000);
+code!(mov xd, xm                    =>  2, [FP11 | FP12 | FP13 | FP14], 0b1_01_01010_00_0_00000_000000_11111_00000);
 
-pub(super) static fmul_d: Code = Code {
-    name:                   "fmul",
-    encode:                 |operands| 0x1E60_0800 | (operands[2] << 16) | (operands[1] << 5) | operands[0],
-    latency:                4,
-    has_output:             true,
-    units:                  enum_set!(Unit::FP11 | Unit::FP12 | Unit::FP13 | Unit::FP14),
-    format:                 f64_math_format,
-};
+code!(ldr xd, imm19                 => 10, [LS8 | L9 | L10],            0b01_011_0_00_0000000000000000000_00000);
+code!(ldr dd, imm19                 => 10, [LS8 | L9 | L10],            0x5C00_0000);
 
-pub(super) static fdiv_d: Code = Code {
-    name:                   "fdiv",
-    encode:                 |operands| 0x1E60_1800 | (operands[2] << 16) | (operands[1] << 5) | operands[0],
-    latency:                10,
-    has_output:             true,
-    units:                  enum_set!(Unit::FP14),
-    format:                 f64_math_format,
-};
+code!(ldr xt, [xn], #imm9           => 10, [LS8 | L9 | L10],            0b11_111_0_00_01_0_000000000_01_00000_00000);
+code!(ldr dt, [xn, #imm12]          => 10, [LS8 | L9 | L10],            0b11_111_1_01_01_000000000000_00000_00000);
+code!(ldr dt, [xn], #imm9           => 10, [LS8 | L9 | L10],            0b11_111_1_00_01_0_000000000_01_00000_00000);
 
-pub(super) static frintz_d: Code = Code {
-    name:                   "frintz",
-    encode:                 |operands| 0x1E65_C000 | (operands[1] << 5) | operands[0],
-    latency:                3,
-    has_output:             true,
-    units:                  enum_set!(Unit::FP11 | Unit::FP12 | Unit::FP13 | Unit::FP14),
-    format:                 |operands, _| format!("d{}, d{}", operands[0], operands[1]),
-};
+code!(ldp xt1, xt2, [xn], #imm7     => 10, [LS8 | L9 | L10],            0b10_101_0_001_1_0000000_00000_00000_00000);
+code!(ldp dt1, dt2, [xn], #imm7     => 10, [LS8 | L9 | L10],            0b01_101_1_001_1_0000000_00000_00000_00000);
 
-pub(super) static fmsub_d: Code = Code {
-    name:                   "fmsub",
-    encode:                 |operands| 0x1F40_8000 | (operands[2] << 16) | (operands[3] << 10) | (operands[1] << 5) | operands[0],
-    latency:                4,
-    has_output:             true,
-    units:                  enum_set!(Unit::FP11 | Unit::FP12 | Unit::FP13 | Unit::FP14),
-    format:                 |operands, _| format!("d{}, d{}, d{}, d{}", operands[0], operands[1], operands[2], operands[3]),
-};
+code!(str dt, [xn, #imm12]          => 10, [LS8 | L9 | L10],            0b11_111_1_01_00_000000000000_00000_00000);
+code!(str xt, [xn, #imm9]!          => 10, [LS8 | L9 | L10],            0b11_111_0_00_00_0_000000000_11_00000_00000);
+code!(str dt, [xn, #imm9]!          => 10, [LS8 | L9 | L10],            0b11_111_1_00_00_0_000000000_11_00000_00000);
 
-pub(super) static mov_x: Code = Code {
-    name:                   "mov",
-    encode:                 |operands| 0b1_01_01010_00_0_00000_000000_11111_00000 | (operands[1] << 16) | operands[0],
-    latency:                2,
-    has_output:             true,
-    units:                  enum_set!(Unit::FP11 | Unit::FP12 | Unit::FP13 | Unit::FP14),
-    format:                 |operands, _| format!("{}, {}", x_reg(operands[0]), x_reg(operands[1])),
-};
+code!(stp xt1, xt2, [xn, #imm7]!    => 10, [LS8 | L9 | L10],            0b10_101_0_011_0_0000000_00000_00000_00000);
+code!(stp dt1, dt2, [xn, #imm7]!    => 10, [LS8 | L9 | L10],            0b01_101_1_011_0_0000000_00000_00000_00000);
 
-pub(super) static fmov_d: Code = Code {
-    name:                   "fmov",
-    encode:                 |operands| 0x1E60_4000 | (operands[1] << 5) | operands[0],
-    latency:                2,
-    has_output:             true,
-    units:                  enum_set!(Unit::FP11 | Unit::FP12 | Unit::FP13 | Unit::FP14),
-    format:                 |operands, _| format!("d{}, d{}", operands[0], operands[1]),
-};
-
-pub(super) static ldr_x_literal: Code = Code {
-    name:                   "ldr",
-    encode:                 |operands| 0b01_011_0_00_0000000000000000000_00000 | operands[0] | (((operands[1] >> 2) & 0x7_FFFF) << 5),
-    latency:                10,
-    has_output:             true,
-    units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
-    format:                 |operands, address| format!("x{}, #{:#x}", operands[0], address + operands[1]),
-};
-
-pub(super) static ldr_d_literal: Code = Code {
-    name:                   "ldr",
-    encode:                 |operands| 0x5C00_0000 | (((operands[1] >> 2) & 0x7_FFFF) << 5) | operands[0],
-    latency:                10,
-    has_output:             true,
-    units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
-    format:                 |operands, address| format!("d{}, #{:#x}", operands[0], address + operands[1]),
-};
-
-pub(super) static ldr_d_offset: Code = Code {
-    name:                   "ldr",
-    encode:                 |operands| 0b11_111_1_01_01_000000000000_00000_00000 | operands[0] | operands[1] << 5 | (((operands[2] >> 3) & 0x7FF) << 10),
-    latency:                10,
-    has_output:             true,
-    units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
-    format:                 |operands, _| format!("d{}, {}", operands[0], format_reg_offset(operands[1], operands[2])),
-};
-
-pub(super) static ldr_x_post: Code = Code {
-    name:                   "ldr",
-    encode:                 |operands| 0b11_111_0_00_01_0_000000000_01_00000_00000 | operands[0] | operands[1] << 5 | ((operands[2] & 0x1FF) << 12),
-    latency:                10,
-    has_output:             true,
-    units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
-    format:                 |operands, _| format!("x{}, [{}], {}", operands[0], x_reg(operands[1]), format_offset(operands[2])),
-};
-
-pub(super) static ldr_d_post: Code = Code {
-    name:                   "ldr",
-    encode:                 |operands| 0b11_111_1_00_01_0_000000000_01_00000_00000 | operands[0] | operands[1] << 5 | ((operands[2] & 0x1FF) << 12),
-    latency:                10,
-    has_output:             true,
-    units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
-    format:                 |operands, _| format!("d{}, [{}], {}", operands[0], x_reg(operands[1]), format_offset(operands[2])),
-};
-
-pub(super) static ldp_x_post: Code = Code {
-    name:                   "ldp",
-    encode:                 |operands| 0b10_101_0_001_1_0000000_00000_00000_00000 | operands[0] | operands[1] << 10 | operands[2] << 5 | ((operands[3] >> 3) & 0x7F) << 15,
-    latency:                10,
-    has_output:             false,
-    units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
-    format:                 |operands, _| format!("x{}, x{}, [{}], {}", operands[0], operands[1], x_reg(operands[2]), format_offset(operands[3])),
-};
-
-pub(super) static ldp_d_post: Code = Code {
-    name:                   "ldp",
-    encode:                 |operands| 0b01_101_1_001_1_0000000_00000_00000_00000 | operands[0] | operands[1] << 10 | operands[2] << 5 | ((operands[3] >> 3) & 0x7F) << 15,
-    latency:                10,
-    has_output:             false,
-    units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
-    format:                 |operands, _| format!("d{}, d{}, [{}], {}", operands[0], operands[1], x_reg(operands[2]), format_offset(operands[3])),
-};
-
-pub(super) static str_d_offset: Code = Code {
-    name:                   "str",
-    encode:                 |operands| 0b11_111_1_01_00_000000000000_00000_00000 | (((operands[2] >> 3) & 0x7FF) << 10) | operands[1] << 5 | operands[0],
-    latency:                10,
-    has_output:             false,
-    units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
-    format:                 |operands, _| format!("d{}, {}", operands[0], format_reg_offset(operands[1], operands[2])),
-};
-
-pub(super) static str_x_pre: Code = Code {
-    name:                   "str",
-    encode:                 |operands| 0b11_111_0_00_00_0_000000000_11_00000_00000 | ((operands[2] & 0x1FF) << 12) | operands[1] << 5 | operands[0],
-    latency:                10,
-    has_output:             false,
-    units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
-    format:                 |operands, _| format!("x{}, {}!", operands[0], format_reg_offset(operands[1], operands[2])),
-};
-
-pub(super) static str_d_pre: Code = Code {
-    name:                   "str",
-    encode:                 |operands| 0b11_111_1_00_00_0_000000000_11_00000_00000 | ((operands[2] & 0x1FF) << 12) | operands[1] << 5 | operands[0],
-    latency:                10,
-    has_output:             false,
-    units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
-    format:                 |operands, _| format!("d{}, {}!", operands[0], format_reg_offset(operands[1], operands[2])),
-};
-
-pub(super) static stp_x_pre: Code = Code {
-    name:                   "stp",
-    encode:                 |operands| 0b10_101_0_011_0_0000000_00000_00000_00000 | operands[0] | operands[1] << 10 | operands[2] << 5 | ((operands[3] >> 3) & 0x7F) << 15,
-    latency:                10,
-    has_output:             false,
-    units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
-    format:                 |operands, _| format!("x{}, x{}, [{}, {}]!", operands[0], operands[1], x_reg(operands[2]), format_offset(operands[3])),
-};
-
-pub(super) static stp_d_pre: Code = Code {
-    name:                   "stp",
-    encode:                 |operands| 0b01_101_1_011_0_0000000_00000_00000_00000 | operands[0] | operands[1] << 10 | operands[2] << 5 | ((operands[3] >> 3) & 0x7F) << 15,
-    latency:                10,
-    has_output:             false,
-    units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
-    format:                 |operands, _| format!("d{}, d{}, [{}, {}]!", operands[0], operands[1], x_reg(operands[2]), format_offset(operands[3])),
-};
-
-pub(super) static bl: Code = Code {
-    name:                   "bl",
-    encode:                 |operands| 0b1_00_101_00000000000000000000000000 | ((operands[0] >> 2) & 0x03FF_FFFF),
-    latency:                1,
-    has_output:             false,
-    units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
-    format:                 |operands, address| format!("#{:#x}", address + operands[0]),
-};
-
-pub(super) static blr: Code = Code {
-    name:                   "blr",
-    encode:                 |operands| 0b110_101_1_0_0_01_11111_0000_0_0_00000_00000 | operands[0] << 5,
-    latency:                1,
-    has_output:             false,
-    units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
-    format:                 |operands, _| x_reg(operands[0]),
-};
-
-pub(super) static ret: Code = Code {
-    name:                   "ret",
-    encode:                 |_| 0xD65F_03C0,
-    latency:                1,
-    has_output:             false,
-    units:                  enum_set!(Unit::LS8 | Unit::L9 | Unit::L10),
-    format:                 |_, _| String::new(),
-};
+code!(bl imm26                      =>  1, [LS8 | L9 | L10],            0b1_00_101_00000000000000000000000000);
+code!(blr xn                        =>  1, [LS8 | L9 | L10],            0b110_101_1_0_0_01_11111_0000_0_0_00000_00000);
+code!(ret                           =>  1, [LS8 | L9 | L10],            0xD65F_03C0);
 
 
 /// The order in which we want to allocate registers.
