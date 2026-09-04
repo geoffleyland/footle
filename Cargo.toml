@@ -9,7 +9,7 @@ git-version = "0.3.9"
 argh = "0.1.19"
 typed-arena = "2.0.2"
 enumset = "1.1.14"
-bit-set = "0.10"
+bit-set = "0.11"
 libc = "0.2"
 capstone = { version = "0.14", features = ["arch_arm64"] }
 paste = "1.0.15"
