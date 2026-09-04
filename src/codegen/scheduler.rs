@@ -205,7 +205,7 @@ impl<'arena> Builder<'arena> {
                 vir::ExprKind::Number(value) => {
                     self.constants.push(Constant{ value: *value, span });
                     let constant_index = self.constants.len() - 1;
-                    self.lower_instr(&isa::LDR_PC_F64, vec![Operand::Constant(constant_index)], expr);
+                    self.lower_instr(&isa::ldr_pc_f64, vec![Operand::Constant(constant_index)], expr);
                 }
                 vir::ExprKind::Binary(op, lhs, rhs) => {
                     if *op == BinaryOperator::Power {
@@ -214,17 +214,17 @@ impl<'arena> Builder<'arena> {
                     } else if *op == BinaryOperator::Modulo {
                         // AArch64 has no fmod; compute a - trunc(a / b) * b instead.
                         let quotient = self.make_instr(
-                            &isa::FDIV, operands!(self, lhs, rhs), span);
+                            &isa::fdiv, operands!(self, lhs, rhs), span);
                         let truncated = self.make_instr(
-                            &isa::FRINTZ, operands!(self, quotient), span);
-                        self.lower_instr(&isa::FMSUB, operands!(self, truncated, rhs, lhs), expr);
+                            &isa::frintz, operands!(self, quotient), span);
+                        self.lower_instr(&isa::fmsub, operands!(self, truncated, rhs, lhs), expr);
 
                     } else {
                         let machine_instr = match op {
-                            BinaryOperator::Add             => &isa::FADD,
-                            BinaryOperator::Subtract        => &isa::FSUB,
-                            BinaryOperator::Multiply        => &isa::FMUL,
-                            BinaryOperator::Divide          => &isa::FDIV,
+                            BinaryOperator::Add             => &isa::fadd,
+                            BinaryOperator::Subtract        => &isa::fsub,
+                            BinaryOperator::Multiply        => &isa::fmul,
+                            BinaryOperator::Divide          => &isa::fdiv,
 
                             _                               => todo!("More machine ops")
                         };
@@ -238,7 +238,7 @@ impl<'arena> Builder<'arena> {
         }
 
         let fixed_inputs = self.exprs_to_fixed_inputs(&input.return_values);
-        self.make_value(vec![], fixed_inputs, None, ValueDef::Instr(&isa::RET), input.return_span);
+        self.make_value(vec![], fixed_inputs, None, ValueDef::Instr(&isa::ret), input.return_span);
     }
 
 
@@ -264,13 +264,13 @@ impl<'arena> Builder<'arena> {
             v
         } else {
             let v = self.make_value(vec![Operand::Function(name.into())], vec![], None,
-                ValueDef::Instr(&isa::LDR_PC_I64), *expr.span());
+                ValueDef::Instr(&isa::ldr_pc_i64), *expr.span());
             self.function_map.insert(name.into(), v);
             v
         };
 
         self.lower_value(expr, operands!(self, function_value), fixed_inputs, Some(fixed_output),
-            ValueDef::Instr(&isa::BLR))
+            ValueDef::Instr(&isa::blr))
     }
 
     fn lower_value(

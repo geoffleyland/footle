@@ -1,4 +1,4 @@
-#![allow(clippy::unusual_byte_groupings)]
+#![allow(clippy::unusual_byte_groupings, non_upper_case_globals)]
 
 use enumset::{EnumSet, EnumSetType, enum_set};
 
@@ -36,9 +36,9 @@ impl Code {
     }
 
     pub fn has_output(&self) -> bool    { self.has_output }
-    pub fn restore_regs(&self) -> bool  { std::ptr::eq(self, &raw const RET) }
+    pub fn restore_regs(&self) -> bool  { std::ptr::eq(self, &raw const ret) }
     pub fn save_link_reg(&self) -> bool {
-        std::ptr::eq(self, &raw const BL) || std::ptr::eq(self, &raw const BLR)
+        std::ptr::eq(self, &raw const bl) || std::ptr::eq(self, &raw const blr)
     }
     pub fn clobbers(&self) -> u32       { if self.save_link_reg() { 0xFFFF_00FF} else { 0 }}
 }
@@ -73,7 +73,7 @@ fn format_reg_offset(reg: i32, offset: i32) -> String {
 }
 
 
-pub(super) static FADD: Code = Code {
+pub(super) static fadd: Code = Code {
     name:                   "fadd",
     encode:                 |operands| 0x1E60_2800 | (operands[2] << 16) | (operands[1] << 5) | operands[0],
     latency:                1,
@@ -82,7 +82,7 @@ pub(super) static FADD: Code = Code {
     format:                 f64_math_format,
 };
 
-pub(super) static FSUB: Code = Code {
+pub(super) static fsub: Code = Code {
     name:                   "fsub",
     encode:                 |operands| 0x1E60_3800 | (operands[2] << 16) | (operands[1] << 5) | operands[0],
     latency:                1,
@@ -91,7 +91,7 @@ pub(super) static FSUB: Code = Code {
     format:                 f64_math_format,
 };
 
-pub(super) static FMUL: Code = Code {
+pub(super) static fmul: Code = Code {
     name:                   "fmul",
     encode:                 |operands| 0x1E60_0800 | (operands[2] << 16) | (operands[1] << 5) | operands[0],
     latency:                4,
@@ -100,7 +100,7 @@ pub(super) static FMUL: Code = Code {
     format:                 f64_math_format,
 };
 
-pub(super) static FDIV: Code = Code {
+pub(super) static fdiv: Code = Code {
     name:                   "fdiv",
     encode:                 |operands| 0x1E60_1800 | (operands[2] << 16) | (operands[1] << 5) | operands[0],
     latency:                10,
@@ -109,7 +109,7 @@ pub(super) static FDIV: Code = Code {
     format:                 f64_math_format,
 };
 
-pub(super) static FRINTZ: Code = Code {
+pub(super) static frintz: Code = Code {
     name:                   "frintz",
     encode:                 |operands| 0x1E65_C000 | (operands[1] << 5) | operands[0],
     latency:                3,
@@ -118,7 +118,7 @@ pub(super) static FRINTZ: Code = Code {
     format:                 |operands, _| format!("d{}, d{}", operands[0], operands[1]),
 };
 
-pub(super) static FMSUB: Code = Code {
+pub(super) static fmsub: Code = Code {
     name:                   "fmsub",
     encode:                 |operands| 0x1F40_8000 | (operands[2] << 16) | (operands[3] << 10) | (operands[1] << 5) | operands[0],
     latency:                4,
@@ -127,7 +127,7 @@ pub(super) static FMSUB: Code = Code {
     format:                 |operands, _| format!("d{}, d{}, d{}, d{}", operands[0], operands[1], operands[2], operands[3]),
 };
 
-pub(super) static MOV_I64: Code = Code {
+pub(super) static mov_i64: Code = Code {
     name:                   "mov",
     encode:                 |operands| 0b1_01_01010_00_0_00000_000000_11111_00000 | (operands[1] << 16) | operands[0],
     latency:                2,
@@ -136,7 +136,7 @@ pub(super) static MOV_I64: Code = Code {
     format:                 |operands, _| format!("{}, {}", x_reg(operands[0]), x_reg(operands[1])),
 };
 
-pub(super) static FMOV: Code = Code {
+pub(super) static fmov: Code = Code {
     name:                   "fmov",
     encode:                 |operands| 0x1E60_4000 | (operands[1] << 5) | operands[0],
     latency:                2,
@@ -145,7 +145,7 @@ pub(super) static FMOV: Code = Code {
     format:                 |operands, _| format!("d{}, d{}", operands[0], operands[1]),
 };
 
-pub(super) static LDR_PC_I64: Code = Code {
+pub(super) static ldr_pc_i64: Code = Code {
     name:                   "ldr",
     encode:                 |operands| 0b01_011_0_00_0000000000000000000_00000 | operands[0] | (((operands[1] >> 2) & 0x7_FFFF) << 5),
     latency:                10,
@@ -154,7 +154,7 @@ pub(super) static LDR_PC_I64: Code = Code {
     format:                 |operands, address| format!("x{}, #{:#x}", operands[0], address + operands[1]),
 };
 
-pub(super) static LDR_PC_F64: Code = Code {
+pub(super) static ldr_pc_f64: Code = Code {
     name:                   "ldr",
     encode:                 |operands| 0x5C00_0000 | (((operands[1] >> 2) & 0x7_FFFF) << 5) | operands[0],
     latency:                10,
@@ -163,7 +163,7 @@ pub(super) static LDR_PC_F64: Code = Code {
     format:                 |operands, address| format!("d{}, #{:#x}", operands[0], address + operands[1]),
 };
 
-pub(super) static LDR_OFFSET_F64: Code = Code {
+pub(super) static ldr_offset_f64: Code = Code {
     name:                   "ldr",
     encode:                 |operands| 0b11_111_1_01_01_000000000000_00000_00000 | operands[0] | operands[1] << 5 | (((operands[2] >> 3) & 0x7FF) << 10),
     latency:                10,
@@ -172,7 +172,7 @@ pub(super) static LDR_OFFSET_F64: Code = Code {
     format:                 |operands, _| format!("d{}, {}", operands[0], format_reg_offset(operands[1], operands[2])),
 };
 
-pub(super) static LDR_POST_I64: Code = Code {
+pub(super) static ldr_post_i64: Code = Code {
     name:                   "ldr",
     encode:                 |operands| 0b11_111_0_00_01_0_000000000_01_00000_00000 | operands[0] | operands[1] << 5 | ((operands[2] & 0x1FF) << 12),
     latency:                10,
@@ -181,7 +181,7 @@ pub(super) static LDR_POST_I64: Code = Code {
     format:                 |operands, _| format!("x{}, [{}], {}", operands[0], x_reg(operands[1]), format_offset(operands[2])),
 };
 
-pub(super) static LDR_POST_F64: Code = Code {
+pub(super) static ldr_post_f64: Code = Code {
     name:                   "ldr",
     encode:                 |operands| 0b11_111_1_00_01_0_000000000_01_00000_00000 | operands[0] | operands[1] << 5 | ((operands[2] & 0x1FF) << 12),
     latency:                10,
@@ -190,7 +190,7 @@ pub(super) static LDR_POST_F64: Code = Code {
     format:                 |operands, _| format!("d{}, [{}], {}", operands[0], x_reg(operands[1]), format_offset(operands[2])),
 };
 
-pub(super) static LDP_POST_I64: Code = Code {
+pub(super) static ldp_post_i64: Code = Code {
     name:                   "ldp",
     encode:                 |operands| 0b10_101_0_001_1_0000000_00000_00000_00000 | operands[0] | operands[1] << 10 | operands[2] << 5 | ((operands[3] >> 3) & 0x7F) << 15,
     latency:                10,
@@ -199,7 +199,7 @@ pub(super) static LDP_POST_I64: Code = Code {
     format:                 |operands, _| format!("x{}, x{}, [{}], {}", operands[0], operands[1], x_reg(operands[2]), format_offset(operands[3])),
 };
 
-pub(super) static LDP_POST_F64: Code = Code {
+pub(super) static ldp_post_f64: Code = Code {
     name:                   "ldp",
     encode:                 |operands| 0b01_101_1_001_1_0000000_00000_00000_00000 | operands[0] | operands[1] << 10 | operands[2] << 5 | ((operands[3] >> 3) & 0x7F) << 15,
     latency:                10,
@@ -208,7 +208,7 @@ pub(super) static LDP_POST_F64: Code = Code {
     format:                 |operands, _| format!("d{}, d{}, [{}], {}", operands[0], operands[1], x_reg(operands[2]), format_offset(operands[3])),
 };
 
-pub(super) static STR_OFFSET_F64: Code = Code {
+pub(super) static str_offset_f64: Code = Code {
     name:                   "str",
     encode:                 |operands| 0b11_111_1_01_00_000000000000_00000_00000 | (((operands[2] >> 3) & 0x7FF) << 10) | operands[1] << 5 | operands[0],
     latency:                10,
@@ -217,7 +217,7 @@ pub(super) static STR_OFFSET_F64: Code = Code {
     format:                 |operands, _| format!("d{}, {}", operands[0], format_reg_offset(operands[1], operands[2])),
 };
 
-pub(super) static STR_PRE_I64: Code = Code {
+pub(super) static str_pre_i64: Code = Code {
     name:                   "str",
     encode:                 |operands| 0b11_111_0_00_00_0_000000000_11_00000_00000 | ((operands[2] & 0x1FF) << 12) | operands[1] << 5 | operands[0],
     latency:                10,
@@ -226,7 +226,7 @@ pub(super) static STR_PRE_I64: Code = Code {
     format:                 |operands, _| format!("x{}, {}!", operands[0], format_reg_offset(operands[1], operands[2])),
 };
 
-pub(super) static STR_PRE_F64: Code = Code {
+pub(super) static str_pre_f64: Code = Code {
     name:                   "str",
     encode:                 |operands| 0b11_111_1_00_00_0_000000000_11_00000_00000 | ((operands[2] & 0x1FF) << 12) | operands[1] << 5 | operands[0],
     latency:                10,
@@ -235,7 +235,7 @@ pub(super) static STR_PRE_F64: Code = Code {
     format:                 |operands, _| format!("d{}, {}!", operands[0], format_reg_offset(operands[1], operands[2])),
 };
 
-pub(super) static STP_PRE_I64: Code = Code {
+pub(super) static stp_pre_i64: Code = Code {
     name:                   "stp",
     encode:                 |operands| 0b10_101_0_011_0_0000000_00000_00000_00000 | operands[0] | operands[1] << 10 | operands[2] << 5 | ((operands[3] >> 3) & 0x7F) << 15,
     latency:                10,
@@ -244,7 +244,7 @@ pub(super) static STP_PRE_I64: Code = Code {
     format:                 |operands, _| format!("x{}, x{}, [{}, {}]!", operands[0], operands[1], x_reg(operands[2]), format_offset(operands[3])),
 };
 
-pub(super) static STP_PRE_F64: Code = Code {
+pub(super) static stp_pre_f64: Code = Code {
     name:                   "stp",
     encode:                 |operands| 0b01_101_1_011_0_0000000_00000_00000_00000 | operands[0] | operands[1] << 10 | operands[2] << 5 | ((operands[3] >> 3) & 0x7F) << 15,
     latency:                10,
@@ -253,7 +253,7 @@ pub(super) static STP_PRE_F64: Code = Code {
     format:                 |operands, _| format!("d{}, d{}, [{}, {}]!", operands[0], operands[1], x_reg(operands[2]), format_offset(operands[3])),
 };
 
-pub(super) static BL: Code = Code {
+pub(super) static bl: Code = Code {
     name:                   "bl",
     encode:                 |operands| 0b1_00_101_00000000000000000000000000 | ((operands[0] >> 2) & 0x03FF_FFFF),
     latency:                1,
@@ -262,7 +262,7 @@ pub(super) static BL: Code = Code {
     format:                 |operands, address| format!("#{:#x}", address + operands[0]),
 };
 
-pub(super) static BLR: Code = Code {
+pub(super) static blr: Code = Code {
     name:                   "blr",
     encode:                 |operands| 0b110_101_1_0_0_01_11111_0000_0_0_00000_00000 | operands[0] << 5,
     latency:                1,
@@ -271,7 +271,7 @@ pub(super) static BLR: Code = Code {
     format:                 |operands, _| x_reg(operands[0]),
 };
 
-pub(super) static RET: Code = Code {
+pub(super) static ret: Code = Code {
     name:                   "ret",
     encode:                 |_| 0xD65F_03C0,
     latency:                1,
