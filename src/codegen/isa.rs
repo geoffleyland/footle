@@ -28,7 +28,7 @@ pub(super) const LINK_REG: u8 = 30;
 
 #[derive(Debug)]
 pub(super) struct Code {
-    name:                       &'static str,
+    mnemonic:                   &'static str,
     pub(super) encode:          fn(&[u32]) -> u32,
     pub(super) latency:         u8,
     has_output:                 bool,
@@ -39,7 +39,7 @@ pub(super) struct Code {
 
 
 impl Code {
-    pub fn name(&self) -> &str          { self.name }
+    pub fn mnemonic(&self) -> &str      { self.mnemonic }
     pub fn has_output(&self) -> bool    { self.has_output }
     pub fn clobbers(&self) -> u32       { if self.save_link_reg() { 0xFFFF_00FF} else { 0 }}
     pub fn restore_regs(&self) -> bool  { std::ptr::eq(self, &raw const ret) }
@@ -162,23 +162,23 @@ macro_rules! output_reg {
 }
 
 macro_rules! code {
-    ($name:ident => $($rest:tt)*) => {
-        find_reg_bank!(nothing, None, $name, (), $($rest)*);
+    ($mnemonic:ident => $($rest:tt)*) => {
+        find_reg_bank!(nothing, None, $mnemonic, (), $($rest)*);
     };
-    ($name:ident $rd:ident, imm19 => $($rest:tt)*) => {
-        find_reg_bank!($rd, @mode_suffix:_literal, None, $name, ($rd, imm19), $($rest)*);
+    ($mnemonic:ident $rd:ident, imm19 => $($rest:tt)*) => {
+        find_reg_bank!($rd, @mode_suffix:_literal, None, $mnemonic, ($rd, imm19), $($rest)*);
     };
-    ($name:ident $($rt:ident)? $(, $operands:ident)* => $($rest:tt)*) => {
-        find_reg_bank!($($rt,)? None, $name, ($($rt,)? $($operands),*), $($rest)*);
+    ($mnemonic:ident $($rt:ident)? $(, $operands:ident)* => $($rest:tt)*) => {
+        find_reg_bank!($($rt,)? None, $mnemonic, ($($rt,)? $($operands),*), $($rest)*);
     };
-    ($name:ident $rt1:ident, $($rt2:ident,)? [$xn:ident, # $imm:ident]! => $($rest:tt)*) => {
-        find_reg_bank!($rt1, @mode_suffix:_pre, Pre, $name, ($rt1, $($rt2,)? $xn, $imm), $($rest)*);
+    ($mnemonic:ident $rt1:ident, $($rt2:ident,)? [$xn:ident, # $imm:ident]! => $($rest:tt)*) => {
+        find_reg_bank!($rt1, @mode_suffix:_pre, Pre, $mnemonic, ($rt1, $($rt2,)? $xn, $imm), $($rest)*);
     };
-    ($name:ident $rt1:ident, $($rt2:ident,)? [$xn:ident], # $imm:ident => $($rest:tt)*) => {
-        find_reg_bank!($rt1, @mode_suffix:_post, Post, $name, ($rt1, $($rt2,)? $xn, $imm), $($rest)*);
+    ($mnemonic:ident $rt1:ident, $($rt2:ident,)? [$xn:ident], # $imm:ident => $($rest:tt)*) => {
+        find_reg_bank!($rt1, @mode_suffix:_post, Post, $mnemonic, ($rt1, $($rt2,)? $xn, $imm), $($rest)*);
     };
-    ($name:ident $rt1:ident, $($rt2:ident,)? [$xn:ident, # $imm:ident] => $($rest:tt)*) => {
-        find_reg_bank!($rt1, @mode_suffix:_offset, Offset, $name, ($rt1, $($rt2,)? $xn, $imm), $($rest)*);
+    ($mnemonic:ident $rt1:ident, $($rt2:ident,)? [$xn:ident, # $imm:ident] => $($rest:tt)*) => {
+        find_reg_bank!($rt1, @mode_suffix:_offset, Offset, $mnemonic, ($rt1, $($rt2,)? $xn, $imm), $($rest)*);
     };
 }
 
@@ -199,14 +199,14 @@ macro_rules! _code {
         $(@reg_bank:$reg_bank:ident,)?
         $(@mode_suffix:$mode_suffix:ident,)?
         $addressing_mode:ident,
-        $name:ident,
+        $mnemonic:ident,
         ($($reg:ident),* $(,)?),
         $latency:literal,
         [$($unit:ident)|+ $(|)?],
         $pattern:literal
     ) => {
-        paste!(pub(super) static [<$name $($reg_bank)? $($mode_suffix)?>]: Code = Code {
-            name:               stringify!($name),
+        paste!(pub(super) static [<$mnemonic $($reg_bank)? $($mode_suffix)?>]: Code = Code {
+            mnemonic:           stringify!($mnemonic),
             has_output:         $( output_reg!($reg) ||)* false,
             latency:            $latency,
             units:              enum_set!($(Unit::$unit)|*),

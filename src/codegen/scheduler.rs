@@ -48,7 +48,7 @@ impl fmt::Display for ValueDef {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use ValueDef::*;
         match self {
-            Instr(code)                     => write!(f, "{}", code.name()),
+            Instr(code)                     => write!(f, "{}", code.mnemonic()),
             Argument(i, name)               => write!(f, "ARGUMENT r{i} ({name})"),
         }
     }

@@ -83,7 +83,7 @@ pub fn schedule(vir_block: &vir::Block) -> Schedule {
             slot:           c.slot,
             opcode:         c.code()
                                 .expect("internal compiler error: instruction without opcode")
-                                .name().to_string(),
+                                .mnemonic().to_string(),
             operands:       c.operands.iter().map(|o|
                 match o {
                     scheduler::Operand::Constant(i)     => InstrOperand::Constant(*i),
