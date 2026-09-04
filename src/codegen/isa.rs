@@ -3,6 +3,10 @@
 use enumset::{EnumSet, EnumSetType, enum_set};
 use paste::paste;
 
+
+//-------------------------------------------------------------------------------------------------
+// Architecture details.
+
 #[derive(Debug, EnumSetType)]
 pub(super) enum Unit {
     LS8,
@@ -22,9 +26,58 @@ pub(super) enum AddressingMode {
     Offset,
 }
 
-
 pub(super) const STACK_REG: u8 = 31;
 pub(super) const LINK_REG: u8 = 30;
+pub(super) const CALLEE_SAVED_REGS: u32 = 0x0000_FF00;
+
+/// The order in which we want to allocate registers.
+pub(super) const REG_ORDER: [u8; 32] = [
+    16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,     // d16-d31
+     8,  9, 10, 11, 12, 13, 14, 15,                                     // d8-d16 (callee saved)
+     0,  1,  2,  3,  4,  5,  6,  7,                                     // d0-d7
+];
+
+
+#[allow(clippy::cast_possible_truncation)]
+pub(super) const REG_INDEX: [u8; 32] = {
+    let mut t = [255u8; 32];
+    let mut i = 0;
+    while i < REG_ORDER.len() {
+        t[REG_ORDER[i] as usize] = i as u8;
+        i += 1;
+    }
+    t
+};
+
+
+// For each real register dN, make a mask of the appropriate bit in REG_ORDER.
+// `for` and iterators aren't allowed in const blocks, hence the weird while loop.
+const CLOBBER_MASK: [u32; 32] = {
+    let mut t = [0u32; 32];
+    let mut i = 0;
+    while i < 32 {
+        t[i] = 1 << REG_INDEX[i];
+        i += 1;
+    }
+    t
+};
+
+
+// Convert a mask in real registers to a mask in register order
+pub(super) fn real_reg_to_ordered_reg_mask(clobbers: u32) -> u32 {
+    let mut c = clobbers;
+    let mut mask = 0u32;
+    while c != 0 {
+        let bit = c.trailing_zeros() as usize;
+        mask |= CLOBBER_MASK[bit];
+        c &= c - 1;
+    }
+    mask
+}
+
+
+//-------------------------------------------------------------------------------------------------
+// Instruction encoding structures and macros.
 
 #[derive(Debug)]
 pub(super) struct Code {
@@ -161,6 +214,7 @@ macro_rules! output_reg {
     ($other:tt) => { false };
 }
 
+// Cover the instruction operand patterns to try to figure out the addressing mode (if there is one)
 macro_rules! code {
     ($mnemonic:ident => $($rest:tt)*) => {
         find_reg_bank!(nothing, None, $mnemonic, (), $($rest)*);
@@ -183,6 +237,7 @@ macro_rules! code {
 }
 
 
+// Try to figure out if our destination is a x or d register.
 macro_rules! find_reg_bank {
     (xd, $($rest:tt)*) => { _code!(@reg_bank:_x, $($rest)*); };
     (xt, $($rest:tt)*) => { _code!(@reg_bank:_x, $($rest)*); };
@@ -222,6 +277,9 @@ macro_rules! _code {
 }
 
 
+//-------------------------------------------------------------------------------------------------
+// The instructions!
+
 code!(fadd dd, dn, dm               =>  1, [FP11 | FP12 | FP13 | FP14], 0x1E60_2800);
 code!(fsub dd, dn, dm               =>  1, [FP11 | FP12 | FP13 | FP14], 0x1E60_3800);
 code!(fmul dd, dn, dm               =>  4, [FP11 | FP12 | FP13 | FP14], 0x1E60_0800);
@@ -253,51 +311,4 @@ code!(bl imm26                      =>  1, [LS8 | L9 | L10],            0b1_00_1
 code!(blr xn                        =>  1, [LS8 | L9 | L10],            0b110_101_1_0_0_01_11111_0000_0_0_00000_00000);
 code!(ret                           =>  1, [LS8 | L9 | L10],            0xD65F_03C0);
 
-
-/// The order in which we want to allocate registers.
-pub(super) const REG_ORDER: [u8; 32] = [
-    16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,     // d16-d31
-     8,  9, 10, 11, 12, 13, 14, 15,                                     // d8-d16 (callee saved)
-     0,  1,  2,  3,  4,  5,  6,  7,                                     // d0-d7
-];
-
-
-#[allow(clippy::cast_possible_truncation)]
-pub(super) const REG_INDEX: [u8; 32] = {
-    let mut t = [255u8; 32];
-    let mut i = 0;
-    while i < REG_ORDER.len() {
-        t[REG_ORDER[i] as usize] = i as u8;
-        i += 1;
-    }
-    t
-};
-
-
-pub(super) const CALLEE_SAVED_REGS: u32 = 0x0000_FF00;
-
-
-// For each real register dN, make a mask of the appropriate bit in REG_ORDER.
-// `for` and iterators aren't allowed in const blocks, hence the weird while loop.
-const CLOBBER_MASK: [u32; 32] = {
-    let mut t = [0u32; 32];
-    let mut i = 0;
-    while i < 32 {
-        t[i] = 1 << REG_INDEX[i];
-        i += 1;
-    }
-    t
-};
-
-
-// Convert a mask in real registers to a mask in register order
-pub(super) fn real_reg_to_ordered_reg_mask(clobbers: u32) -> u32 {
-    let mut c = clobbers;
-    let mut mask = 0u32;
-    while c != 0 {
-        let bit = c.trailing_zeros() as usize;
-        mask |= CLOBBER_MASK[bit];
-        c &= c - 1;
-    }
-    mask
-}
+//-------------------------------------------------------------------------------------------------
