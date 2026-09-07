@@ -177,6 +177,19 @@ macro_rules! operands {
 }
 
 
+trait IntoValueDef {
+    fn into_value_def(self) -> ValueDef;
+}
+
+impl IntoValueDef for ValueDef {
+    fn into_value_def(self) -> ValueDef     { self }
+}
+
+impl IntoValueDef for &'static isa::Code {
+    fn into_value_def(self) -> ValueDef     { ValueDef::Instr(self) }
+}
+
+
 struct Builder<'arena> {
     arena:                                  &'arena Arena<Value<'arena>>,
     arguments:                              Vec<&'arena Value<'arena>>,
@@ -198,8 +211,8 @@ impl<'arena> Builder<'arena> {
             let span = *expr.span();
             match expr.kind() {
                 vir::ExprKind::Argument(index, name) => {
-                    let value = self.lower_value(expr,
-                        vec![], vec![], None, ValueDef::Argument(*index, name.clone()));
+                    let value = self.lower_value(expr, ValueDef::Argument(*index, name.clone()),
+                        vec![], vec![], None);
                     self.arguments.push(value);
                 }
                 vir::ExprKind::Number(value) => {
@@ -238,7 +251,7 @@ impl<'arena> Builder<'arena> {
         }
 
         let fixed_inputs = self.exprs_to_fixed_inputs(&input.return_values);
-        self.make_value(vec![], fixed_inputs, None, ValueDef::Instr(&isa::ret), input.return_span);
+        self.make_value(&isa::ret, vec![], fixed_inputs, None, input.return_span);
     }
 
 
@@ -248,7 +261,7 @@ impl<'arena> Builder<'arena> {
         operands:                               Vec<Operand<'arena>>,
         expr:                                   &vir::Expr,
     ) -> &'arena Value<'arena> {
-        self.lower_value(expr, operands, vec![], None, ValueDef::Instr(code))
+        self.lower_value(expr, code, operands, vec![], None)
     }
 
     fn lower_call(
@@ -263,24 +276,23 @@ impl<'arena> Builder<'arena> {
         let function_value = if let Some(&v) = self.function_map.get(name) {
             v
         } else {
-            let v = self.make_value(vec![Operand::Function(name.into())], vec![], None,
-                ValueDef::Instr(&isa::ldr_x_literal), *expr.span());
+            let v = self.make_instr(&isa::ldr_x_literal, vec![Operand::Function(name.into())], *expr.span());
             self.function_map.insert(name.into(), v);
             v
         };
 
-        self.lower_value(expr, operands!(self, function_value), fixed_inputs, Some(fixed_output),
-            ValueDef::Instr(&isa::blr))
+        self.lower_value(expr, &isa::blr, operands!(self, function_value), fixed_inputs, Some(fixed_output))
     }
 
-    fn lower_value(
+    fn lower_value<VD: IntoValueDef>(
         &mut self,
         expr:                                   &vir::Expr,
+        def:                                    VD,
         operands:                               Vec<Operand<'arena>>,
         fixed_inputs:                           Vec<(&'arena Value<'arena>, u8)>,
         fixed_output:                           Option<u8>,
-        def:                                    ValueDef) -> &'arena Value<'arena> {
-        let value = self.make_value(operands, fixed_inputs, fixed_output, def, *expr.span());
+    ) -> &'arena Value<'arena> {
+        let value = self.make_value(def, operands, fixed_inputs, fixed_output, *expr.span());
         let operand = value.into_operand(self);
         self.operand_map.insert(expr.pool_index(), operand.clone());
         value
@@ -290,17 +302,20 @@ impl<'arena> Builder<'arena> {
         &mut self,
         code:                                   &'static isa::Code,
         operands:                               Vec<Operand<'arena>>,
-        span:                                   Span) -> &'arena Value<'arena>  {
-        self.make_value(operands, vec![], None, ValueDef::Instr(code), span)
+        span:                                   Span,
+    ) -> &'arena Value<'arena>  {
+        self.make_value(code, operands, vec![], None, span)
     }
 
-    fn make_value(
+    fn make_value<VD: IntoValueDef>(
         &mut self,
+        def:                                    VD,
         operands:                               Vec<Operand<'arena>>,
         fixed_inputs:                           Vec<(&'arena Value<'arena>, u8)>,
         fixed_output:                           Option<u8>,
-        def:                                    ValueDef,
-        span:                                   Span) -> &'arena Value<'arena>  {
+        span:                                   Span,
+    ) -> &'arena Value<'arena>  {
+        let def = def.into_value_def();
         let value = self.arena.alloc(Value::new(self.arena.len(), def, operands, fixed_inputs, fixed_output, span));
         self.values.push(value);
         value
