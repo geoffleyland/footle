@@ -2,7 +2,6 @@ use crate::core::Span;
 use super::scheduler::Constant;
 use super::allocator;
 use super::isa;
-use super::isa::NO_REG;
 use super::isa::MachineReg;
 
 
@@ -140,56 +139,53 @@ fn emit_function(
 ///    moving the temp register into the last register you read from.  If you've already moved one
 ///    of the values in the cycle as part of a chain, you can save yourself the temp register.
 fn move_regs(moves: &[(MachineReg, MachineReg)], temp_reg: MachineReg, instrs: &mut Vec<Instr>) {
-    let mut sources = [NO_REG; 32];
+    let mut sources = [None; 32];
     let mut destination_counts = [0u8; 32];
     for (source, destination) in moves {
-        sources[usize::from(*destination)] = (*source).into();
+        sources[usize::from(*destination)] = Some(*source);
         destination_counts[usize::from(*source)] += 1;
     }
 
     // Keep track of any copies we make of a value as we move them - they could be useful later
     // if we have to resolve a cycle including the value, where we could avoid using a temporary
     // register.
-    let mut copies = [NO_REG; 32];
+    let mut copies = [None; 32];
     // Handle all the chains by starting from their ends
     for (_, destination) in moves {
-        let source = sources[usize::from(*destination)];
-        if source != NO_REG && destination_counts[usize::from(*destination)] == 0 {
-            move_regs_backwards((*destination).into(), &mut sources, &mut destination_counts, instrs);
-            copies[usize::from(source)] = (*destination).into();
+        if let Some(source) = sources[usize::from(*destination)] &&
+            destination_counts[usize::from(*destination)] == 0 {
+            move_regs_backwards(*destination, &mut sources, &mut destination_counts, instrs);
+            copies[usize::from(source)] = Some(*destination);
         }
     }
 
     // All the remaining moves are cycles.  Do the ones where we've already got a copy and don't
     // need a temp
     for (_, destination) in moves {
-        let source = sources[usize::from(*destination)];
-        if source == NO_REG { continue; }
-        let copy = copies[usize::from(source)];
-        if copy == NO_REG { continue; }
-        sources[usize::from(*destination)] = NO_REG;
-        move_regs_backwards(source, &mut sources, &mut destination_counts, instrs);
-        assemble!(instrs, None, fmov_d, Reg(*destination), RawReg(copy));
+    if let Some(source) = sources[usize::from(*destination)] &&
+        let Some(copy) = copies[usize::from(source)] {
+            sources[usize::from(*destination)] = None;
+            move_regs_backwards(source, &mut sources, &mut destination_counts, instrs);
+            assemble!(instrs, None, fmov_d, Reg(*destination), Reg(copy));
+        }
     }
 
     // Now do the ones where there's no other copy and we need a temp.
     for (_, destination) in moves {
-        let source = sources[usize::from(*destination)];
-        if source == NO_REG { continue; }
-        assemble!(instrs, None, fmov_d, Reg(temp_reg), RawReg(source));
-        sources[usize::from(*destination)] = NO_REG;
+        let Some(source) = sources[usize::from(*destination)] else { continue };
+        assemble!(instrs, None, fmov_d, Reg(temp_reg), Reg(source));
+        sources[usize::from(*destination)] = None;
         move_regs_backwards(source, &mut sources, &mut destination_counts, instrs);
         assemble!(instrs, None, fmov_d, Reg(*destination), Reg(temp_reg));
     }
 }
 
 
-fn move_regs_backwards(mut destination: u8, sources: &mut[u8], destination_counts: &mut[u8], instrs: &mut Vec<Instr>) {
+fn move_regs_backwards(mut destination: MachineReg, sources: &mut[Option<MachineReg>], destination_counts: &mut[u8], instrs: &mut Vec<Instr>) {
     loop {
-        let source = sources[usize::from(destination)];
-        if source == NO_REG { return }
-        assemble!(instrs, None, fmov_d, RawReg(destination), RawReg(source));
-        sources[usize::from(destination)] = NO_REG;
+        let Some(source) = sources[usize::from(destination)] else { return };
+        assemble!(instrs, None, fmov_d, Reg(destination), Reg(source));
+        sources[usize::from(destination)] = None;
         destination_counts[usize::from(source)] -= 1;
         if destination_counts[usize::from(source)] > 0 { return }
         destination = source;

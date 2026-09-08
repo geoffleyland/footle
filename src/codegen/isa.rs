@@ -7,8 +7,6 @@ use paste::paste;
 //-------------------------------------------------------------------------------------------------
 // Not really architecture specific stuff (maybe it'll move if we ever get to a second arch)
 
-pub(super) const NO_REG:u8 = u8::MAX;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct MachineReg(u8);
 
