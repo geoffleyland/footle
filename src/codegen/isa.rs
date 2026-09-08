@@ -54,12 +54,56 @@ impl RegRank {
 //-------------------------------------------------------------------------------------------------
 // Register details
 
-pub(super) const STACK_REG: MachineReg = MachineReg::new(31);
-pub(super) const LINK_REG: MachineReg = MachineReg::new(30);
-pub(super) const SCRATCH_REG: MachineReg = MachineReg::new(16);
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Bank {
+    D
+}
+
+
+#[derive(Debug)]
+pub(super) struct RegFile {
+    pub(super) stack_reg:       MachineReg,
+    pub(super) link_reg:        MachineReg,
+    pub(super) scratch_reg:     MachineReg,
+    d:                          RegBank<32>,
+}
+
+
+impl RegFile {
+    const fn new(stack_reg: u8, link_reg: u8, scratch_reg: u8, d: RegBank<32>) -> Self {
+        Self {
+            stack_reg:          MachineReg::new(stack_reg),
+            link_reg:           MachineReg::new(link_reg),
+            scratch_reg:        MachineReg::new(scratch_reg),
+            d,
+        }
+    }
+
+    pub(super) fn best_reg(&self, bank: Bank, available: u32, preferred: Option<MachineReg>) -> MachineReg {
+        match bank {
+            Bank::D => self.d.best_reg(available, preferred)
+        }
+    }
+    pub(super) fn get_rank_bits(&self, bank: Bank, reg: MachineReg) -> u32 {
+        match bank {
+            Bank::D => self.d.get_rank_bits(reg)
+        }
+    }
+    pub(super) fn is_callee_saved(&self, bank: Bank, maybe_reg: Option<MachineReg>) -> Option<MachineReg> {
+        match bank {
+            Bank::D => self.d.is_callee_saved(maybe_reg)
+        }
+    }
+    pub(super) fn real_reg_to_ranked_reg_mask(&self, bank: Bank, clobbers: u32) -> u32 {
+        match bank {
+            Bank::D => self.d.real_reg_to_ranked_reg_mask(clobbers)
+        }
+    }
+}
 
 
 /// Information about a bank of registers (int or FP)  Possibly the structure is cross-platform?
+#[derive(Debug)]
 pub (super) struct RegBank<const N: usize> {
     order:              [MachineReg; N],        // Order in which we allocate registers
     rank:               [Option<RegRank>; 32],  // Rank (in `order`) of a register.  `None` if we
@@ -72,7 +116,7 @@ pub (super) struct RegBank<const N: usize> {
 
 impl<const N:usize> RegBank<N> {
     #[allow(clippy::cast_possible_truncation)]
-    const fn new(u8_order: [u8; N], callee_saved: u32) -> Self {
+    const fn new(callee_saved: u32, u8_order: [u8; N]) -> Self {
         let mut order = [MachineReg::new(0); N];
         let mut rank = [None; 32];
         let mut i = 0;
@@ -93,8 +137,8 @@ impl<const N:usize> RegBank<N> {
     /// Pick a register from `available` (a bitmask of ranks).  If `preferred` is available, use it —
     /// this just avoids an extra move later, it's not required for correctness (the move machinery
     /// will fix up the register either way).
-    pub(super) fn best_reg(&self, available: u32, preferred_reg: Option<MachineReg>) -> MachineReg {
-        if let Some(p) = preferred_reg {
+    fn best_reg(&self, available: u32, preferred: Option<MachineReg>) -> MachineReg {
+        if let Some(p) = preferred {
             let rank = self.rank[usize::from(p)]
                 .expect("internal compiler error: trying to use system register");
             if (available >> rank.0) & 1 == 1 { return p; }
@@ -102,17 +146,17 @@ impl<const N:usize> RegBank<N> {
         self.order[available.trailing_zeros() as usize]
     }
 
-    pub(super) fn get_rank_bits(&self, reg: MachineReg) -> u32 {
+    fn get_rank_bits(&self, reg: MachineReg) -> u32 {
         let r = self.rank[usize::from(reg)]
             .expect("internal compiler error: trying to use system register");
         1 << r.0
     }
 
-    pub(super) fn is_callee_saved(&self, maybe_reg: Option<MachineReg>) -> Option<MachineReg> {
+    fn is_callee_saved(&self, maybe_reg: Option<MachineReg>) -> Option<MachineReg> {
         maybe_reg.filter(|reg| self.callee_saved & (1 << reg.0) != 0)
     }
 
-    pub(super) fn real_reg_to_ranked_reg_mask(&self, clobbers: u32) -> u32 {
+    fn real_reg_to_ranked_reg_mask(&self, clobbers: u32) -> u32 {
         let mut c = clobbers;
         let mut mask = 0u32;
         while c != 0 {
@@ -124,13 +168,13 @@ impl<const N:usize> RegBank<N> {
     }
 }
 
-pub(super) const D_BANK: RegBank<32> = RegBank::new(
+
+pub(super) const REGS: RegFile = RegFile::new(31, 30, 16, RegBank::new(0x0000_FF00,
     [
-        16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,     // d16-d31 (caller saved)
-         8,  9, 10, 11, 12, 13, 14, 15,                                     // d8-d16 (callee saved)
-         0,  1,  2,  3,  4,  5,  6,  7,                                     // d0-d7 (function args)
-    ],
-    0x0000_FF00
+        16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, // d16-d31 (caller saved)
+         8,  9, 10, 11, 12, 13, 14, 15,                                 // d8-d16 (callee saved)
+         0,  1,  2,  3,  4,  5,  6,  7,                                 // d0-d7 (function args)
+    ])
 );
 
 

@@ -7,7 +7,7 @@ use crate::core::Span;
 use super::scheduler::Value;
 use super::scheduler;
 use super::isa;
-use super::isa::MachineReg;
+use super::isa::{REGS, Bank, MachineReg};
 
 
 //-------------------------------------------------------------------------------------------------
@@ -22,7 +22,7 @@ pub(super) fn run(
     let (regs, temp_regs) = allocate(argument_count, slot_count, &lowered);
     let mut regs_to_save = BTreeSet::new();
     for maybe_reg in &regs {
-        if let Some(r) = isa::D_BANK.is_callee_saved(*maybe_reg) {
+        if let Some(r) = REGS.is_callee_saved(Bank::D, *maybe_reg) {
             regs_to_save.insert(r);
         }
     }
@@ -160,7 +160,7 @@ fn allocate(
     for instr in instrs.iter().rev() {
         live_slots.remove(instr.slot);
         if instr.code.clobbers() != 0 {
-            let mask = !isa::D_BANK.real_reg_to_ranked_reg_mask(instr.code.clobbers());
+            let mask = !REGS.real_reg_to_ranked_reg_mask(Bank::D, instr.code.clobbers());
             for slot in &live_slots {
                 available_regs[slot] &= mask;
             }
@@ -195,7 +195,7 @@ fn allocate(
     for instr in instrs {
         for (input_slot, preferred_reg) in &instr.fixed_inputs {
             if regs[*input_slot].get().is_some() { continue; }
-            let reg = isa::D_BANK.best_reg(available_regs[*input_slot], Some(*preferred_reg));
+            let reg = REGS.best_reg(Bank::D, available_regs[*input_slot], Some(*preferred_reg));
             set_reg(*input_slot, reg, &regs, &interfering_slots, &mut available_regs);
         }
     }
@@ -203,7 +203,7 @@ fn allocate(
     // Allocate registers for remaining instructions
     for instr in instrs {
         if regs[instr.slot].get().is_some() || !instr.code.has_output() { continue; }
-        let reg = isa::D_BANK.best_reg(available_regs[instr.slot], None);
+        let reg = REGS.best_reg(Bank::D, available_regs[instr.slot], None);
         set_reg(instr.slot, reg, &regs, &interfering_slots, &mut available_regs);
     }
 
@@ -211,7 +211,7 @@ fn allocate(
     for instr in instrs {
         for (_, dest) in &instr.slot_moves {
             if regs[*dest].get().is_some() { continue; }
-            let reg = isa::D_BANK.best_reg(available_regs[instr.slot], None);
+            let reg = REGS.best_reg(Bank::D, available_regs[instr.slot], None);
             set_reg(*dest, reg, &regs, &interfering_slots, &mut available_regs);
         }
     }
@@ -221,7 +221,7 @@ fn allocate(
         // Use the remaining available registers to find an available temporary register for each
         // instruction, just in case it requires some register moves, and needs a temporary
         // register for that.
-        available_regs.iter().map(|&a| isa::D_BANK.best_reg(a, None)).collect()
+        available_regs.iter().map(|&a| REGS.best_reg(Bank::D, a, None)).collect()
     )
 }
 
@@ -234,7 +234,7 @@ fn set_reg(
     available_regs:                     &mut [u32]) {
     regs[slot].set(reg)
         .expect("internal compiler error: trying to set a register twice");
-    let rank_bits = isa::D_BANK.get_rank_bits(reg);
+    let rank_bits = REGS.get_rank_bits(Bank::D, reg);
     for interfering_slot in &interfering_slots[slot] {
         available_regs[interfering_slot] &= !rank_bits;
     }
