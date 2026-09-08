@@ -9,12 +9,26 @@ use paste::paste;
 
 pub(super) const NO_REG:u8 = u8::MAX;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct MachineReg(u8);
+
+impl MachineReg {
+    const fn new(index: u8) -> Self {
+        debug_assert!(index < 32);
+        Self(index)
+    }
+}
+
+impl From<MachineReg> for u8 {
+    fn from(m: MachineReg) -> Self  { m.0 }
+}
+
 //-------------------------------------------------------------------------------------------------
 // Register details
 
 /// Information about a bank of registers (int or FP)  Possibly the structure is cross-platform?
 pub (super) struct RegBank<const N: usize> {
-    order:              [u8; N],            // Order in which we allocate registers
+    order:              [MachineReg; N],    // Order in which we allocate registers
     rank:               [Option<u8>; 32],   // Rank (in `order`) of a register.  `None` if we never
                                             // allocate that register.
     callee_saved:       u32,                // Bitmask of registers we have to save in our prologue
@@ -25,11 +39,13 @@ pub (super) struct RegBank<const N: usize> {
 
 impl<const N:usize> RegBank<N> {
     #[allow(clippy::cast_possible_truncation)]
-    const fn new(order: [u8; N], callee_saved: u32) -> Self {
+    const fn new(u8_order: [u8; N], callee_saved: u32) -> Self {
+        let mut order = [MachineReg::new(0); N];
         let mut rank = [None; 32];
         let mut i = 0;
         while i < N {
-            rank[order[i] as usize] = Some(i as u8);
+            order[i] = MachineReg::new(u8_order[i]);
+            rank[u8_order[i] as usize] = Some(i as u8);
             i += 1;
         }
         let mut clobber_rank_mask = [0u32; 32];
@@ -42,7 +58,7 @@ impl<const N:usize> RegBank<N> {
     }
 
     pub(super) fn reg_from_rank(&self, rank: usize) -> u8 {
-        self.order[rank]
+        self.order[rank].into()
     }
 
     pub(super) fn get_rank(&self, reg: u8) -> u8 {
