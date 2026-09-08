@@ -68,20 +68,11 @@ impl<const N:usize> RegBank<N> {
         Self { order, rank, callee_saved, clobber_rank_mask }
     }
 
-    pub(super) fn reg_from_rank(&self, rank: usize) -> u8 {
-        self.order[rank].into()
-    }
-
-    pub(super) fn mreg_from_rank(&self, rank: usize) -> MachineReg {
+    pub(super) fn reg_from_rank(&self, rank: usize) -> MachineReg {
         self.order[rank]
     }
 
-    pub(super) fn get_rank(&self, reg: u8) -> u8 {
-        self.rank[usize::from(reg)]
-            .expect("internal compiler error: trying to use system register")
-    }
-
-    pub(super) fn get_rank_m(&self, reg: MachineReg) -> u8 {
+    pub(super) fn get_rank(&self, reg: MachineReg) -> u8 {
         self.rank[usize::from(reg)]
             .expect("internal compiler error: trying to use system register")
     }

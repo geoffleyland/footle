@@ -3,6 +3,7 @@ use super::scheduler::Constant;
 use super::allocator;
 use super::isa;
 use super::isa::NO_REG;
+use super::isa::MachineReg;
 
 
 //-------------------------------------------------------------------------------------------------
@@ -89,10 +90,11 @@ fn emit_function(
 
         let operands = ai.code.has_output()
             .then(|| Operand::Reg(ai.result_reg
-                .expect("internal compiler error: no register allocated for instruction result")))
+                .expect("internal compiler error: no register allocated for instruction result")
+                .into()))
             .into_iter()
             .chain(ai.operands.iter().map(|op| match op {
-                allocator::Operand::Reg(r)          => Operand::Reg(*r),
+                allocator::Operand::Reg(r)          => Operand::Reg((*r).into()),
                 allocator::Operand::Constant(i)     => Operand::Constant(*i),
                 allocator::Operand::Function(name) => {
                     let index = functions.iter().position(|s| s == name)
@@ -137,11 +139,11 @@ fn emit_function(
 ///    cycle, using a temp register to hold the value of the first register you write to, and then
 ///    moving the temp register into the last register you read from.  If you've already moved one
 ///    of the values in the cycle as part of a chain, you can save yourself the temp register.
-fn move_regs(moves: &[(u8, u8)], temp_reg: u8, instrs: &mut Vec<Instr>) {
+fn move_regs(moves: &[(MachineReg, MachineReg)], temp_reg: MachineReg, instrs: &mut Vec<Instr>) {
     let mut sources = [NO_REG; 32];
     let mut destination_counts = [0u8; 32];
     for (source, destination) in moves {
-        sources[usize::from(*destination)] = *source;
+        sources[usize::from(*destination)] = (*source).into();
         destination_counts[usize::from(*source)] += 1;
     }
 
@@ -153,8 +155,8 @@ fn move_regs(moves: &[(u8, u8)], temp_reg: u8, instrs: &mut Vec<Instr>) {
     for (_, destination) in moves {
         let source = sources[usize::from(*destination)];
         if source != NO_REG && destination_counts[usize::from(*destination)] == 0 {
-            move_regs_backwards(*destination, &mut sources, &mut destination_counts, instrs);
-            copies[usize::from(source)] = *destination;
+            move_regs_backwards((*destination).into(), &mut sources, &mut destination_counts, instrs);
+            copies[usize::from(source)] = (*destination).into();
         }
     }
 
@@ -167,17 +169,17 @@ fn move_regs(moves: &[(u8, u8)], temp_reg: u8, instrs: &mut Vec<Instr>) {
         if copy == NO_REG { continue; }
         sources[usize::from(*destination)] = NO_REG;
         move_regs_backwards(source, &mut sources, &mut destination_counts, instrs);
-        assemble!(instrs, None, fmov_d, Reg(*destination), Reg(copy));
+        assemble!(instrs, None, fmov_d, Reg((*destination).into()), Reg(copy));
     }
 
     // Now do the ones where there's no other copy and we need a temp.
     for (_, destination) in moves {
         let source = sources[usize::from(*destination)];
         if source == NO_REG { continue; }
-        assemble!(instrs, None, fmov_d, Reg(temp_reg), Reg(source));
+        assemble!(instrs, None, fmov_d, Reg(temp_reg.into()), Reg(source));
         sources[usize::from(*destination)] = NO_REG;
         move_regs_backwards(source, &mut sources, &mut destination_counts, instrs);
-        assemble!(instrs, None, fmov_d, Reg(*destination), Reg(temp_reg));
+        assemble!(instrs, None, fmov_d, Reg((*destination).into()), Reg(temp_reg.into()));
     }
 }
 
