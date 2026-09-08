@@ -46,8 +46,8 @@ impl<const N:usize> RegBank<N> {
             .expect("internal compiler error: trying to use system register")
     }
 
-    pub(super) fn is_callee_saved(&self, reg: u8) -> bool {
-        reg != NO_REG && self.callee_saved & (1 << reg) != 0
+    pub(super) fn is_callee_saved(&self, maybe_reg: Option<u8>) -> Option<u8> {
+        maybe_reg.filter(|reg| self.callee_saved & (1 << reg) != 0)
     }
 
     pub(super) fn real_reg_to_ranked_reg_mask(&self, clobbers: u32) -> u32 {
@@ -228,13 +228,19 @@ macro_rules! reg {
 }
 
 macro_rules! output_reg {
-    (dd) => { true };
-    (dt) => { true };
-    (dt1) => { true };
-    (xd) => { true };
-    (xt) => { true };
-    (xt1) => { true };
+    (dd)    => { true };
+    (dt)    => { true };
+    (dt1)   => { true };
+    (xd)    => { true };
+    (xt)    => { true };
+    (xt1)   => { true };
     ($other:tt) => { false };
+}
+
+macro_rules! has_output {
+    (str, $($reg:ident),*)  => { false };
+    (stp, $($reg:ident),*)  => { false };
+    ($mnemonic:ident, $($reg:ident),*) => { $( output_reg!($reg) ||)* false };
 }
 
 // Cover the instruction operand patterns to try to figure out the addressing mode (if there is one)
@@ -262,12 +268,12 @@ macro_rules! code {
 
 // Try to figure out if our destination is a x or d register.
 macro_rules! find_reg_bank {
-    (xd, $($rest:tt)*) => { _code!(@reg_bank:_x, $($rest)*); };
-    (xt, $($rest:tt)*) => { _code!(@reg_bank:_x, $($rest)*); };
-    (xt1, $($rest:tt)*) => { _code!(@reg_bank:_x, $($rest)*); };
-    (dd, $($rest:tt)*) => { _code!(@reg_bank:_d, $($rest)*); };
-    (dt, $($rest:tt)*) => { _code!(@reg_bank:_d, $($rest)*); };
-    (dt1, $($rest:tt)*) => { _code!(@reg_bank:_d, $($rest)*); };
+    (xd,    $($rest:tt)*)   => { _code!(@reg_bank:_x, $($rest)*); };
+    (xt,    $($rest:tt)*)   => { _code!(@reg_bank:_x, $($rest)*); };
+    (xt1,   $($rest:tt)*)   => { _code!(@reg_bank:_x, $($rest)*); };
+    (dd,    $($rest:tt)*)   => { _code!(@reg_bank:_d, $($rest)*); };
+    (dt,    $($rest:tt)*)   => { _code!(@reg_bank:_d, $($rest)*); };
+    (dt1,   $($rest:tt)*)   => { _code!(@reg_bank:_d, $($rest)*); };
     ($other:ident, $($rest:tt)*) => { _code!($($rest)*); };
 }
 
@@ -285,7 +291,7 @@ macro_rules! _code {
     ) => {
         paste!(pub(super) static [<$mnemonic $($reg_bank)? $($mode_suffix)?>]: Code = Code {
             mnemonic:           stringify!($mnemonic),
-            has_output:         $( output_reg!($reg) ||)* false,
+            has_output:         $( has_output!($mnemonic, $reg) ||)* false,
             latency:            $latency,
             units:              enum_set!($(Unit::$unit)|*),
             encode: |operands: &[u32]| -> u32 {

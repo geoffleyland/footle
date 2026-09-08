@@ -88,7 +88,8 @@ fn emit_function(
         if !ai.moves.is_empty() { move_regs(&ai.moves, ai.temp_reg, instrs) }
 
         let operands = ai.code.has_output()
-            .then_some(Operand::Reg(ai.result_reg))
+            .then(|| Operand::Reg(ai.result_reg
+                .expect("internal compiler error: no register allocated for instruction result")))
             .into_iter()
             .chain(ai.operands.iter().map(|op| match op {
                 allocator::Operand::Reg(r)          => Operand::Reg(*r),
