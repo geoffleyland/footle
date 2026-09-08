@@ -212,8 +212,8 @@ impl<'arena> Builder<'arena> {
             let span = *expr.span();
             match expr.kind() {
                 vir::ExprKind::Argument(index, name) => {
-                    let value = self.lower_value(expr, ValueDef::Argument(*index, name.clone()),
-                        vec![], vec![], None);
+                    let value = self.lower_value(ValueDef::Argument(*index, name.clone()),
+                        vec![], vec![], None, expr);
                     self.arguments.push(value);
                 }
                 vir::ExprKind::Number(value) => {
@@ -262,7 +262,7 @@ impl<'arena> Builder<'arena> {
         operands:                               Vec<Operand<'arena>>,
         expr:                                   &vir::Expr,
     ) -> &'arena Value<'arena> {
-        self.lower_value(expr, code, operands, vec![], None)
+        self.lower_value(code, operands, vec![], None, expr)
     }
 
     fn lower_call(
@@ -282,16 +282,16 @@ impl<'arena> Builder<'arena> {
             v
         };
 
-        self.lower_value(expr, &isa::blr, operands!(self, function_value), fixed_inputs, Some(fixed_output))
+        self.lower_value(&isa::blr, operands!(self, function_value), fixed_inputs, Some(fixed_output), expr)
     }
 
     fn lower_value<VD: IntoValueDef>(
         &mut self,
-        expr:                                   &vir::Expr,
         def:                                    VD,
         operands:                               Vec<Operand<'arena>>,
         fixed_inputs:                           Vec<(&'arena Value<'arena>, MachineReg)>,
         fixed_output:                           Option<MachineReg>,
+        expr:                                   &vir::Expr,
     ) -> &'arena Value<'arena> {
         let value = self.make_value(def, operands, fixed_inputs, fixed_output, *expr.span());
         let operand = value.into_operand(self);
