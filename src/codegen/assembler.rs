@@ -60,7 +60,7 @@ pub(super) fn run(
     functions:                      &[String],
     argument_count:                 u8,
     return_count:                   u8,
-    regs_to_save:                   &[u8]) -> Block{
+    regs_to_save:                   &[MachineReg]) -> Block{
     let mut instrs = Vec::new();
     emit_function(allocated, &mut instrs, functions, regs_to_save);
     let glue_start_words = instrs.len();
@@ -75,12 +75,12 @@ fn emit_function(
     allocated:                      Vec<allocator::Instr>,
     instrs:                         &mut Vec<Instr>,
     functions:                      &[String],
-    regs_to_save:                   &[u8]) {
+    regs_to_save:                   &[MachineReg]) {
     // Save any callee saved registers
     for pair in regs_to_save.chunks(2) {
         match *pair {
-            [a, b]  => assemble!(instrs, None, stp_d_pre, Reg(a), Reg(b), Reg(31), Offset(-16)),
-            [a]     => assemble!(instrs, None, str_d_pre, Reg(a), Reg(31), Offset(-16)),
+            [a, b]  => assemble!(instrs, None, stp_d_pre, Reg(a.into()), Reg(b.into()), Reg(31), Offset(-16)),
+            [a]     => assemble!(instrs, None, str_d_pre, Reg(a.into()), Reg(31), Offset(-16)),
             _       => unreachable!()
         }
     }
@@ -108,8 +108,8 @@ fn emit_function(
         if ai.code.restore_regs() {
             for pair in regs_to_save.chunks(2).rev() {
                 match *pair {
-                    [a, b]  => assemble!(instrs, None, ldp_d_post, Reg(a), Reg(b), Reg(31), Offset(16)),
-                    [a]     => assemble!(instrs, None, ldr_d_post, Reg(a), Reg(31), Offset(16)),
+                    [a, b]  => assemble!(instrs, None, ldp_d_post, Reg(a.into()), Reg(b.into()), Reg(31), Offset(16)),
+                    [a]     => assemble!(instrs, None, ldr_d_post, Reg(a.into()), Reg(31), Offset(16)),
                     _       => unreachable!()
                 }
             }

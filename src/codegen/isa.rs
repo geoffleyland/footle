@@ -9,7 +9,7 @@ use paste::paste;
 
 pub(super) const NO_REG:u8 = u8::MAX;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct MachineReg(u8);
 
 impl MachineReg {
@@ -77,8 +77,8 @@ impl<const N:usize> RegBank<N> {
             .expect("internal compiler error: trying to use system register")
     }
 
-    pub(super) fn is_callee_saved(&self, maybe_reg: Option<u8>) -> Option<u8> {
-        maybe_reg.filter(|reg| self.callee_saved & (1 << reg) != 0)
+    pub(super) fn is_callee_saved(&self, maybe_reg: Option<MachineReg>) -> Option<MachineReg> {
+        maybe_reg.filter(|reg| self.callee_saved & (1 << reg.0) != 0)
     }
 
     pub(super) fn real_reg_to_ranked_reg_mask(&self, clobbers: u32) -> u32 {

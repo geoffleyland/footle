@@ -16,7 +16,8 @@ use super::isa::MachineReg;
 pub(super) fn run(
     argument_count:                     u8,
     slot_count:                         usize,
-    scheduled:                           &[&Value<'_>]) -> (Vec<Instr>, Vec<u8>) {
+    scheduled:                          &[&Value<'_>]
+) -> (Vec<Instr>, Vec<MachineReg>) {
     let (lowered, slot_count) = lower_to_slots_and_split(argument_count, slot_count, scheduled);
     let (regs, temp_regs) = allocate(argument_count, slot_count, &lowered);
     let mut regs_to_save = BTreeSet::new();
@@ -148,8 +149,8 @@ fn allocate(
     argument_count:                     u8,
     slot_count:                         usize,
     instrs:                             &[SlotInstr]
-) -> (Vec<Option<u8>>, Vec<MachineReg>) {
-    let mut regs: Vec<OnceCell<u8>> = vec![OnceCell::new(); slot_count];
+) -> (Vec<Option<MachineReg>>, Vec<MachineReg>) {
+    let mut regs: Vec<OnceCell<MachineReg>> = vec![OnceCell::new(); slot_count];
 
     // Find which slots interfere with which, and which are live across calls.
     // If they are live, make sure they're not in a clobbered register.
@@ -241,12 +242,12 @@ fn allocate(
 fn set_reg(
     slot:                               usize,
     reg:                                MachineReg,
-    regs:                               &[OnceCell<u8>],
+    regs:                               &[OnceCell<MachineReg>],
     interfering_slots:                  &[BitSet],
     available_regs:                     &mut [u32]) {
     let rank = isa::D_BANK.get_rank(reg);
     let rank_bits = 1 << rank;
-    regs[slot].set(reg.into())
+    regs[slot].set(reg)
         .expect("internal compiler error: trying to set a register twice");
     for interfering_slot in &interfering_slots[slot] {
         available_regs[interfering_slot] &= !rank_bits;
@@ -277,7 +278,7 @@ pub(super) struct Instr {
 
 fn lower_to_regs(
     instrs:                             &[SlotInstr],
-    regs:                               &[Option<u8>],
+    regs:                               &[Option<MachineReg>],
     temp_regs:                          &[MachineReg]
 ) -> Vec<Instr> {
     instrs.iter().map(|instr| {
@@ -287,29 +288,27 @@ fn lower_to_regs(
                 SlotOperand::Constant(i)    => operands.push(Operand::Constant(*i)),
                 SlotOperand::Function(name) => operands.push(Operand::Function(name.clone())),
                 SlotOperand::Slot(s)        => {
-                    operands.push(Operand::Reg(MachineReg::try_from(regs[*s]
-                        .expect("internal compiler error: no register assigned for slot"))
-                        .expect("internal compiler error: illegal register")));
+                    operands.push(Operand::Reg(regs[*s]
+                        .expect("internal compiler error: no register assigned for slot")));
                 }
             }
         }
         let mut moves = vec![];
         for (slot, required_reg) in &instr.fixed_inputs {
-            let slot_reg = MachineReg::try_from(regs[*slot]
-                .expect("internal compiler error: no register assigned for slot")).unwrap();
+            let slot_reg = regs[*slot]
+                .expect("internal compiler error: no register assigned for slot");
             if slot_reg != *required_reg { moves.push((slot_reg, *required_reg)); }
         }
         for (source, dest) in &instr.slot_moves {
             let source_reg = regs[*source].expect("internal compiler error: no register assigned for slot");
             let dest_reg = regs[*dest].expect("internal compiler error: no register assigned for slot");
-            if source_reg != dest_reg { moves.push((MachineReg::try_from(source_reg).unwrap(),
-                MachineReg::try_from(dest_reg).unwrap())); }
+            if source_reg != dest_reg { moves.push((source_reg, dest_reg)); }
         }
 
         Instr{
             operands, moves,
             code:                       instr.code,
-            result_reg:                 regs[instr.slot].map(|r| MachineReg::try_from(r).unwrap()),
+            result_reg:                 regs[instr.slot],
             temp_reg:                   temp_regs[instr.slot],
             span:                       instr.span,
         }
