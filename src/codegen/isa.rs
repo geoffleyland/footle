@@ -15,7 +15,7 @@ pub(super) const NO_REG:u8 = u8::MAX;
 /// Information about a bank of registers (int or FP)  Possibly the structure is cross-platform?
 pub (super) struct RegBank<const N: usize> {
     pub(super) order:   [u8; N],            // Order in which we allocate registers
-    rank:               [Option<u8>; 32],   // Rank (in `order`) of a register.  NO_REG if we never
+    rank:               [Option<u8>; 32],   // Rank (in `order`) of a register.  None if we never
                                             // allocate that register.
     callee_saved:       u32,                // Bitmask of registers we have to save in our prologue
                                             // and epilogue (if we use them)
