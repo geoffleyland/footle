@@ -44,11 +44,11 @@ impl TryFrom<usize> for MachineReg {
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct RegRank(u8);
+struct RegRank(u8);
 
 impl RegRank {
     #[allow(clippy::cast_possible_truncation)]
-    pub(super) const fn new(index: usize) -> Self {
+    const fn new(index: usize) -> Self {
         debug_assert!(index < 32);
         Self(index as u8)
     }
@@ -96,27 +96,19 @@ impl<const N:usize> RegBank<N> {
     /// Pick a register from `available` (a bitmask of ranks).  If `preferred` is available, use it —
     /// this just avoids an extra move later, it's not required for correctness (the move machinery
     /// will fix up the register either way).
-    pub(super) fn best_reg(&self, available: u32, preferred: Option<MachineReg>) -> MachineReg {
-        if let Some(p) = preferred {
-            let rank = self.get_rank(p);
+    pub(super) fn best_reg(&self, available: u32, preferred_reg: Option<MachineReg>) -> MachineReg {
+        if let Some(p) = preferred_reg {
+            let rank = self.rank[usize::from(p)]
+                .expect("internal compiler error: trying to use system register");
             if (available >> u8::from(rank)) & 1 == 1 { return p; }
         }
-        self.reg_from_rank(available.trailing_zeros() as usize)
-    }
-
-    pub(super) fn reg_from_rank(&self, rank: usize) -> MachineReg {
-        self.order[rank]
+        self.order[available.trailing_zeros() as usize]
     }
 
     pub(super) fn get_rank_bits(&self, reg: MachineReg) -> u32 {
         let r = self.rank[usize::from(reg)]
             .expect("internal compiler error: trying to use system register");
         1 << r.0
-    }
-
-    pub(super) fn get_rank(&self, reg: MachineReg) -> RegRank {
-        self.rank[usize::from(reg)]
-            .expect("internal compiler error: trying to use system register")
     }
 
     pub(super) fn is_callee_saved(&self, maybe_reg: Option<MachineReg>) -> Option<MachineReg> {

@@ -232,9 +232,9 @@ fn set_reg(
     regs:                               &[OnceCell<MachineReg>],
     interfering_slots:                  &[BitSet],
     available_regs:                     &mut [u32]) {
-    let rank_bits = isa::D_BANK.get_rank_bits(reg);
     regs[slot].set(reg)
         .expect("internal compiler error: trying to set a register twice");
+    let rank_bits = isa::D_BANK.get_rank_bits(reg);
     for interfering_slot in &interfering_slots[slot] {
         available_regs[interfering_slot] &= !rank_bits;
     }
