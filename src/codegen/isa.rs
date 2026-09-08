@@ -10,6 +10,64 @@ use paste::paste;
 pub(super) const NO_REG:u8 = u8::MAX;
 
 //-------------------------------------------------------------------------------------------------
+// Register details
+
+/// Information about a bank of registers (int or FP)  Possibly the structure is cross-platform?
+pub (super) struct RegBank<const N: usize> {
+    pub(super) order:           [u8; N],    // Order in which we allocate registers
+    pub(super) rank:            [u8; 32],   // Rank (in `order`) of a register.  NO_REG if we never
+                                            // allocate that register.
+    callee_saved:                u32,       // Bitmask of registers we have to save in our prologue
+                                            // and epilogue (if we use them)
+    clobber_rank_mask:          [u32; 32],  // In register order, bitmask of whether this reg is
+                                            // clobbered.
+}
+
+impl<const N:usize> RegBank<N> {
+    #[allow(clippy::cast_possible_truncation)]
+    const fn new(order: [u8; N], callee_saved: u32) -> Self {
+        let mut rank = [NO_REG; 32];
+        let mut i = 0;
+        while i < N {
+            rank[order[i] as usize] = i as u8;
+            i += 1;
+        }
+        let mut clobber_rank_mask = [0u32; 32];
+        let mut r = 0;
+        while r < 32 {
+            if rank[r] != NO_REG { clobber_rank_mask[r] = 1 << rank[r]; }
+            r += 1;
+        }
+        Self { order, rank, callee_saved, clobber_rank_mask }
+    }
+
+    pub(super) fn is_callee_saved(&self, reg: u8) -> bool {
+        reg != NO_REG && self.callee_saved & (1 << reg) != 0
+    }
+    pub(super) fn real_reg_to_ranked_reg_mask(&self, clobbers: u32) -> u32 {
+        let mut c = clobbers;
+        let mut mask = 0u32;
+        while c != 0 {
+            let bit = c.trailing_zeros() as usize;
+            mask |= self.clobber_rank_mask[bit];
+            c &= c - 1;
+        }
+        mask
+    }
+
+}
+
+pub(super) const D_BANK: RegBank<32> = RegBank::new(
+    [
+        16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,     // d16-d31 (caller saved)
+         8,  9, 10, 11, 12, 13, 14, 15,                                     // d8-d16 (callee saved)
+         0,  1,  2,  3,  4,  5,  6,  7,                                     // d0-d7 (function args)
+    ],
+    0x0000_FF00
+);
+
+
+//-------------------------------------------------------------------------------------------------
 // Architecture details.
 
 #[derive(Debug, EnumSetType)]
@@ -33,52 +91,6 @@ pub(super) enum AddressingMode {
 
 pub(super) const STACK_REG: u8 = 31;
 pub(super) const LINK_REG: u8 = 30;
-pub(super) const CALLEE_SAVED_REGS: u32 = 0x0000_FF00;
-
-/// The order in which we want to allocate registers.
-pub(super) const REG_ORDER: [u8; 32] = [
-    16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,     // d16-d31
-     8,  9, 10, 11, 12, 13, 14, 15,                                     // d8-d16 (callee saved)
-     0,  1,  2,  3,  4,  5,  6,  7,                                     // d0-d7
-];
-
-
-#[allow(clippy::cast_possible_truncation)]
-pub(super) const REG_INDEX: [u8; 32] = {
-    let mut t = [NO_REG; 32];
-    let mut i = 0;
-    while i < REG_ORDER.len() {
-        t[REG_ORDER[i] as usize] = i as u8;
-        i += 1;
-    }
-    t
-};
-
-
-// For each real register dN, make a mask of the appropriate bit in REG_ORDER.
-// `for` and iterators aren't allowed in const blocks, hence the weird while loop.
-const CLOBBER_MASK: [u32; 32] = {
-    let mut t = [0u32; 32];
-    let mut i = 0;
-    while i < 32 {
-        t[i] = 1 << REG_INDEX[i];
-        i += 1;
-    }
-    t
-};
-
-
-// Convert a mask in real registers to a mask in register order
-pub(super) fn real_reg_to_ordered_reg_mask(clobbers: u32) -> u32 {
-    let mut c = clobbers;
-    let mut mask = 0u32;
-    while c != 0 {
-        let bit = c.trailing_zeros() as usize;
-        mask |= CLOBBER_MASK[bit];
-        c &= c - 1;
-    }
-    mask
-}
 
 
 //-------------------------------------------------------------------------------------------------

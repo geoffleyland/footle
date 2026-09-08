@@ -3,7 +3,6 @@ use std::collections::BTreeSet;
 
 use bit_set::BitSet;
 
-use crate::codegen::isa::real_reg_to_ordered_reg_mask;
 use crate::core::Span;
 use super::scheduler::Value;
 use super::scheduler;
@@ -22,7 +21,7 @@ pub(super) fn run(
     let (regs, temp_regs) = allocate(argument_count, slot_count, &lowered);
     let mut regs_to_save = BTreeSet::new();
     for r in &regs {
-        if *r != NO_REG && isa::CALLEE_SAVED_REGS & (1 << r) != 0 {
+        if isa::D_BANK.is_callee_saved(*r) {
             regs_to_save.insert(*r);
         }
     }
@@ -159,7 +158,7 @@ fn allocate(
     for instr in instrs.iter().rev() {
         live_slots.remove(instr.slot);
         if instr.code.clobbers() != 0 {
-            let mask = !real_reg_to_ordered_reg_mask(instr.code.clobbers());
+            let mask = !isa::D_BANK.real_reg_to_ranked_reg_mask(instr.code.clobbers());
             for slot in &live_slots {
                 available_regs[slot] &= mask;
             }
@@ -192,7 +191,7 @@ fn allocate(
     for instr in instrs {
         for (input_slot, reg) in &instr.fixed_inputs {
             if regs[*input_slot].get().is_some() { continue; }
-            let mri = isa::REG_INDEX[usize::from(*reg)];
+            let mri = isa::D_BANK.rank[usize::from(*reg)];
             // If we can get the register we want, great!  But if we can't just assign the
             // slot to any old register, and the move machinery will get the value into
             // the right register at the right moment.
@@ -201,7 +200,7 @@ fn allocate(
             let r2 = if (available_regs[*input_slot] >> mri) & 1 == 1 { *reg }
                 else {
                     let mri2 = available_regs[*input_slot].trailing_zeros();
-                    isa::REG_ORDER[mri2 as usize]
+                    isa::D_BANK.order[mri2 as usize]
                 };
             set_reg(*input_slot, r2, &regs, &interfering_slots, &mut available_regs);
         }
@@ -211,7 +210,7 @@ fn allocate(
     for instr in instrs {
         if regs[instr.slot].get().is_some() || !instr.code.has_output() { continue; }
         let mri = available_regs[instr.slot].trailing_zeros();
-        let r = isa::REG_ORDER[mri as usize];
+        let r = isa::D_BANK.order[mri as usize];
         set_reg(instr.slot, r, &regs, &interfering_slots, &mut available_regs);
     }
 
@@ -220,7 +219,7 @@ fn allocate(
         for (_, dest) in &instr.slot_moves {
             if regs[*dest].get().is_some() { continue; }
             let mri = available_regs[*dest].trailing_zeros();
-            let r = isa::REG_ORDER[mri as usize];
+            let r = isa::D_BANK.order[mri as usize];
             set_reg(*dest, r, &regs, &interfering_slots, &mut available_regs);
         }
     }
@@ -230,7 +229,7 @@ fn allocate(
         // Use the remaining available registers to find an available temporary register for each
         // instruction, just in case it requires some register moves, and needs a temporary
         // register for that.
-        available_regs.iter().map(|&a| isa::REG_ORDER[a.trailing_zeros() as usize]).collect()
+        available_regs.iter().map(|&a| isa::D_BANK.order[a.trailing_zeros() as usize]).collect()
     )
 }
 
@@ -241,7 +240,7 @@ fn set_reg(
     regs:                               &[OnceCell<u8>],
     interfering_slots:                  &[BitSet],
     available_regs:                     &mut [u32]) {
-    let mri = isa::REG_INDEX[usize::from(r)];
+    let mri = isa::D_BANK.rank[usize::from(r)];
     let mri_bits = 1 << mri;
     regs[slot].set(r).expect("internal compiler error: trying to set a register twice");
     for interfering_slot in &interfering_slots[slot] {
