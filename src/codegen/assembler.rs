@@ -2,6 +2,7 @@ use crate::core::Span;
 use super::scheduler::Constant;
 use super::allocator;
 use super::isa;
+use super::isa::NO_REG;
 
 
 //-------------------------------------------------------------------------------------------------
@@ -123,8 +124,6 @@ fn emit_function(
     }
 }
 
-
-const NO_REG: u8 = u8::MAX;
 
 /// Given a list of register moves (source, dest), move values between registers.
 ///

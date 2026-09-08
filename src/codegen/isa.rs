@@ -5,6 +5,11 @@ use paste::paste;
 
 
 //-------------------------------------------------------------------------------------------------
+// Not really architecture specific stuff (maybe it'll move if we ever get to a second arch)
+
+pub(super) const NO_REG:u8 = u8::MAX;
+
+//-------------------------------------------------------------------------------------------------
 // Architecture details.
 
 #[derive(Debug, EnumSetType)]
@@ -40,7 +45,7 @@ pub(super) const REG_ORDER: [u8; 32] = [
 
 #[allow(clippy::cast_possible_truncation)]
 pub(super) const REG_INDEX: [u8; 32] = {
-    let mut t = [255u8; 32];
+    let mut t = [NO_REG; 32];
     let mut i = 0;
     while i < REG_ORDER.len() {
         t[REG_ORDER[i] as usize] = i as u8;
