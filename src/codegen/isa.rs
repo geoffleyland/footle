@@ -13,7 +13,7 @@ pub(super) const NO_REG:u8 = u8::MAX;
 pub(super) struct MachineReg(u8);
 
 impl MachineReg {
-    const fn new(index: u8) -> Self {
+    pub(super) const fn new(index: u8) -> Self {
         debug_assert!(index < 32);
         Self(index)
     }

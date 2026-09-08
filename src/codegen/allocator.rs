@@ -49,7 +49,7 @@ struct SlotInstr {
     code:                               &'static isa::Code,
     operands:                           Vec<SlotOperand>,
     fixed_inputs:                       Vec<(usize, u8)>,
-    fixed_output:                       Option<u8>,
+    fixed_output:                       Option<MachineReg>,
     slot_moves:                         Vec<(usize, usize)>,
     span:                               Span,
 }
@@ -186,9 +186,7 @@ fn allocate(
     // Allocate registers for value with constrained output registers.
     for instr in instrs {
         if let Some(fixed_output) = instr.fixed_output {
-            set_reg(instr.slot,
-                MachineReg::try_from(fixed_output).expect("internal compiler error: illegal output register"),
-                &regs, &interfering_slots, &mut available_regs);
+            set_reg(instr.slot, fixed_output, &regs, &interfering_slots, &mut available_regs);
         }
     }
 

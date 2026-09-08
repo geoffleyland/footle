@@ -7,6 +7,7 @@ use enumset::EnumSet;
 use crate::core::{BinaryOperator, Span};
 use crate::vir;
 use super::isa;
+use super::isa::MachineReg;
 
 
 //-------------------------------------------------------------------------------------------------
@@ -63,7 +64,7 @@ pub(super) struct Value<'arena> {
     pub(super) def:                         ValueDef,
     pub(super) operands:                    Vec<Operand<'arena>>,
     pub(super) fixed_inputs:                Vec<(&'arena Self, u8)>,
-    pub(super) fixed_output:                Option<u8>,
+    pub(super) fixed_output:                Option<MachineReg>,
     pub(super) span:                        Span,
 }
 
@@ -73,7 +74,7 @@ impl<'arena> Value<'arena> {
         def:                                ValueDef,
         operands:                           Vec<Operand<'arena>>,
         fixed_inputs:                       Vec<(&'arena Self, u8)>,
-        fixed_output:                       Option<u8>,
+        fixed_output:                       Option<MachineReg>,
         span:                               Span) -> Self {
         Self { slot, def, operands, fixed_inputs, fixed_output, span }
     }
@@ -222,7 +223,7 @@ impl<'arena> Builder<'arena> {
                 }
                 vir::ExprKind::Binary(op, lhs, rhs) => {
                     if *op == BinaryOperator::Power {
-                        self.lower_call("pow", &[lhs.clone(), rhs.clone()], 0, expr);
+                        self.lower_call("pow", &[lhs.clone(), rhs.clone()], MachineReg::new(0), expr);
 
                     } else if *op == BinaryOperator::Modulo {
                         // AArch64 has no fmod; compute a - trunc(a / b) * b instead.
@@ -245,7 +246,7 @@ impl<'arena> Builder<'arena> {
                     }
                 }
                 vir::ExprKind::Call(name, exprs) => {
-                    self.lower_call(name, exprs, 0, expr);
+                    self.lower_call(name, exprs, MachineReg::new(0), expr);
                 }
             }
         }
@@ -268,7 +269,7 @@ impl<'arena> Builder<'arena> {
         &mut self,
         name:                                   &str,
         operands:                               &[vir::Expr],
-        fixed_output:                           u8,
+        fixed_output:                           MachineReg,
         expr:                                   &vir::Expr,
     ) -> &'arena Value<'arena> {
         let fixed_inputs = self.exprs_to_fixed_inputs(operands);
@@ -290,7 +291,7 @@ impl<'arena> Builder<'arena> {
         def:                                    VD,
         operands:                               Vec<Operand<'arena>>,
         fixed_inputs:                           Vec<(&'arena Value<'arena>, u8)>,
-        fixed_output:                           Option<u8>,
+        fixed_output:                           Option<MachineReg>,
     ) -> &'arena Value<'arena> {
         let value = self.make_value(def, operands, fixed_inputs, fixed_output, *expr.span());
         let operand = value.into_operand(self);
@@ -312,7 +313,7 @@ impl<'arena> Builder<'arena> {
         def:                                    VD,
         operands:                               Vec<Operand<'arena>>,
         fixed_inputs:                           Vec<(&'arena Value<'arena>, u8)>,
-        fixed_output:                           Option<u8>,
+        fixed_output:                           Option<MachineReg>,
         span:                                   Span,
     ) -> &'arena Value<'arena>  {
         let def = def.into_value_def();
