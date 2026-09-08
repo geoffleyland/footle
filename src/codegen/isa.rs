@@ -14,8 +14,8 @@ pub(super) const NO_REG:u8 = u8::MAX;
 
 /// Information about a bank of registers (int or FP)  Possibly the structure is cross-platform?
 pub (super) struct RegBank<const N: usize> {
-    pub(super) order:   [u8; N],            // Order in which we allocate registers
-    rank:               [Option<u8>; 32],   // Rank (in `order`) of a register.  None if we never
+    order:              [u8; N],            // Order in which we allocate registers
+    rank:               [Option<u8>; 32],   // Rank (in `order`) of a register.  `None` if we never
                                             // allocate that register.
     callee_saved:       u32,                // Bitmask of registers we have to save in our prologue
                                             // and epilogue (if we use them)
@@ -41,6 +41,10 @@ impl<const N:usize> RegBank<N> {
         Self { order, rank, callee_saved, clobber_rank_mask }
     }
 
+    pub(super) fn reg_from_rank(&self, rank: usize) -> u8 {
+        self.order[rank]
+    }
+
     pub(super) fn get_rank(&self, reg: u8) -> u8 {
         self.rank[usize::from(reg)]
             .expect("internal compiler error: trying to use system register")
@@ -60,7 +64,6 @@ impl<const N:usize> RegBank<N> {
         }
         mask
     }
-
 }
 
 pub(super) const D_BANK: RegBank<32> = RegBank::new(
