@@ -23,6 +23,17 @@ impl From<MachineReg> for u8 {
     fn from(m: MachineReg) -> Self  { m.0 }
 }
 
+impl From<MachineReg> for usize {
+    fn from(m: MachineReg) -> Self  { m.0.into() }
+}
+
+impl TryFrom<u8> for MachineReg {
+    type Error = ();
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        if value < 32 { Ok(Self(value)) } else { Err(()) }
+    }
+}
+
 //-------------------------------------------------------------------------------------------------
 // Register details
 
@@ -61,7 +72,16 @@ impl<const N:usize> RegBank<N> {
         self.order[rank].into()
     }
 
+    pub(super) fn mreg_from_rank(&self, rank: usize) -> MachineReg {
+        self.order[rank]
+    }
+
     pub(super) fn get_rank(&self, reg: u8) -> u8 {
+        self.rank[usize::from(reg)]
+            .expect("internal compiler error: trying to use system register")
+    }
+
+    pub(super) fn get_rank_m(&self, reg: MachineReg) -> u8 {
         self.rank[usize::from(reg)]
             .expect("internal compiler error: trying to use system register")
     }

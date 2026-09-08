@@ -7,6 +7,7 @@ use crate::core::Span;
 use super::scheduler::Value;
 use super::scheduler;
 use super::isa;
+use super::isa::MachineReg;
 
 
 //-------------------------------------------------------------------------------------------------
@@ -177,13 +178,17 @@ fn allocate(
 
     // Allocate registers for arguments
     for slot in 0..argument_count {
-        set_reg(usize::from(slot), slot, &regs, &interfering_slots, &mut available_regs);
+        set_reg(usize::from(slot),
+            MachineReg::try_from(slot).expect("internal compiler error: too many arguments"),
+            &regs, &interfering_slots, &mut available_regs);
     }
 
     // Allocate registers for value with constrained output registers.
     for instr in instrs {
         if let Some(fixed_output) = instr.fixed_output {
-            set_reg(instr.slot, fixed_output, &regs, &interfering_slots, &mut available_regs);
+            set_reg(instr.slot,
+                MachineReg::try_from(fixed_output).expect("internal compiler error: illegal output register"),
+                &regs, &interfering_slots, &mut available_regs);
         }
     }
 
@@ -202,7 +207,9 @@ fn allocate(
                     let rank2 = available_regs[*input_slot].trailing_zeros();
                     isa::D_BANK.reg_from_rank(rank2 as usize)
                 };
-            set_reg(*input_slot, r2, &regs, &interfering_slots, &mut available_regs);
+            set_reg(*input_slot,
+                MachineReg::try_from(r2).expect("internal compiler error: bad register"),
+                &regs, &interfering_slots, &mut available_regs);
         }
     }
 
@@ -210,8 +217,8 @@ fn allocate(
     for instr in instrs {
         if regs[instr.slot].get().is_some() || !instr.code.has_output() { continue; }
         let rank = available_regs[instr.slot].trailing_zeros();
-        let r = isa::D_BANK.reg_from_rank(rank as usize);
-        set_reg(instr.slot, r, &regs, &interfering_slots, &mut available_regs);
+        let reg = isa::D_BANK.mreg_from_rank(rank as usize);
+        set_reg(instr.slot, reg, &regs, &interfering_slots, &mut available_regs);
     }
 
     // Allocate registers for any slots that get moved (which don't show up in instructions)
@@ -219,8 +226,8 @@ fn allocate(
         for (_, dest) in &instr.slot_moves {
             if regs[*dest].get().is_some() { continue; }
             let rank = available_regs[*dest].trailing_zeros();
-            let r = isa::D_BANK.reg_from_rank(rank as usize);
-            set_reg(*dest, r, &regs, &interfering_slots, &mut available_regs);
+            let reg = isa::D_BANK.mreg_from_rank(rank as usize);
+            set_reg(*dest, reg, &regs, &interfering_slots, &mut available_regs);
         }
     }
 
@@ -236,13 +243,14 @@ fn allocate(
 
 fn set_reg(
     slot:                               usize,
-    r:                                  u8,
+    reg:                                MachineReg,
     regs:                               &[OnceCell<u8>],
     interfering_slots:                  &[BitSet],
     available_regs:                     &mut [u32]) {
-    let rank = isa::D_BANK.get_rank(r);
+    let rank = isa::D_BANK.get_rank_m(reg);
     let rank_bits = 1 << rank;
-    regs[slot].set(r).expect("internal compiler error: trying to set a register twice");
+    regs[slot].set(reg.into())
+        .expect("internal compiler error: trying to set a register twice");
     for interfering_slot in &interfering_slots[slot] {
         available_regs[interfering_slot] &= !rank_bits;
     }
