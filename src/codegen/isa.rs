@@ -19,13 +19,11 @@ impl MachineReg {
     }
 }
 
-impl From<MachineReg> for u8 {
-    fn from(m: MachineReg) -> Self  { m.0 }
-}
+impl From<MachineReg> for u8    { fn from(m: MachineReg) -> Self  { m.0 } }
+impl From<MachineReg> for u32   { fn from(m: MachineReg) -> Self  { m.0.into() } }
+impl From<MachineReg> for i32   { fn from(m: MachineReg) -> Self  { m.0.into() } }
+impl From<MachineReg> for usize { fn from(m: MachineReg) -> Self  { m.0.into() } }
 
-impl From<MachineReg> for usize {
-    fn from(m: MachineReg) -> Self  { m.0.into() }
-}
 
 impl TryFrom<u8> for MachineReg {
     type Error = ();
@@ -54,13 +52,14 @@ impl RegRank {
     }
 }
 
-impl From<RegRank> for u8 {
-    fn from(r: RegRank) -> Self  { r.0 }
-}
-
 
 //-------------------------------------------------------------------------------------------------
 // Register details
+
+pub(super) const STACK_REG: MachineReg = MachineReg::new(31);
+pub(super) const LINK_REG: MachineReg = MachineReg::new(30);
+pub(super) const SCRATCH_REG: MachineReg = MachineReg::new(16);
+
 
 /// Information about a bank of registers (int or FP)  Possibly the structure is cross-platform?
 pub (super) struct RegBank<const N: usize> {
@@ -100,7 +99,7 @@ impl<const N:usize> RegBank<N> {
         if let Some(p) = preferred_reg {
             let rank = self.rank[usize::from(p)]
                 .expect("internal compiler error: trying to use system register");
-            if (available >> u8::from(rank)) & 1 == 1 { return p; }
+            if (available >> rank.0) & 1 == 1 { return p; }
         }
         self.order[available.trailing_zeros() as usize]
     }
@@ -158,9 +157,6 @@ pub(super) enum AddressingMode {
     Post,
     Offset,
 }
-
-pub(super) const STACK_REG: u8 = 31;
-pub(super) const LINK_REG: u8 = 30;
 
 
 //-------------------------------------------------------------------------------------------------

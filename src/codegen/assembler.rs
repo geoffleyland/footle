@@ -10,6 +10,7 @@ use super::isa::MachineReg;
 
 macro_rules! asm_op {
     (Reg($r:expr))          => { Operand::Reg($r) };
+    (RawReg($r:expr))       => { Operand::Reg(MachineReg::new($r)) };
     (Constant($i:expr))     => { Operand::Constant($i) };
     (Offset($o:expr))       => { Operand::Offset($o) };
 }
@@ -28,7 +29,7 @@ macro_rules! assemble {
 //-------------------------------------------------------------------------------------------------
 
 pub(super) enum Operand {
-    Reg(u8),
+    Reg(MachineReg),
     Constant(usize),
     Offset(i32),
     Function(usize),
@@ -79,8 +80,8 @@ fn emit_function(
     // Save any callee saved registers
     for pair in regs_to_save.chunks(2) {
         match *pair {
-            [a, b]  => assemble!(instrs, None, stp_d_pre, Reg(a.into()), Reg(b.into()), Reg(31), Offset(-16)),
-            [a]     => assemble!(instrs, None, str_d_pre, Reg(a.into()), Reg(31), Offset(-16)),
+            [a, b]  => assemble!(instrs, None, stp_d_pre, Reg(a), Reg(b), Reg(isa::STACK_REG), Offset(-16)),
+            [a]     => assemble!(instrs, None, str_d_pre, Reg(a), Reg(isa::STACK_REG), Offset(-16)),
             _       => unreachable!()
         }
     }
@@ -90,11 +91,10 @@ fn emit_function(
 
         let operands = ai.code.has_output()
             .then(|| Operand::Reg(ai.result_reg
-                .expect("internal compiler error: no register allocated for instruction result")
-                .into()))
+                .expect("internal compiler error: no register allocated for instruction result")))
             .into_iter()
             .chain(ai.operands.iter().map(|op| match op {
-                allocator::Operand::Reg(r)          => Operand::Reg((*r).into()),
+                allocator::Operand::Reg(r)          => Operand::Reg(*r),
                 allocator::Operand::Constant(i)     => Operand::Constant(*i),
                 allocator::Operand::Function(name) => {
                     let index = functions.iter().position(|s| s == name)
@@ -108,21 +108,21 @@ fn emit_function(
         if ai.code.restore_regs() {
             for pair in regs_to_save.chunks(2).rev() {
                 match *pair {
-                    [a, b]  => assemble!(instrs, None, ldp_d_post, Reg(a.into()), Reg(b.into()), Reg(31), Offset(16)),
-                    [a]     => assemble!(instrs, None, ldr_d_post, Reg(a.into()), Reg(31), Offset(16)),
+                    [a, b]  => assemble!(instrs, None, ldp_d_post, Reg(a), Reg(b), Reg(isa::STACK_REG), Offset(16)),
+                    [a]     => assemble!(instrs, None, ldr_d_post, Reg(a), Reg(isa::STACK_REG), Offset(16)),
                     _       => unreachable!()
                 }
             }
         }
 
         if ai.code.save_link_reg() {
-            assemble!(instrs, None, str_x_pre, Reg(30), Reg(31), Offset(-16));
+            assemble!(instrs, None, str_x_pre, Reg(isa::LINK_REG), Reg(isa::STACK_REG), Offset(-16));
         }
 
         instrs.push(Instr{ code: ai.code, operands, span: Some(ai.span) });
 
         if ai.code.save_link_reg() {
-            assemble!(instrs, None, ldr_x_post, Reg(30), Reg(31), Offset(16));
+            assemble!(instrs, None, ldr_x_post, Reg(isa::LINK_REG), Reg(isa::STACK_REG), Offset(16));
         }
     }
 }
@@ -169,17 +169,17 @@ fn move_regs(moves: &[(MachineReg, MachineReg)], temp_reg: MachineReg, instrs: &
         if copy == NO_REG { continue; }
         sources[usize::from(*destination)] = NO_REG;
         move_regs_backwards(source, &mut sources, &mut destination_counts, instrs);
-        assemble!(instrs, None, fmov_d, Reg((*destination).into()), Reg(copy));
+        assemble!(instrs, None, fmov_d, Reg(*destination), RawReg(copy));
     }
 
     // Now do the ones where there's no other copy and we need a temp.
     for (_, destination) in moves {
         let source = sources[usize::from(*destination)];
         if source == NO_REG { continue; }
-        assemble!(instrs, None, fmov_d, Reg(temp_reg.into()), Reg(source));
+        assemble!(instrs, None, fmov_d, Reg(temp_reg), RawReg(source));
         sources[usize::from(*destination)] = NO_REG;
         move_regs_backwards(source, &mut sources, &mut destination_counts, instrs);
-        assemble!(instrs, None, fmov_d, Reg((*destination).into()), Reg(temp_reg.into()));
+        assemble!(instrs, None, fmov_d, Reg(*destination), Reg(temp_reg));
     }
 }
 
@@ -188,7 +188,7 @@ fn move_regs_backwards(mut destination: u8, sources: &mut[u8], destination_count
     loop {
         let source = sources[usize::from(destination)];
         if source == NO_REG { return }
-        assemble!(instrs, None, fmov_d, Reg(destination), Reg(source));
+        assemble!(instrs, None, fmov_d, RawReg(destination), RawReg(source));
         sources[usize::from(destination)] = NO_REG;
         destination_counts[usize::from(source)] -= 1;
         if destination_counts[usize::from(source)] > 0 { return }
@@ -204,15 +204,15 @@ fn emit_glue(argument_count: u8, return_count: u8, assembler: &mut Vec<Instr>) {
     // In fact, at the moment, we only have floating-point arguments, so it *won't* get clobbered,
     // but if I ever get to types and integers, then I don't want to have a mystery bug strike me
     // because I was too smart about my function glue.
-    assemble!(assembler, None, mov_x, Reg(16), Reg(0));
+    assemble!(assembler, None, mov_x, Reg(isa::SCRATCH_REG), RawReg(0));
 
     // Move the output buffer and the return address to the stack, since they're about to get
     // overwritten and we need them later.
-    assemble!(assembler, None, stp_x_pre, Reg(1), Reg(isa::LINK_REG), Reg(isa::STACK_REG), Offset(-16));
+    assemble!(assembler, None, stp_x_pre, RawReg(1), Reg(isa::LINK_REG), Reg(isa::STACK_REG), Offset(-16));
 
     // Move the arguments from the input buffer into the argument registers.
     for i in 0..argument_count {
-        assemble!(assembler, None, ldr_d_offset, Reg(i), Reg(16), Offset(i32::from(i) * 8));
+        assemble!(assembler, None, ldr_d_offset, RawReg(i), Reg(isa::SCRATCH_REG), Offset(i32::from(i) * 8));
     }
 
     // Call our function
@@ -220,11 +220,11 @@ fn emit_glue(argument_count: u8, return_count: u8, assembler: &mut Vec<Instr>) {
         Offset(-4 * i32::try_from(assembler.len())
             .expect("internal compiler error: function too long for jump")));
 
-    // Load the output buffer in to r16 and the return address to the appropriate spot
-    assemble!(assembler, None, ldp_x_post, Reg(16), Reg(isa::LINK_REG), Reg(isa::STACK_REG), Offset(16));
+    // Load the output buffer in to x16 and the return address to the appropriate spot
+    assemble!(assembler, None, ldp_x_post, Reg(isa::SCRATCH_REG), Reg(isa::LINK_REG), Reg(isa::STACK_REG), Offset(16));
 
     for i in 0..return_count {
-        assemble!(assembler, None, str_d_offset, Reg(i), Reg(16), Offset(i32::from(i) * 8));
+        assemble!(assembler, None, str_d_offset, RawReg(i), Reg(isa::SCRATCH_REG), Offset(i32::from(i) * 8));
     }
 
     assemble!(assembler, None, ret);
