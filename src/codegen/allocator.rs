@@ -102,8 +102,7 @@ fn lower_to_slots_and_split(
                 scheduler::Operand::Value(v)                => SlotOperand::Slot(slot_map[v.slot]),
                 scheduler::Operand::Function(s)             => SlotOperand::Function(s.clone()),
             }).collect();
-        let fixed_inputs = value.fixed_inputs.iter().map(|(v, reg)|
-            (slot_map[v.slot], MachineReg::try_from(*reg).unwrap())).collect();
+        let fixed_inputs = value.fixed_inputs.iter().map(|(v, reg)| (slot_map[v.slot], *reg)).collect();
         let mut slot_moves: Vec<(usize, usize)> = vec![];
         if let Some(c) = value.code() && c.clobbers() != 0 {
             let mut bits = c.clobbers();

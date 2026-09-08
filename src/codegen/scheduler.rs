@@ -63,7 +63,7 @@ pub(super) struct Value<'arena> {
     pub(super) slot:                        usize,
     pub(super) def:                         ValueDef,
     pub(super) operands:                    Vec<Operand<'arena>>,
-    pub(super) fixed_inputs:                Vec<(&'arena Self, u8)>,
+    pub(super) fixed_inputs:                Vec<(&'arena Self, MachineReg)>,
     pub(super) fixed_output:                Option<MachineReg>,
     pub(super) span:                        Span,
 }
@@ -73,7 +73,7 @@ impl<'arena> Value<'arena> {
         slot:                               usize,
         def:                                ValueDef,
         operands:                           Vec<Operand<'arena>>,
-        fixed_inputs:                       Vec<(&'arena Self, u8)>,
+        fixed_inputs:                       Vec<(&'arena Self, MachineReg)>,
         fixed_output:                       Option<MachineReg>,
         span:                               Span) -> Self {
         Self { slot, def, operands, fixed_inputs, fixed_output, span }
@@ -290,7 +290,7 @@ impl<'arena> Builder<'arena> {
         expr:                                   &vir::Expr,
         def:                                    VD,
         operands:                               Vec<Operand<'arena>>,
-        fixed_inputs:                           Vec<(&'arena Value<'arena>, u8)>,
+        fixed_inputs:                           Vec<(&'arena Value<'arena>, MachineReg)>,
         fixed_output:                           Option<MachineReg>,
     ) -> &'arena Value<'arena> {
         let value = self.make_value(def, operands, fixed_inputs, fixed_output, *expr.span());
@@ -312,7 +312,7 @@ impl<'arena> Builder<'arena> {
         &mut self,
         def:                                    VD,
         operands:                               Vec<Operand<'arena>>,
-        fixed_inputs:                           Vec<(&'arena Value<'arena>, u8)>,
+        fixed_inputs:                           Vec<(&'arena Value<'arena>, MachineReg)>,
         fixed_output:                           Option<MachineReg>,
         span:                                   Span,
     ) -> &'arena Value<'arena>  {
@@ -325,7 +325,9 @@ impl<'arena> Builder<'arena> {
 
     fn exprs_to_fixed_inputs(
         &self,
-        exprs:                                  &[vir::Expr]) -> Vec<(&'arena Value<'arena>, u8)> {
+        exprs:                                  &[vir::Expr]
+    ) -> Vec<(&'arena Value<'arena>, MachineReg)> {
+        assert!(exprs.len() < 8, "internal compiler error: too many return values");
         exprs.iter().enumerate()
             .map(|(reg, expr)|
                 (
@@ -334,7 +336,7 @@ impl<'arena> Builder<'arena> {
                     } else {
                         panic!("internal compiler error: constant as a fixed input")
                     },
-                    u8::try_from(reg).expect("internal compiler error: too many return values")
+                    MachineReg::try_from(reg).expect("internal compiler error: too many return values")
                 )
             )
             .collect::<Vec<_>>()

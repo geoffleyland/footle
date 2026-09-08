@@ -34,6 +34,15 @@ impl TryFrom<u8> for MachineReg {
     }
 }
 
+impl TryFrom<usize> for MachineReg {
+    type Error = ();
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        let v = u8::try_from(value).map_err(|_| ())?;
+        if value < 32 { Ok(Self(v)) } else { Err(()) }
+    }
+}
+
+
 //-------------------------------------------------------------------------------------------------
 // Register details
 
