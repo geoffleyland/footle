@@ -193,28 +193,17 @@ fn allocate(
 
     // Allocate registers for values with constrained operand registers.
     for instr in instrs {
-        for (input_slot, reg) in &instr.fixed_inputs {
+        for (input_slot, preferred_reg) in &instr.fixed_inputs {
             if regs[*input_slot].get().is_some() { continue; }
-            let rank = isa::D_BANK.get_rank(*reg);
-            // If we can get the register we want, great!  But if we can't just assign the
-            // slot to any old register, and the move machinery will get the value into
-            // the right register at the right moment.
-            // (Getting the right register here is just about avoiding a move if we can,
-            // but in all cases, we'll get the move right)
-            let r2 = if (available_regs[*input_slot] >> rank) & 1 == 1 { *reg }
-                else {
-                    let rank2 = available_regs[*input_slot].trailing_zeros();
-                    isa::D_BANK.reg_from_rank(rank2 as usize)
-                };
-            set_reg(*input_slot, r2, &regs, &interfering_slots, &mut available_regs);
+            let reg = isa::D_BANK.best_reg(available_regs[*input_slot], Some(*preferred_reg));
+            set_reg(*input_slot, reg, &regs, &interfering_slots, &mut available_regs);
         }
     }
 
     // Allocate registers for remaining instructions
     for instr in instrs {
         if regs[instr.slot].get().is_some() || !instr.code.has_output() { continue; }
-        let rank = available_regs[instr.slot].trailing_zeros();
-        let reg = isa::D_BANK.reg_from_rank(rank as usize);
+        let reg = isa::D_BANK.best_reg(available_regs[instr.slot], None);
         set_reg(instr.slot, reg, &regs, &interfering_slots, &mut available_regs);
     }
 
@@ -222,8 +211,7 @@ fn allocate(
     for instr in instrs {
         for (_, dest) in &instr.slot_moves {
             if regs[*dest].get().is_some() { continue; }
-            let rank = available_regs[*dest].trailing_zeros();
-            let reg = isa::D_BANK.reg_from_rank(rank as usize);
+            let reg = isa::D_BANK.best_reg(available_regs[instr.slot], None);
             set_reg(*dest, reg, &regs, &interfering_slots, &mut available_regs);
         }
     }
@@ -233,7 +221,7 @@ fn allocate(
         // Use the remaining available registers to find an available temporary register for each
         // instruction, just in case it requires some register moves, and needs a temporary
         // register for that.
-        available_regs.iter().map(|&a| isa::D_BANK.reg_from_rank(a.trailing_zeros() as usize)).collect()
+        available_regs.iter().map(|&a| isa::D_BANK.best_reg(a, None)).collect()
     )
 }
 
@@ -244,8 +232,7 @@ fn set_reg(
     regs:                               &[OnceCell<MachineReg>],
     interfering_slots:                  &[BitSet],
     available_regs:                     &mut [u32]) {
-    let rank = isa::D_BANK.get_rank(reg);
-    let rank_bits = 1 << rank;
+    let rank_bits = isa::D_BANK.get_rank_bits(reg);
     regs[slot].set(reg)
         .expect("internal compiler error: trying to set a register twice");
     for interfering_slot in &interfering_slots[slot] {

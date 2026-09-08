@@ -43,18 +43,34 @@ impl TryFrom<usize> for MachineReg {
 }
 
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct RegRank(u8);
+
+impl RegRank {
+    #[allow(clippy::cast_possible_truncation)]
+    pub(super) const fn new(index: usize) -> Self {
+        debug_assert!(index < 32);
+        Self(index as u8)
+    }
+}
+
+impl From<RegRank> for u8 {
+    fn from(r: RegRank) -> Self  { r.0 }
+}
+
+
 //-------------------------------------------------------------------------------------------------
 // Register details
 
 /// Information about a bank of registers (int or FP)  Possibly the structure is cross-platform?
 pub (super) struct RegBank<const N: usize> {
-    order:              [MachineReg; N],    // Order in which we allocate registers
-    rank:               [Option<u8>; 32],   // Rank (in `order`) of a register.  `None` if we never
-                                            // allocate that register.
-    callee_saved:       u32,                // Bitmask of registers we have to save in our prologue
-                                            // and epilogue (if we use them)
-    clobber_rank_mask:  [u32; 32],          // In register order, bitmask of whether this reg is
-                                            // clobbered.
+    order:              [MachineReg; N],        // Order in which we allocate registers
+    rank:               [Option<RegRank>; 32],  // Rank (in `order`) of a register.  `None` if we
+                                                // never allocate that register.
+    callee_saved:       u32,                    // Bitmask of registers we have to save in our
+                                                // prologue and epilogue (if we use them)
+    clobber_rank_mask:  [u32; 32],              // In register order, bitmask of whether this reg
+                                                // is clobbered.
 }
 
 impl<const N:usize> RegBank<N> {
@@ -65,23 +81,40 @@ impl<const N:usize> RegBank<N> {
         let mut i = 0;
         while i < N {
             order[i] = MachineReg::new(u8_order[i]);
-            rank[u8_order[i] as usize] = Some(i as u8);
+            rank[u8_order[i] as usize] = Some(RegRank::new(i));
             i += 1;
         }
         let mut clobber_rank_mask = [0u32; 32];
         let mut r = 0;
         while r < 32 {
-            if let Some(rank) = rank[r] { clobber_rank_mask[r] = 1 << rank; }
+            if let Some(rank) = rank[r] { clobber_rank_mask[r] = 1 << rank.0; }
             r += 1;
         }
         Self { order, rank, callee_saved, clobber_rank_mask }
+    }
+
+    /// Pick a register from `available` (a bitmask of ranks).  If `preferred` is available, use it —
+    /// this just avoids an extra move later, it's not required for correctness (the move machinery
+    /// will fix up the register either way).
+    pub(super) fn best_reg(&self, available: u32, preferred: Option<MachineReg>) -> MachineReg {
+        if let Some(p) = preferred {
+            let rank = self.get_rank(p);
+            if (available >> u8::from(rank)) & 1 == 1 { return p; }
+        }
+        self.reg_from_rank(available.trailing_zeros() as usize)
     }
 
     pub(super) fn reg_from_rank(&self, rank: usize) -> MachineReg {
         self.order[rank]
     }
 
-    pub(super) fn get_rank(&self, reg: MachineReg) -> u8 {
+    pub(super) fn get_rank_bits(&self, reg: MachineReg) -> u32 {
+        let r = self.rank[usize::from(reg)]
+            .expect("internal compiler error: trying to use system register");
+        1 << r.0
+    }
+
+    pub(super) fn get_rank(&self, reg: MachineReg) -> RegRank {
         self.rank[usize::from(reg)]
             .expect("internal compiler error: trying to use system register")
     }
