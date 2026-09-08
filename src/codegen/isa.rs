@@ -14,36 +14,42 @@ pub(super) const NO_REG:u8 = u8::MAX;
 
 /// Information about a bank of registers (int or FP)  Possibly the structure is cross-platform?
 pub (super) struct RegBank<const N: usize> {
-    pub(super) order:           [u8; N],    // Order in which we allocate registers
-    pub(super) rank:            [u8; 32],   // Rank (in `order`) of a register.  NO_REG if we never
+    pub(super) order:   [u8; N],            // Order in which we allocate registers
+    rank:               [Option<u8>; 32],   // Rank (in `order`) of a register.  NO_REG if we never
                                             // allocate that register.
-    callee_saved:                u32,       // Bitmask of registers we have to save in our prologue
+    callee_saved:       u32,                // Bitmask of registers we have to save in our prologue
                                             // and epilogue (if we use them)
-    clobber_rank_mask:          [u32; 32],  // In register order, bitmask of whether this reg is
+    clobber_rank_mask:  [u32; 32],          // In register order, bitmask of whether this reg is
                                             // clobbered.
 }
 
 impl<const N:usize> RegBank<N> {
     #[allow(clippy::cast_possible_truncation)]
     const fn new(order: [u8; N], callee_saved: u32) -> Self {
-        let mut rank = [NO_REG; 32];
+        let mut rank = [None; 32];
         let mut i = 0;
         while i < N {
-            rank[order[i] as usize] = i as u8;
+            rank[order[i] as usize] = Some(i as u8);
             i += 1;
         }
         let mut clobber_rank_mask = [0u32; 32];
         let mut r = 0;
         while r < 32 {
-            if rank[r] != NO_REG { clobber_rank_mask[r] = 1 << rank[r]; }
+            if let Some(rank) = rank[r] { clobber_rank_mask[r] = 1 << rank; }
             r += 1;
         }
         Self { order, rank, callee_saved, clobber_rank_mask }
     }
 
+    pub(super) fn get_rank(&self, reg: u8) -> u8 {
+        self.rank[usize::from(reg)]
+            .expect("internal compiler error: trying to use system register")
+    }
+
     pub(super) fn is_callee_saved(&self, reg: u8) -> bool {
         reg != NO_REG && self.callee_saved & (1 << reg) != 0
     }
+
     pub(super) fn real_reg_to_ranked_reg_mask(&self, clobbers: u32) -> u32 {
         let mut c = clobbers;
         let mut mask = 0u32;
