@@ -222,7 +222,7 @@ fn allocate(
     // available for the function's return value, but NOT during swaps before the instruction).
     let mut temp_reg_pool = available_regs.clone();
     for instr in instrs {
-        // This just says (in rank space) available regs minus the precessors' regs.
+        // This just says (in rank space) available regs minus the predecessors' regs.
         temp_reg_pool[instr.slot] &=
             !instr.predecessors().fold(0,
                 |mask, p| mask | REGS.get_rank_bits(Bank::D, *regs[p].get().unwrap()));

@@ -148,14 +148,15 @@ fn run_tests(dir_name: &str) -> Result<(), Box<dyn Error>> {
         println!("Testing '{}' ...", path.display());
     }
 
-    let min_width = paths.iter().map(|p| p.as_os_str().len()).max().unwrap_or(0);
-    let width = ((min_width) / 4 + 2) * 4;
+    let max_filename_width = paths.iter().map(|p|
+        p.strip_prefix(dir_name).unwrap_or(p).as_os_str().len()).max().unwrap_or(0);
+    let filename_width = (max_filename_width / 4 + 1) * 4;
 
     let mut tests = 0;
     let mut fails = 0;
     for p in paths {
         tests += 1;
-        print!("  {:width$}", p.display());
+        print!("  {:filename_width$}", p.strip_prefix(dir_name).unwrap_or(&p).display());
         std::io::stdout().flush()?;
         match run_test(&p) {
             Ok(()) => {
