@@ -216,13 +216,22 @@ fn allocate(
         }
     }
 
-    (
-        regs.iter_mut().map(OnceCell::take).collect(),
-        // Use the remaining available registers to find an available temporary register for each
-        // instruction, just in case it requires some register moves, and needs a temporary
-        // register for that.
-        available_regs.iter().map(|&a| REGS.best_reg(Bank::D, a, None)).collect()
-    )
+    // If an instruction needs a temporary register (for swaps *before* the instruction), the
+    // registers available for a temp are the registers available for the instruction MINUS
+    // the arguments to the instruction (which, if this is the last use of the argument are
+    // available for the function's return value, but NOT during swaps before the instruction).
+    let mut temp_reg_pool = available_regs.clone();
+    for instr in instrs {
+        // This just says (in rank space) available regs minus the precessors' regs.
+        temp_reg_pool[instr.slot] &=
+            !instr.predecessors().fold(0,
+                |mask, p| mask | REGS.get_rank_bits(Bank::D, *regs[p].get().unwrap()));
+    }
+    let temp_regs = temp_reg_pool.iter()
+        .map(|&a| REGS.best_reg(Bank::D, a, None))
+        .collect::<Vec<_>>();
+
+    (regs.iter_mut().map(OnceCell::take).collect(), temp_regs)
 }
 
 

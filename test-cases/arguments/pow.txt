@@ -30,9 +30,9 @@ return b ^ a
 #( expected assembler
 
   0x1000: ldr x16, #0x1044
-  0x1004: fmov d16, d1
+  0x1004: fmov d17, d1
   0x1008: fmov d1, d0
-  0x100c: fmov d0, d16
+  0x100c: fmov d0, d17
   0x1010: str x30, [sp, #-0x10]!
   0x1014: blr x16
   0x1018: ldr x30, [sp], #0x10
