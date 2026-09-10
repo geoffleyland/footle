@@ -9,11 +9,14 @@ use super::{scheduler, allocator, assembler, binary};
 pub fn run(vir_block: &vir::Block) -> binary::CompiledFn {
     let arena = Arena::<scheduler::Value>::new();
     let scheduled_block = scheduler::run(&arena, vir_block);
+    let argument_count = u8::try_from(scheduled_block.arguments.len())
+        .expect("internal compiler error: too many arguments");
+
     let (allocated, registers_to_save) =
-        allocator::run(scheduled_block.argument_count, scheduled_block.value_count, &scheduled_block.instrs);
+        allocator::run(argument_count, scheduled_block.value_count, &scheduled_block.instrs);
     let assembler =
         assembler::run(allocated, &scheduled_block.constants, &scheduled_block.functions,
-            scheduled_block.argument_count, scheduled_block.return_count, &registers_to_save);
+            argument_count, scheduled_block.return_count, &registers_to_save);
     binary::emit(&assembler)
 }
 
@@ -110,10 +113,13 @@ mod display {
     pub fn assemble(vir_block: &vir::Block) -> assembler::Block {
         let arena = Arena::<scheduler::Value>::new();
         let scheduled_block = scheduler::run(&arena, vir_block);
+        let argument_count = u8::try_from(scheduled_block.arguments.len())
+            .expect("internal compiler error: too many arguments");
+
         let (allocated, registers_to_save) =
-            allocator::run(scheduled_block.argument_count, scheduled_block.value_count, &scheduled_block.instrs);
+            allocator::run(argument_count, scheduled_block.value_count, &scheduled_block.instrs);
         assembler::run(allocated, &scheduled_block.constants, &scheduled_block.functions,
-            scheduled_block.argument_count, scheduled_block.return_count, &registers_to_save)
+            argument_count, scheduled_block.return_count, &registers_to_save)
     }
 
 } // mod display

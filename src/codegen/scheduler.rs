@@ -98,8 +98,8 @@ pub(super) struct Constant {
 
 pub(super) struct Block<'arena> {
     pub(super) value_count:                 usize,
-    pub(super) argument_count:              u8,
     pub(super) return_count:                u8,
+    pub(super) arguments:                   Vec<&'arena Value<'arena>>,
     pub(super) instrs:                      Vec<&'arena Value<'arena>>,
     pub(super) constants:                   Vec<Constant>,
     pub(super) functions:                   Vec<String>,
@@ -111,14 +111,13 @@ pub(super) struct Block<'arena> {
 pub(super) fn run<'arena>(arena: &'arena Arena<Value<'arena>>, input: &vir::Block) -> Block<'arena> {
     let mut builder = Builder::new(arena);
     builder.lower_vir(input);
-    let argument_count = u8::try_from(builder.arguments.len())
-        .expect("internal compiler error: too many arguments");
     let return_count = u8::try_from(input.return_values.len())
         .expect("internal compiler error: too many return values");
 
     let instrs = schedule(&builder.values);
 
-    Block { argument_count, return_count, instrs,
+    Block { return_count, instrs,
+        arguments: builder.arguments,
         value_count: builder.values.len(),
         constants: builder.constants,
         functions: builder.function_map.keys().cloned().collect()
