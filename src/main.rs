@@ -6,7 +6,6 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
-use argh::FromArgs;
 use git_version::git_version;
 
 mod env;
@@ -23,49 +22,54 @@ const FOOTLE_FILE_EXTENSION: &str = "txt";
 
 
 //-------------------------------------------------------------------------------------------------
-// Command-line arguments
-
-#[derive(FromArgs)]
-/// footle.  Nearly a parser?
-struct Args {
-    /// run in "test" mode, comparing output to comments in the file
-    #[argh(switch, short = 't')]
-    test:        bool,
-    /// file to test or directory (recursively) containing files to run/test
-    #[argh(positional)]
-    file_or_dir: Option<String>,
-}
-
-
-//-------------------------------------------------------------------------------------------------
 
 fn main() {
-    let args: Args = argh::from_env();
+    show_version();
+    let mut args = pico_args::Arguments::from_env();
 
-    write_version();
-
-    let result = args.file_or_dir.as_ref().map_or_else(
-        || Ok(()),
-        |file_or_dir| {
-            if args.test { run_tests(file_or_dir) } else { run_file(file_or_dir) }
-        },
-    );
-
-    std::process::exit(match result {
+    std::process::exit(match run(&mut args) {
         Ok(()) => 0,
         Err(err) => {
-            eprintln!("error: {err:? }");
+            eprintln!("error: {err:?}");
             1
         }
-    })
+    });
 }
 
 
-fn write_version() {
+fn run(args: &mut pico_args::Arguments) -> Result<()> {
+    if args.contains(["-h", "--help"]) {
+        show_help();
+        return Ok(());
+    }
+
+    let test = args.contains(["-t", "--test"]);
+    let Some(file_or_dir): Option<String> = args.opt_free_from_str()? else { return Ok(()); };
+    if test { run_tests(&file_or_dir)? } else { run_file(&file_or_dir)? }
+
+    Ok(())
+}
+
+
+fn show_version() {
     let name: &str = env!("CARGO_PKG_NAME");
     let version: &str = env!("CARGO_PKG_VERSION");
     let git_version: &str = git_version!();
     eprintln!("{name} {version} ({git_version})");
+}
+
+
+fn show_help() {
+    let name: &str = env!("CARGO_PKG_NAME");
+    eprintln!("\
+Usage: {name} [<file>]
+       {name} -t <file_or_dir>
+       {name} -h
+
+Options:
+  -t, --test     check all the files in dogfood mode
+  -h, --help     display usage information
+");
 }
 
 
