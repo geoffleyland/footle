@@ -30,7 +30,7 @@ fn main() {
     std::process::exit(match run(&mut args) {
         Ok(()) => 0,
         Err(err) => {
-            eprintln!("error: {err:?}");
+            eprintln!("error: {err:#}");
             1
         }
     });
@@ -51,10 +51,18 @@ fn run(args: &mut pico_args::Arguments) -> Result<()> {
     }
     if test {
         run_tests(&file_or_dir)?;
-    } else if verbose {
-        run_file_verbose(&file_or_dir)?;
     } else {
-        run_file(&file_or_dir)?;
+        let remaining = args.clone().finish();
+        let arguments: Vec<f64> = remaining.iter()
+            .map(|s| s.to_str().and_then(|s| s.parse().ok())
+                .ok_or_else(|| anyhow::anyhow!("invalid numeric argument '{}'", s.display())))
+            .collect::<Result<Vec<f64>>>()?;
+
+        if verbose {
+            run_file_verbose(&file_or_dir, &arguments)?;
+        } else {
+            run_file(&file_or_dir, &arguments)?;
+        }
     }
 
     Ok(())
@@ -72,7 +80,7 @@ fn show_version() {
 fn show_help() {
     let name: &str = env!("CARGO_PKG_NAME");
     eprintln!("\
-Usage: {name} [-v] [<file>]
+Usage: {name} [-v] [<file> [<arguments...>]]
        {name} -t <file_or_dir>
        {name} -h
 
@@ -89,7 +97,7 @@ Options:
 /// Compile and run a single file.
 ///
 /// Read in the file specified, process it and show any output.
-fn run_file(file_path: &PathBuf) -> Result<()> {
+fn run_file(file_path: &PathBuf, arguments: &[f64]) -> Result<()> {
     let file_name = file_path.display().to_string();
     let source =
         fs::read_to_string(file_path)
@@ -103,10 +111,8 @@ fn run_file(file_path: &PathBuf) -> Result<()> {
     report_errors(&vir_errors, &file_name, &source_map)?;
 
     let func = codegen::run(&vir_block);
-
-    let results = func.call(&[2.0, 6.0]);
-    println!("\nResult from '{file_name}':");
-    println!("  f(2, 6) = {results:?} (should be 3!)");
+    let results = func.call(arguments)?;
+    println!("{}", results.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(" "));
 
     Ok(())
 }
@@ -130,7 +136,7 @@ fn report_errors(errors: &[core::ParseError], file_name: &str, source_map: &core
 /// Compile and run a single file noisily
 ///
 /// Read in the file specified, process it, and tell everyone about it.
-fn run_file_verbose(file_path: &PathBuf) -> Result<()> {
+fn run_file_verbose(file_path: &PathBuf, arguments: &[f64]) -> Result<()> {
     let file_name = file_path.display().to_string();
     eprintln!("Opening '{file_name}'");
     let source =
@@ -164,8 +170,11 @@ fn run_file_verbose(file_path: &PathBuf) -> Result<()> {
     eprintln!("\nDisassembly from '{file_name}':");
     for line in codegen::disassemble(&func) { eprintln!("  {line}"); }
 
-    let results = func.call(&[2.0, 6.0]);
-    println!("  f(2, 6) = {results:?} (should be 3!)");
+    let results = func.call(arguments)?;
+    println!("\nResult from '{file_name}':");
+    println!("  f({}) = ({})",
+        arguments.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(", "),
+        results.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(", "));
 
     Ok(())
 }
@@ -204,7 +213,7 @@ fn run_tests(dir_path: &PathBuf) -> Result<()> {
             }
             Err(e) => {
                 println!("\x1b[1;31m\u{2718}\x1b[0m");
-                eprintln!("{e}");
+                eprintln!("{e:#}");
                 fails += 1;
             }
         }
@@ -367,14 +376,15 @@ fn test_results(func: &codegen::CompiledFn, expected: &[String], section: &str) 
     let mut actual_strings = vec![];
     for line in expected {
         let Some((inputs_str, _)) = line.split_once("->") else {
-            bail!("invalid result line: {line:?}");
+            bail!("    invalid result line: {line:?}");
         };
         let inputs = inputs_str.split_whitespace()
             .map(str::parse::<f64>)
             .collect::<Result<Vec<_>, _>>()
-            .with_context(|| format!("invalid input in {line:?}"))?;
+            .with_context(|| format!("    invalid input in {line:?}"))?;
 
-        let actual_outputs = func.call(&inputs);
+        let actual_outputs = func.call(&inputs)
+            .with_context(|| format!("    invalid input in {line:?}"))?;
 
         actual_strings.push(format!("{} -> {}",
             inputs.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(" "),

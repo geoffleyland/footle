@@ -1,5 +1,7 @@
 use std::mem;
 
+use anyhow::{bail, Result};
+
 use super::scheduler::Constant;
 use super::assembler;
 use super::sys;
@@ -33,11 +35,14 @@ impl CompiledFn {
         unsafe { std::slice::from_raw_parts(self.ptr.cast::<u8>(), self.size) }
     }
 
-    pub fn call(&self, input: &[f64]) -> Vec<f64> {
-        assert_eq!(input.len(), usize::from(self.argument_count));
+    pub fn call(&self, input: &[f64]) -> Result<Vec<f64>> {
+        if usize::from(self.argument_count) != input.len() {
+            bail!("wrong number of arguments: expected {}, got {}",
+                self.argument_count, input.len());
+        }
         let mut output = vec![0.0; usize::from(self.return_count)];
         (self.func)(input.as_ptr(), output.as_mut_ptr());
-        output
+        Ok(output)
     }
 }
 
