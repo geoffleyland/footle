@@ -19,6 +19,8 @@ mod codegen;
 use core::Styleable;
 use env::Env;
 
+const FOOTLE_FILE_EXTENSION: &str = "txt";
+
 
 //-------------------------------------------------------------------------------------------------
 // Command-line arguments
@@ -69,9 +71,9 @@ fn write_version() {
 
 //-------------------------------------------------------------------------------------------------
 
-/// Compile and run a single file
+/// Compile and run a single file noisily
 ///
-/// Read in the file specified, and process it!
+/// Read in the file specified, process it, and tell everyone about it.
 fn run_file(file_name: &str) -> Result<(), Box<dyn Error>> {
     eprintln!("Opening '{file_name}'");
     let source =
@@ -137,9 +139,7 @@ fn run_tests(dir_name: &str) -> Result<(), Box<dyn Error>> {
         find_tests(path, &mut paths)?;
         println!("Testing {} files in '{dir_name}' ...", paths.len());
     } else {
-        if let Some(e) = path.extension()
-            && e == "txt"
-        {
+        if let Some(e) = path.extension() && e == FOOTLE_FILE_EXTENSION {
             paths.push(path.to_path_buf());
         }
         if paths.is_empty() {
@@ -185,9 +185,7 @@ fn find_tests(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<(), Box<dyn Error>
         let path = entry.path();
         if path.is_dir() {
             find_tests(&path, paths)?;
-        } else if let Some(e) = path.extension()
-            && e == "txt"
-        {
+        } else if let Some(e) = path.extension() && e == FOOTLE_FILE_EXTENSION {
             paths.push(path);
         }
     }
