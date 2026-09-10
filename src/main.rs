@@ -44,7 +44,10 @@ fn run(args: &mut pico_args::Arguments) -> Result<()> {
     }
 
     let test = args.contains(["-t", "--test"]);
-    let Some(file_or_dir): Option<String> = args.opt_free_from_str()? else { return Ok(()); };
+    let Some(file_or_dir): Option<PathBuf> = args.opt_free_from_str()? else { return Ok(()); };
+    if !file_or_dir.try_exists()? {
+        bail!("no such file or directory: {}", file_or_dir.display());
+    }
     if test { run_tests(&file_or_dir)? } else { run_file(&file_or_dir)? }
 
     Ok(())
@@ -78,14 +81,15 @@ Options:
 /// Compile and run a single file noisily
 ///
 /// Read in the file specified, process it, and tell everyone about it.
-fn run_file(file_name: &str) -> Result<()> {
+fn run_file(file_path: &PathBuf) -> Result<()> {
+    let file_name = file_path.display();
     eprintln!("Opening '{file_name}'");
     let source =
-        fs::read_to_string(file_name)
-            .with_context(|| format!("couldn't open '{file_name}'"))?;
+        fs::read_to_string(file_path)
+            .with_context(|| format!("couldn't read '{file_name}'"))?;
     println!("Contents of '{file_name}':\n  {}", source.lines().collect::<Vec<_>>().join("\n  "));
 
-    let (stmts, errors, source_map) = ast::parse(file_name, source.as_str());
+    let (stmts, errors, source_map) = ast::parse(file_name.to_string(), source.as_str());
     let style = core::SourceStyle::new(2, 40, true, &source_map);
 
     if errors.is_empty() {
@@ -137,31 +141,30 @@ fn run_file(file_name: &str) -> Result<()> {
 
 //-------------------------------------------------------------------------------------------------
 
-fn run_tests(dir_name: &str) -> Result<()> {
+fn run_tests(dir_path: &PathBuf) -> Result<()> {
     let mut paths = vec![];
-    let path = Path::new(dir_name);
-    if path.is_dir() {
-        find_tests(path, &mut paths)?;
-        println!("Testing {} files in '{dir_name}' ...", paths.len());
+    if dir_path.is_dir() {
+        find_tests(dir_path, &mut paths)?;
+        println!("Testing {} files in '{}' ...", paths.len(), dir_path.display());
     } else {
-        if let Some(e) = path.extension() && e == FOOTLE_FILE_EXTENSION {
-            paths.push(path.to_path_buf());
+        if let Some(e) = dir_path.extension() && e == FOOTLE_FILE_EXTENSION {
+            paths.push(dir_path.clone());
         }
         if paths.is_empty() {
             bail!("No files.");
         }
-        println!("Testing '{}' ...", path.display());
+        println!("Testing '{}' ...", dir_path.display());
     }
 
     let max_filename_width = paths.iter().map(|p|
-        p.strip_prefix(dir_name).unwrap_or(p).as_os_str().len()).max().unwrap_or(0);
+        p.strip_prefix(dir_path).unwrap_or(p).as_os_str().len()).max().unwrap_or(0);
     let filename_width = (max_filename_width / 4 + 1) * 4;
 
     let mut tests = 0;
     let mut fails = 0;
     for p in paths {
         tests += 1;
-        print!("  {:filename_width$}", p.strip_prefix(dir_name).unwrap_or(&p).display());
+        print!("  {:filename_width$}", p.strip_prefix(dir_path).unwrap_or(&p).display());
         std::io::stdout().flush()?;
         match run_test(&p) {
             Ok(()) => {
