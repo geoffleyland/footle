@@ -43,12 +43,19 @@ fn run(args: &mut pico_args::Arguments) -> Result<()> {
         return Ok(());
     }
 
+    let verbose = args.contains(["-v", "--verbose"]);
     let test = args.contains(["-t", "--test"]);
     let Some(file_or_dir): Option<PathBuf> = args.opt_free_from_str()? else { return Ok(()); };
     if !file_or_dir.try_exists()? {
         bail!("no such file or directory: {}", file_or_dir.display());
     }
-    if test { run_tests(&file_or_dir)? } else { run_file(&file_or_dir)? }
+    if test {
+        run_tests(&file_or_dir)?;
+    } else if verbose {
+        run_file_verbose(&file_or_dir)?;
+    } else {
+        run_file(&file_or_dir)?;
+    }
 
     Ok(())
 }
@@ -65,14 +72,56 @@ fn show_version() {
 fn show_help() {
     let name: &str = env!("CARGO_PKG_NAME");
     eprintln!("\
-Usage: {name} [<file>]
+Usage: {name} [-v] [<file>]
        {name} -t <file_or_dir>
        {name} -h
 
 Options:
   -t, --test     check all the files in dogfood mode
+  -v, --verbose  show more output when running a file
   -h, --help     display usage information
 ");
+}
+
+
+//-------------------------------------------------------------------------------------------------
+
+/// Compile and run a single file.
+///
+/// Read in the file specified, process it and show any output.
+fn run_file(file_path: &PathBuf) -> Result<()> {
+    let file_name = file_path.display().to_string();
+    let source =
+        fs::read_to_string(file_path)
+            .with_context(|| format!("couldn't read '{file_name}'"))?;
+
+    let (stmts, errors, source_map) = ast::parse(&file_name, source.as_str());
+    report_errors(&errors, &file_name, &source_map)?;
+
+    let env = Env::new();
+    let (vir_block, vir_errors) = vir::run(&env, &stmts);
+    report_errors(&vir_errors, &file_name, &source_map)?;
+
+    let func = codegen::run(&vir_block);
+
+    let results = func.call(&[2.0, 6.0]);
+    println!("\nResult from '{file_name}':");
+    println!("  f(2, 6) = {results:?} (should be 3!)");
+
+    Ok(())
+}
+
+
+fn report_errors(errors: &[core::ParseError], file_name: &str, source_map: &core::SourceMap<&str>
+    ) -> Result<()> {
+    if !errors.is_empty() {
+        eprintln!("\nErrors from '{file_name}':");
+        for e in errors {
+            eprint!("{}", e.show_in_source(source_map));
+        }
+        bail!("Syntax errors")
+    }
+    Ok(())
 }
 
 
@@ -81,58 +130,41 @@ Options:
 /// Compile and run a single file noisily
 ///
 /// Read in the file specified, process it, and tell everyone about it.
-fn run_file(file_path: &PathBuf) -> Result<()> {
-    let file_name = file_path.display();
+fn run_file_verbose(file_path: &PathBuf) -> Result<()> {
+    let file_name = file_path.display().to_string();
     eprintln!("Opening '{file_name}'");
     let source =
         fs::read_to_string(file_path)
             .with_context(|| format!("couldn't read '{file_name}'"))?;
-    println!("Contents of '{file_name}':\n  {}", source.lines().collect::<Vec<_>>().join("\n  "));
+    eprintln!("Contents of '{file_name}':\n  {}", source.lines().collect::<Vec<_>>().join("\n  "));
 
-    let (stmts, errors, source_map) = ast::parse(file_name.to_string(), source.as_str());
+    let (stmts, errors, source_map) = ast::parse(&file_name, source.as_str());
     let style = core::SourceStyle::new(2, 40, true, &source_map);
 
-    if errors.is_empty() {
-        println!("\nStatements from '{file_name}':");
-        for stmt in &stmts {
-            println!("{}", stmt.styled(1, &style));
-        }
-    } else {
-        println!("\nErrors from '{file_name}':");
-        for e in errors {
-            print!("{}", e.show_in_source(&source_map));
-        }
-        bail!("Syntax errors")
-    }
+    report_errors(&errors, &file_name, &source_map)?;
+    eprintln!("\nStatements from '{file_name}':");
+    for stmt in &stmts { eprintln!("{}", stmt.styled(1, &style)); }
 
     let env = Env::new();
     let (vir_block, vir_errors) = vir::run(&env, &stmts);
-    if vir_errors.is_empty() {
-        println!("\nVIR instructions from '{file_name}':");
-        println!("{}", vir_block.styled(1, &style));
-    } else {
-        println!("\nErrors from '{file_name}':");
-        for e in vir_errors {
-            print!("{}", e.show_in_source(&source_map));
-        }
-        bail!("Syntax errors")
-    }
+    report_errors(&vir_errors, &file_name, &source_map)?;
+    eprintln!("\nVIR instructions from '{file_name}':");
+    eprintln!("{}", vir_block.styled(1, &style));
 
     let schedule = codegen::schedule(&vir_block);
-    println!("\nScheduled instructions from '{file_name}':");
-    println!("{}", schedule.styled(1, &style));
+    eprintln!("\nScheduled instructions from '{file_name}':");
+    eprintln!("{}", schedule.styled(1, &style));
 
     let assembler = codegen::assemble(&vir_block);
-    println!("\nAssembly instructions from '{file_name}':");
-    println!("{}", assembler.styled(1, &style));
+    eprintln!("\nAssembly instructions from '{file_name}':");
+    eprintln!("{}", assembler.styled(1, &style));
 
     let func = codegen::run(&vir_block);
 
-    println!("\nDisassembly from '{file_name}':");
-    for line in codegen::disassemble(&func) { println!("  {line}"); }
+    eprintln!("\nDisassembly from '{file_name}':");
+    for line in codegen::disassemble(&func) { eprintln!("  {line}"); }
 
     let results = func.call(&[2.0, 6.0]);
-    println!("\nResult from '{file_name}':");
     println!("  f(2, 6) = {results:?} (should be 3!)");
 
     Ok(())
@@ -171,7 +203,8 @@ fn run_tests(dir_path: &PathBuf) -> Result<()> {
                 println!("\x1b[1;32m\u{2713}\x1b[0m");
             }
             Err(e) => {
-                println!("\x1b[1;31m\u{2718}\x1b[0m\n{e}");
+                println!("\x1b[1;31m\u{2718}\x1b[0m");
+                eprintln!("{e}");
                 fails += 1;
             }
         }
