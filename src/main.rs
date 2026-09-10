@@ -1,11 +1,11 @@
 use std::{
     collections::HashMap,
-    error::Error,
     fs,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
 };
 
+use anyhow::{bail, Context, Result};
 use argh::FromArgs;
 use git_version::git_version;
 
@@ -54,7 +54,7 @@ fn main() {
     std::process::exit(match result {
         Ok(()) => 0,
         Err(err) => {
-            eprintln!("error: {err}");
+            eprintln!("error: {err:? }");
             1
         }
     })
@@ -74,10 +74,11 @@ fn write_version() {
 /// Compile and run a single file noisily
 ///
 /// Read in the file specified, process it, and tell everyone about it.
-fn run_file(file_name: &str) -> Result<(), Box<dyn Error>> {
+fn run_file(file_name: &str) -> Result<()> {
     eprintln!("Opening '{file_name}'");
     let source =
-        fs::read_to_string(file_name).map_err(|e| format!("couldn't open '{file_name}': {e}"))?;
+        fs::read_to_string(file_name)
+            .with_context(|| format!("couldn't open '{file_name}'"))?;
     println!("Contents of '{file_name}':\n  {}", source.lines().collect::<Vec<_>>().join("\n  "));
 
     let (stmts, errors, source_map) = ast::parse(file_name, source.as_str());
@@ -93,7 +94,7 @@ fn run_file(file_name: &str) -> Result<(), Box<dyn Error>> {
         for e in errors {
             print!("{}", e.show_in_source(&source_map));
         }
-        return Err("Syntax errors".into())
+        bail!("Syntax errors")
     }
 
     let env = Env::new();
@@ -106,7 +107,7 @@ fn run_file(file_name: &str) -> Result<(), Box<dyn Error>> {
         for e in vir_errors {
             print!("{}", e.show_in_source(&source_map));
         }
-        return Err("Syntax errors".into())
+        bail!("Syntax errors")
     }
 
     let schedule = codegen::schedule(&vir_block);
@@ -132,7 +133,7 @@ fn run_file(file_name: &str) -> Result<(), Box<dyn Error>> {
 
 //-------------------------------------------------------------------------------------------------
 
-fn run_tests(dir_name: &str) -> Result<(), Box<dyn Error>> {
+fn run_tests(dir_name: &str) -> Result<()> {
     let mut paths = vec![];
     let path = Path::new(dir_name);
     if path.is_dir() {
@@ -143,7 +144,7 @@ fn run_tests(dir_name: &str) -> Result<(), Box<dyn Error>> {
             paths.push(path.to_path_buf());
         }
         if paths.is_empty() {
-            return Err("No files.".into());
+            bail!("No files.");
         }
         println!("Testing '{}' ...", path.display());
     }
@@ -171,17 +172,18 @@ fn run_tests(dir_name: &str) -> Result<(), Box<dyn Error>> {
 
     if fails > 0 {
         println!("\ntest result: \x1b[31mFAILED\x1b[0m. {} passed; {fails} failed", tests - fails);
-        Err("tests failed".into())
-    } else {
-        println!("\ntest result: \x1b[32mok\x1b[0m. {tests} passed; 0 failed");
-        Ok(())
+        bail!("tests failed")
     }
+
+    println!("\ntest result: \x1b[32mok\x1b[0m. {tests} passed; 0 failed");
+    Ok(())
 }
 
 
-fn find_tests(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<(), Box<dyn Error>> {
+fn find_tests(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
     for entry in dir.read_dir()? {
-        let entry = entry?;
+        let entry = entry
+            .with_context(||format!("Problem reading {}", dir.display()))?;
         let path = entry.path();
         if path.is_dir() {
             find_tests(&path, paths)?;
@@ -213,7 +215,7 @@ fn find_tests(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<(), Box<dyn Error>
 /// no errors (and that's what we wanted), check the statements match expectations. If that worked,
 /// take the output from the parser (actually, the expected output, but we already checked they're
 /// the same), and run it back through the parser, checking that we get the same result as before.
-fn run_test(path: &Path) -> Result<(), Box<dyn Error>> {
+fn run_test(path: &Path) -> Result<()> {
     let expected = read_test_file(path)?;
 
     for key in ["source", "statements", "vir"] {
@@ -225,9 +227,10 @@ fn run_test(path: &Path) -> Result<(), Box<dyn Error>> {
 }
 
 
-fn read_test_file(path: &Path) -> Result<HashMap<String, Vec<String>>, Box<dyn Error>> {
+fn read_test_file(path: &Path) -> Result<HashMap<String, Vec<String>>> {
     let file =
-        fs::File::open(path).map_err(|e| format!("couldn't open '{}': {}", path.display(), e))?;
+        fs::File::open(path)
+            .with_context(|| format!("couldn't open '{}'", path.display()))?;
 
     // Read the file, putting all the bits into the right buffers.
     let mut expected = HashMap::<String, Vec<String>>::new();
@@ -252,7 +255,7 @@ fn test_lines(
     section: &str,
     source: &str,
     expected: &HashMap<String, Vec<String>>,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<()> {
     let (stmts, errors, _) = ast::parse(file_name, source);
 
     let mut checking = section == "source";
@@ -320,16 +323,16 @@ fn test_lines(
 }
 
 
-fn test_results(func: &codegen::CompiledFn, expected: &[String], section: &str) -> Result<(), Box<dyn Error>> {
+fn test_results(func: &codegen::CompiledFn, expected: &[String], section: &str) -> Result<()> {
     let mut actual_strings = vec![];
     for line in expected {
         let Some((inputs_str, _)) = line.split_once("->") else {
-            return Err(format!("invalid result line: {line:?}").into());
+            bail!("invalid result line: {line:?}");
         };
         let inputs = inputs_str.split_whitespace()
             .map(str::parse::<f64>)
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("invalid input in {line:?}: {e}"))?;
+            .with_context(|| format!("invalid input in {line:?}"))?;
 
         let actual_outputs = func.call(&inputs);
 
@@ -348,17 +351,15 @@ fn compare_lines(
     expected: &[String],
     input: &str,
     output: &str,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<()> {
     if actual.len() != expected.len()
-        || actual.iter().zip(expected).any(|(a, e)| a.trim() != e.trim())
-    {
-        Err(format!(
+        || actual.iter().zip(expected).any(|(a, e)| a.trim() != e.trim()) {
+        bail!(
             "Mismatch between expected and obtained {output} from {input}.  Test output:\n\
             #( expected {output}\n\n  {}\n\n#)",
-            actual.join("\n  ")).into())
-    } else {
-        Ok(())
+            actual.join("\n  "))
     }
+    Ok(())
 }
 
 
