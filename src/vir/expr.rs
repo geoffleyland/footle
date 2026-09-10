@@ -1,7 +1,10 @@
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use crate::core::{BinaryOperator, Span};
+use crate::core::BinaryOperator;
+
+#[cfg(any(feature = "dogfood", test))]
+use crate::core::Span;
 
 
 //-------------------------------------------------------------------------------------------------
@@ -10,8 +13,11 @@ use crate::core::{BinaryOperator, Span};
 pub enum ExprKind {
     Binary(BinaryOperator, Expr, Expr),
     Number(f64),
-    Argument(usize, String),
     Call(String, Vec<Expr>),
+    #[cfg(any(feature = "dogfood", test))]
+    Argument(usize, String),
+    #[cfg(not(any(feature = "dogfood", test)))]
+    Argument(usize),
 }
 
 
@@ -75,16 +81,28 @@ impl ExprKind {
 pub struct ExprEntry {
     kind:                                   ExprKind,
     pool_index:                             usize,
+    #[cfg(any(feature = "dogfood", test))]
     span:                                   Span,
 }
 
 
 impl ExprEntry {
-    pub fn new(kind: ExprKind, pool_index: usize, span: Span) -> Self {
-        Self{kind, pool_index, span}
+    pub fn new(
+        kind:                               ExprKind,
+        pool_index:                         usize,
+
+        #[cfg(any(feature = "dogfood", test))]
+        span:                               Span
+    ) -> Self {
+        Self{kind, pool_index,
+            #[cfg(any(feature = "dogfood", test))]
+            span
+        }
     }
     pub fn kind(&self) -> &ExprKind         { &self.kind }
     pub fn pool_index(&self) -> usize       { self.pool_index }
+
+    #[cfg(any(feature = "dogfood", test))]
     pub fn span(&self) -> &Span             { &self.span }
 }
 
@@ -103,8 +121,10 @@ impl Expr {
     }
     pub fn kind(&self) -> &ExprKind         { self.entry.kind() }
     pub fn pool_index(&self) -> usize       { self.entry.pool_index() }
-    pub fn span(&self) -> &Span             { self.entry.span() }
     pub fn is_constant(&self) -> bool       { self.entry.kind().is_constant() }
+
+    #[cfg(any(feature = "dogfood", test))]
+    pub fn span(&self) -> &Span             { self.entry.span() }
 }
 
 

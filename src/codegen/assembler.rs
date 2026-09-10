@@ -1,8 +1,10 @@
-use crate::core::Span;
 use super::scheduler::Constant;
 use super::allocator;
 use super::isa;
 use super::isa::{REGS, MachineReg};
+
+#[cfg(feature = "dogfood")]
+use crate::core::Span;
 
 
 //-------------------------------------------------------------------------------------------------
@@ -18,8 +20,10 @@ macro_rules! assemble {
     ($vec:expr, $op:ident $(, $($operand:tt $operand_arg:expr),*)?) => {
         $vec.push(Instr {
             code: &isa::$op,
-            span: None,
             operands: vec![$($(asm_op!($operand($operand_arg))),*)?],
+
+            #[cfg(feature = "dogfood")]
+            span: None,
         })
     }
 }
@@ -38,6 +42,8 @@ pub(super) enum Operand {
 pub(super) struct Instr {
     pub(super) code:                &'static isa::Code,
     pub(super) operands:            Vec<Operand>,
+
+    #[cfg(feature = "dogfood")]
     span:                           Option<Span>,
 }
 
@@ -118,7 +124,10 @@ fn emit_function(
             assemble!(instrs, str_x_pre, Reg(REGS.link_reg), Reg(REGS.stack_reg), Offset(-16));
         }
 
-        instrs.push(Instr{ code: ai.code, operands, span: Some(ai.span) });
+        instrs.push(Instr{ code: ai.code, operands,
+        #[cfg(feature = "dogfood")]
+            span: Some(ai.span)
+        });
 
         if ai.code.save_link_reg() {
             assemble!(instrs, ldr_x_post, Reg(REGS.link_reg), Reg(REGS.stack_reg), Offset(16));
@@ -230,41 +239,45 @@ fn emit_glue(argument_count: u8, return_count: u8, assembler: &mut Vec<Instr>) {
 //-------------------------------------------------------------------------------------------------
 // Text output for assembler
 
-use std::fmt;
-use crate::core::{Styleable, LineStyle};
+#[cfg(feature = "dogfood")]
+mod display {
+    use std::fmt;
+    use super::*;
+    use crate::core::{Styleable, LineStyle};
 
-impl Styleable for Block {
-    fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
-        let instr_words = self.instrs.len();
-        let constant_start_words = instr_words + usize::from(instr_words.is_multiple_of(2));
-        let function_start_words = constant_start_words + self.constants.len() * 2;
-        for (i, instr) in self.instrs.iter().enumerate() {
+    impl Styleable for Block {
+        fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
+            let instr_words = self.instrs.len();
+            let constant_start_words = instr_words + usize::from(instr_words.is_multiple_of(2));
+            let function_start_words = constant_start_words + self.constants.len() * 2;
+            for (i, instr) in self.instrs.iter().enumerate() {
 
-            let operands = instr.operands.iter().map(|o|
-                match o {
-                    Operand::Constant(c)    => i32::try_from((constant_start_words - i) * 4 + *c * 8).unwrap(),
-                    Operand::Function(f)    => i32::try_from((function_start_words - i) * 4 + *f * 8).unwrap(),
-                    Operand::Reg(r)         => i32::from(*r),
-                    Operand::Offset(o)      => *o,
-                }).collect::<Vec<_>>();
+                let operands = instr.operands.iter().map(|o|
+                    match o {
+                        Operand::Constant(c)    => i32::try_from((constant_start_words - i) * 4 + *c * 8).unwrap(),
+                        Operand::Function(f)    => i32::try_from((function_start_words - i) * 4 + *f * 8).unwrap(),
+                        Operand::Reg(r)         => i32::from(*r),
+                        Operand::Offset(o)      => *o,
+                    }).collect::<Vec<_>>();
 
-            let address = i32::try_from(0x1000 + i * 4).unwrap();
-            writer.writeln(f, indent, instr.span, &format!("{:#06x}: {} {}",
-                address,
-                instr.code.mnemonic(),
-                (instr.code.format)(&operands, address)))?;
+                let address = i32::try_from(0x1000 + i * 4).unwrap();
+                writer.writeln(f, indent, instr.span, &format!("{:#06x}: {} {}",
+                    address,
+                    instr.code.mnemonic(),
+                    (instr.code.format)(&operands, address)))?;
+            }
+            for (i, c) in self.constants.iter().enumerate() {
+                let address = 0x1000 + constant_start_words * 4 + i * 8;
+                writer.writeln(f, indent, Some(c.span), &format!("{address:#06x}: {:?}", c.value))?;
+            }
+            for (i, func) in self.functions.iter().enumerate() {
+                let address = 0x1000 + function_start_words * 4 + i * 8;
+                writer.writeln(f, indent, None, &format!("{address:#06x}: {func}"))?;
+            }
+            Ok(())
         }
-        for (i, c) in self.constants.iter().enumerate() {
-            let address = 0x1000 + constant_start_words * 4 + i * 8;
-            writer.writeln(f, indent, Some(c.span), &format!("{address:#06x}: {:?}", c.value))?;
-        }
-        for (i, func) in self.functions.iter().enumerate() {
-            let address = 0x1000 + function_start_words * 4 + i * 8;
-            writer.writeln(f, indent, None, &format!("{address:#06x}: {func}"))?;
-        }
-        Ok(())
     }
-}
 
+}
 
 //-------------------------------------------------------------------------------------------------

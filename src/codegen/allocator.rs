@@ -3,11 +3,13 @@ use std::collections::BTreeSet;
 
 use bit_set::BitSet;
 
-use crate::core::Span;
 use super::scheduler::Value;
 use super::scheduler;
 use super::isa;
 use super::isa::{REGS, Bank, MachineReg};
+
+#[cfg(feature = "dogfood")]
+use crate::core::Span;
 
 
 //-------------------------------------------------------------------------------------------------
@@ -52,6 +54,8 @@ struct SlotInstr {
     fixed_inputs:                       Vec<(usize, MachineReg)>,
     fixed_output:                       Option<MachineReg>,
     slot_moves:                         Vec<(usize, usize)>,
+
+    #[cfg(feature = "dogfood")]
     span:                               Span,
 }
 
@@ -132,6 +136,8 @@ fn lower_to_slots_and_split(
             operands, code, slot_moves, fixed_inputs,
             slot:                           slot_count,
             fixed_output:                   value.fixed_output,
+
+            #[cfg(feature = "dogfood")]
             span:                           value.span,
         });
         slot_map[value.slot] = slot_count;
@@ -267,6 +273,8 @@ pub(super) struct Instr {
     pub(super) operands:                Vec<Operand>,
     pub(super) moves:                   Vec<(MachineReg, MachineReg)>,
     pub(super) temp_reg:                MachineReg,
+
+    #[cfg(feature = "dogfood")]
     pub(super) span:                    Span,
 }
 
@@ -305,6 +313,8 @@ fn lower_to_regs(
             code:                       instr.code,
             result_reg:                 regs[instr.slot],
             temp_reg:                   temp_regs[instr.slot],
+
+            #[cfg(feature = "dogfood")]
             span:                       instr.span,
         }
     })

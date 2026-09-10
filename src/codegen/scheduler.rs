@@ -1,14 +1,15 @@
 use std::collections::HashMap;
-use std::fmt;
 
 use typed_arena::Arena;
 use enumset::EnumSet;
 
-use crate::core::{BinaryOperator, Span};
+use crate::core::BinaryOperator;
 use crate::vir;
 use super::isa;
 use super::isa::MachineReg;
 
+#[cfg(feature = "dogfood")]
+use crate::core::Span;
 
 //-------------------------------------------------------------------------------------------------
 
@@ -25,34 +26,16 @@ impl<'arena> Operand<'arena> {
     }
 }
 
-impl fmt::Display for Operand<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use Operand::*;
-        match self {
-            Value(v)                        => write!(f, "I{}", v.slot),
-            Constant(i)                     => write!(f, "K{i}"),
-            Function(s)                     => write!(f, "{s}"),
-        }
-    }
-}
-
 
 //-------------------------------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
 pub(super) enum ValueDef {
     Instr(&'static isa::Code),
+    #[cfg(any(feature = "dogfood", test))]
     Argument(usize, String),
-}
-
-impl fmt::Display for ValueDef {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use ValueDef::*;
-        match self {
-            Instr(code)                     => write!(f, "{}", code.mnemonic()),
-            Argument(i, name)               => write!(f, "ARGUMENT r{i} ({name})"),
-        }
-    }
+    #[cfg(not(any(feature = "dogfood", test)))]
+    Argument,
 }
 
 
@@ -65,6 +48,7 @@ pub(super) struct Value<'arena> {
     pub(super) operands:                    Vec<Operand<'arena>>,
     pub(super) fixed_inputs:                Vec<(&'arena Self, MachineReg)>,
     pub(super) fixed_output:                Option<MachineReg>,
+    #[cfg(feature = "dogfood")]
     pub(super) span:                        Span,
 }
 
@@ -75,9 +59,14 @@ impl<'arena> Value<'arena> {
         operands:                           Vec<Operand<'arena>>,
         fixed_inputs:                       Vec<(&'arena Self, MachineReg)>,
         fixed_output:                       Option<MachineReg>,
-        span:                               Span) -> Self {
-        Self { slot, def, operands, fixed_inputs, fixed_output, span }
-    }
+        #[cfg(feature = "dogfood")]
+        span:                               Span
+    ) -> Self {
+        Self { slot, def, operands, fixed_inputs, fixed_output,
+        #[cfg(feature = "dogfood")]
+            span
+        }
+}
 
 
     pub(super) fn code(&self) -> Option<&'static isa::Code> {
@@ -96,23 +85,13 @@ impl<'arena> Value<'arena> {
 }
 
 
-impl fmt::Display for Value<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "I{}: {} {}", self.slot, self.def,
-            self.operands
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(" "))
-    }
-}
-
-
 //-------------------------------------------------------------------------------------------------
 
 #[derive(Debug, Copy, Clone)]
 pub(super) struct Constant {
     pub(super) value:                       f64,
+
+    #[cfg(feature = "dogfood")]
     pub(super) span:                        Span
 }
 
@@ -209,15 +188,25 @@ impl<'arena> Builder<'arena> {
 
     fn lower_vir(&mut self, input: &vir::Block) {
         for expr in &input.instrs {
-            let span = *expr.span();
             match expr.kind() {
+                #[cfg(any(feature = "dogfood", test))]
                 vir::ExprKind::Argument(index, name) => {
                     let value = self.lower_value(ValueDef::Argument(*index, name.clone()),
                         vec![], vec![], None, expr);
                     self.arguments.push(value);
                 }
+                #[cfg(not(any(feature = "dogfood", test)))]
+                vir::ExprKind::Argument(..) => {
+                    let value = self.lower_value(ValueDef::Argument,
+                        vec![], vec![], None, expr);
+                    self.arguments.push(value);
+                }
                 vir::ExprKind::Number(value) => {
-                    self.constants.push(Constant{ value: *value, span });
+                    self.constants.push(Constant{ value: *value,
+                    #[cfg(feature = "dogfood")]
+                         span: *expr.span()
+                    });
+
                     let constant_index = self.constants.len() - 1;
                     self.lower_instr(&isa::ldr_d_literal, vec![Operand::Constant(constant_index)], expr);
                 }
@@ -228,9 +217,15 @@ impl<'arena> Builder<'arena> {
                     } else if *op == BinaryOperator::Modulo {
                         // AArch64 has no fmod; compute a - trunc(a / b) * b instead.
                         let quotient = self.make_instr(
-                            &isa::fdiv_d, operands!(self, lhs, rhs), span);
+                            &isa::fdiv_d, operands!(self, lhs, rhs),
+                            #[cfg(feature = "dogfood")]
+                            *expr.span()
+                        );
                         let truncated = self.make_instr(
-                            &isa::frintz_d, operands!(self, quotient), span);
+                            &isa::frintz_d, operands!(self, quotient),
+                            #[cfg(feature = "dogfood")]
+                            *expr.span()
+                        );
                         self.lower_instr(&isa::fmsub_d, operands!(self, truncated, rhs, lhs), expr);
 
                     } else {
@@ -252,7 +247,10 @@ impl<'arena> Builder<'arena> {
         }
 
         let fixed_inputs = self.exprs_to_fixed_inputs(&input.return_values);
-        self.make_value(&isa::ret, vec![], fixed_inputs, None, input.return_span);
+        self.make_value(&isa::ret, vec![], fixed_inputs, None,
+            #[cfg(feature = "dogfood")]
+            input.return_span
+        );
     }
 
 
@@ -277,7 +275,10 @@ impl<'arena> Builder<'arena> {
         let function_value = if let Some(&v) = self.function_map.get(name) {
             v
         } else {
-            let v = self.make_instr(&isa::ldr_x_literal, vec![Operand::Function(name.into())], *expr.span());
+            let v = self.make_instr(&isa::ldr_x_literal, vec![Operand::Function(name.into())],
+                #[cfg(feature = "dogfood")]
+                *expr.span()
+            );
             self.function_map.insert(name.into(), v);
             v
         };
@@ -293,7 +294,10 @@ impl<'arena> Builder<'arena> {
         fixed_output:                           Option<MachineReg>,
         expr:                                   &vir::Expr,
     ) -> &'arena Value<'arena> {
-        let value = self.make_value(def, operands, fixed_inputs, fixed_output, *expr.span());
+        let value = self.make_value(def, operands, fixed_inputs, fixed_output,
+            #[cfg(feature = "dogfood")]
+            *expr.span()
+        );
         let operand = value.into_operand(self);
         self.operand_map.insert(expr.pool_index(), operand.clone());
         value
@@ -303,9 +307,13 @@ impl<'arena> Builder<'arena> {
         &mut self,
         code:                                   &'static isa::Code,
         operands:                               Vec<Operand<'arena>>,
+        #[cfg(feature = "dogfood")]
         span:                                   Span,
     ) -> &'arena Value<'arena>  {
-        self.make_value(code, operands, vec![], None, span)
+        self.make_value(code, operands, vec![], None,
+            #[cfg(feature = "dogfood")]
+            span
+        )
     }
 
     fn make_value<VD: IntoValueDef>(
@@ -314,10 +322,14 @@ impl<'arena> Builder<'arena> {
         operands:                               Vec<Operand<'arena>>,
         fixed_inputs:                           Vec<(&'arena Value<'arena>, MachineReg)>,
         fixed_output:                           Option<MachineReg>,
+        #[cfg(feature = "dogfood")]
         span:                                   Span,
     ) -> &'arena Value<'arena>  {
         let def = def.into_value_def();
-        let value = self.arena.alloc(Value::new(self.arena.len(), def, operands, fixed_inputs, fixed_output, span));
+        let value = self.arena.alloc(Value::new(self.arena.len(), def, operands, fixed_inputs, fixed_output,
+            #[cfg(feature = "dogfood")]
+            span
+        ));
         self.values.push(value);
         value
     }
@@ -446,6 +458,49 @@ fn schedule<'arena>(values: &[&'arena Value<'arena>]) -> Vec<&'arena Value<'aren
     }
 
     scheduled
+}
+
+
+//-------------------------------------------------------------------------------------------------
+
+#[cfg(any(feature = "dogfood", test))]
+mod display {
+    use std::fmt;
+    use super::*;
+
+    impl fmt::Display for Operand<'_> {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            use Operand::*;
+            match self {
+                Value(v)                        => write!(f, "I{}", v.slot),
+                Constant(i)                     => write!(f, "K{i}"),
+                Function(s)                     => write!(f, "{s}"),
+            }
+        }
+    }
+
+
+    impl fmt::Display for ValueDef {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            use ValueDef::*;
+            match self {
+                Instr(code)                     => write!(f, "{}", code.mnemonic()),
+                Argument(i, name)               => write!(f, "ARGUMENT r{i} ({name})"),
+            }
+        }
+    }
+
+
+    impl fmt::Display for Value<'_> {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "I{}: {} {}", self.slot, self.def,
+                self.operands
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(" "))
+        }
+    }
 }
 
 

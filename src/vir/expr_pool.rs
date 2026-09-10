@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use crate::core::Span;
 use super::expr::{ExprKind, ExprEntry, Expr};
+
+#[cfg(any(feature = "dogfood", test))]
+use crate::core::Span;
 
 
 //-------------------------------------------------------------------------------------------------
@@ -20,19 +22,45 @@ impl ExprPool {
     }
 
 
-    pub(super) fn intern(&mut self, kind: ExprKind, span: Span) -> Expr {
+    pub(super) fn intern(
+        &mut self,
+        kind:                   ExprKind,
+        #[cfg(any(feature = "dogfood", test))]
+        span:                   Span
+    ) -> Expr {
         let index = self.exprs.len();
-        Expr::new(self.exprs.entry(kind.clone())
-            .or_insert_with(|| Rc::new(ExprEntry::new(kind, index, span))).clone())
+        let entry = ExprEntry::new(kind.clone(), index,
+            #[cfg(any(feature = "dogfood", test))]
+            span
+        );
+        Expr::new(self.exprs.entry(kind).or_insert_with(|| Rc::new(entry)).clone())
     }
 
-    pub(super) fn number(&mut self, value: f64, span: Span) -> Expr {
-        self.intern(ExprKind::Number(value), span)
+    pub(super) fn number(
+        &mut self,
+        value:                  f64,
+        #[cfg(any(feature = "dogfood", test))]
+        span:                   Span
+    ) -> Expr {
+        self.intern(ExprKind::Number(value),
+            #[cfg(any(feature = "dogfood", test))]
+            span
+        )
     }
 
-
-    pub(super) fn argument(&mut self, index: usize, name: &str, span: Span) -> Expr {
-        self.intern(ExprKind::Argument(index, name.to_string()), span)
+    pub(super) fn argument(
+        &mut                    self,
+        index:                  usize,
+        #[cfg(any(feature = "dogfood", test))]
+        name:                   &str,
+        #[cfg(any(feature = "dogfood", test))]
+        span:                   Span
+    ) -> Expr {
+        #[cfg(any(feature = "dogfood", test))]
+        let e = self.intern(ExprKind::Argument(index, name.to_string()), span);
+        #[cfg(not(any(feature = "dogfood", test)))]
+        let e = self.intern(ExprKind::Argument(index));
+        e
     }
 }
 
