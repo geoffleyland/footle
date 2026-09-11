@@ -6,7 +6,7 @@ use bit_set::BitSet;
 use super::scheduler::Value;
 use super::scheduler;
 use super::isa;
-use super::isa::{REGS, D_BANK, MachineReg};
+use super::isa::{REGS, D_BANK, MachineReg, bit_indices};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -109,9 +109,7 @@ fn lower_to_slots_and_split(
         let fixed_inputs = value.fixed_inputs.iter().map(|(v, reg)| (slot_map[v.slot], *reg)).collect();
         let mut slot_moves: Vec<(usize, usize)> = vec![];
         if let Some(c) = value.code() && c.clobbers() {
-            let mut bits = c.clobber_mask();
-            while bits != 0 {
-                let reg = bits.trailing_zeros() as usize;
+            for reg in bit_indices(c.clobber_mask()) {
                 let slot = reg_slots[reg];
                 if slot != usize::MAX &&
                     retirements[slot] > i {
@@ -119,14 +117,8 @@ fn lower_to_slots_and_split(
                     slot_map[slot] = slot_count;
                     slot_count += 1;
                 }
-                bits &= bits - 1;
             }
-            let mut bits = c.clobber_mask();
-            while bits != 0 {
-                let reg = bits.trailing_zeros() as usize;
-                reg_slots[reg] = usize::MAX;
-                bits &= bits - 1;
-            }
+            for reg in bit_indices(c.clobber_mask()) { reg_slots[reg] = usize::MAX; }
         }
         if let Some(fixed_output) = value.fixed_output {
             reg_slots[usize::from(fixed_output)] = value.slot;
