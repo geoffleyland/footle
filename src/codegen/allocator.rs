@@ -108,7 +108,7 @@ fn lower_to_slots_and_split(
             }).collect();
         let fixed_inputs = value.fixed_inputs.iter().map(|(v, reg)| (slot_map[v.slot], *reg)).collect();
         let mut slot_moves: Vec<(usize, usize)> = vec![];
-        if let Some(c) = value.code() && c.clobber_mask() != 0 {
+        if let Some(c) = value.code() && c.clobbers() {
             let mut bits = c.clobber_mask();
             while bits != 0 {
                 let reg = bits.trailing_zeros() as usize;
@@ -165,10 +165,9 @@ fn allocate(
 
     for instr in instrs.iter().rev() {
         live_slots.remove(instr.slot);
-        if instr.code.ranked_clobber_mask() != 0 {
-            let mask = instr.code.ranked_clobber_mask();
+        if instr.code.clobbers() {
             for slot in &live_slots {
-                available_ranks[slot] &= !mask;
+                available_ranks[slot] &= !instr.code.ranked_clobber_mask();
             }
         }
         for (_, dest) in &instr.slot_moves { live_slots.remove(*dest); }

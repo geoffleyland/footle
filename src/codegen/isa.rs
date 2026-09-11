@@ -59,7 +59,6 @@ impl RegRank {
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Bank(pub(super) usize);
-
 pub(super) const D_BANK: Bank = Bank(0);
 
 #[derive(Debug)]
@@ -205,6 +204,7 @@ pub(super) struct Code {
 
 impl Code {
     pub fn has_output(&self) -> bool    { self.has_output }
+    pub fn clobbers(&self) -> bool      { self.save_link_reg() }
     pub fn clobber_mask(&self) -> u32   { if self.save_link_reg() { !REGS.banks[0].callee_saved } else { 0 }}
     pub fn ranked_clobber_mask(&self) -> u32
                                         { if self.save_link_reg() { REGS.banks[0].ranked_clobber_mask } else { 0 }}
