@@ -6,7 +6,7 @@ use bit_set::BitSet;
 use super::scheduler::Value;
 use super::scheduler;
 use super::isa;
-use super::isa::{REGS, Bank, MachineReg};
+use super::isa::{REGS, D_BANK, MachineReg};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -24,7 +24,7 @@ pub(super) fn run(
     let (regs, temp_regs) = allocate(arguments.len(), slot_count, &lowered);
     let mut regs_to_save = BTreeSet::new();
     for maybe_reg in &regs {
-        if let Some(r) = REGS.is_callee_saved(Bank::D, *maybe_reg) {
+        if let Some(r) = REGS.is_callee_saved(D_BANK, *maybe_reg) {
             regs_to_save.insert(r);
         }
     }
@@ -161,12 +161,12 @@ fn allocate(
     // If they are live, make sure they're not in a clobbered register.
     let mut live_slots = BitSet::new();
     let mut interfering_slots = vec![BitSet::new(); slot_count];
-    let mut available_ranks = vec![REGS.reg_rank_mask(Bank::D); slot_count];
+    let mut available_ranks = vec![REGS.reg_rank_mask(D_BANK); slot_count];
 
     for instr in instrs.iter().rev() {
         live_slots.remove(instr.slot);
         if instr.code.clobbers() != 0 {
-            let mask = !REGS.real_reg_to_ranked_reg_mask(Bank::D, instr.code.clobbers());
+            let mask = !REGS.real_reg_to_ranked_reg_mask(D_BANK, instr.code.clobbers());
             for slot in &live_slots {
                 available_ranks[slot] &= mask;
             }
@@ -201,7 +201,7 @@ fn allocate(
     for instr in instrs {
         for (input_slot, preferred_reg) in &instr.fixed_inputs {
             if regs[*input_slot].get().is_some() { continue; }
-            let reg = REGS.best_reg(Bank::D, available_ranks[*input_slot], Some(*preferred_reg));
+            let reg = REGS.best_reg(D_BANK, available_ranks[*input_slot], Some(*preferred_reg));
             set_reg(*input_slot, reg, &regs, &interfering_slots, &mut available_ranks);
         }
     }
@@ -209,7 +209,7 @@ fn allocate(
     // Allocate registers for remaining instructions
     for instr in instrs {
         if regs[instr.slot].get().is_some() || !instr.code.has_output() { continue; }
-        let reg = REGS.best_reg(Bank::D, available_ranks[instr.slot], None);
+        let reg = REGS.best_reg(D_BANK, available_ranks[instr.slot], None);
         set_reg(instr.slot, reg, &regs, &interfering_slots, &mut available_ranks);
     }
 
@@ -217,7 +217,7 @@ fn allocate(
     for instr in instrs {
         for (_, dest) in &instr.slot_moves {
             if regs[*dest].get().is_some() { continue; }
-            let reg = REGS.best_reg(Bank::D, available_ranks[instr.slot], None);
+            let reg = REGS.best_reg(D_BANK, available_ranks[instr.slot], None);
             set_reg(*dest, reg, &regs, &interfering_slots, &mut available_ranks);
         }
     }
@@ -231,10 +231,10 @@ fn allocate(
         // This just says (in rank space) available regs minus the predecessors' regs.
         temp_reg_pool[instr.slot] &=
             !instr.predecessors().fold(0,
-                |mask, p| mask | REGS.get_rank_bits(Bank::D, *regs[p].get().unwrap()));
+                |mask, p| mask | REGS.get_rank_bits(D_BANK, *regs[p].get().unwrap()));
     }
     let temp_regs = temp_reg_pool.iter()
-        .map(|&a| REGS.best_reg(Bank::D, a, None))
+        .map(|&a| REGS.best_reg(D_BANK, a, None))
         .collect::<Vec<_>>();
 
     (regs.iter_mut().map(OnceCell::take).collect(), temp_regs)
@@ -249,7 +249,7 @@ fn set_reg(
     available_ranks:                    &mut [u32]) {
     regs[slot].set(reg)
         .expect("internal compiler error: trying to set a register twice");
-    let rank_bits = REGS.get_rank_bits(Bank::D, reg);
+    let rank_bits = REGS.get_rank_bits(D_BANK, reg);
     for interfering_slot in &interfering_slots[slot] {
         available_ranks[interfering_slot] &= !rank_bits;
     }

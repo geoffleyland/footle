@@ -58,17 +58,16 @@ impl RegRank {
 // Register details
 
 #[derive(Debug, Clone, Copy)]
-pub(super) enum Bank {
-    D
-}
+pub(super) struct Bank(pub(super) usize);
 
+pub(super) const D_BANK: Bank = Bank(0);
 
 #[derive(Debug)]
 pub(super) struct RegFile {
     pub(super) stack_reg:       MachineReg,
     pub(super) link_reg:        MachineReg,
     pub(super) scratch_reg:     MachineReg,
-    d:                          RegBank,
+    banks:                      [RegBank; 1],
 }
 
 
@@ -78,34 +77,24 @@ impl RegFile {
             stack_reg:          MachineReg::new(stack_reg),
             link_reg:           MachineReg::new(link_reg),
             scratch_reg:        MachineReg::new(scratch_reg),
-            d,
+            banks:              [d],
         }
     }
 
     pub(super) fn best_reg(&self, bank: Bank, available: u32, preferred: Option<MachineReg>) -> MachineReg {
-        match bank {
-            Bank::D => self.d.best_reg(available, preferred)
-        }
+        self.banks[bank.0].best_reg(available, preferred)
     }
     pub(super) fn get_rank_bits(&self, bank: Bank, reg: MachineReg) -> u32 {
-        match bank {
-            Bank::D => self.d.get_rank_bits(reg)
-        }
+        self.banks[bank.0].get_rank_bits(reg)
     }
     pub(super) fn is_callee_saved(&self, bank: Bank, maybe_reg: Option<MachineReg>) -> Option<MachineReg> {
-        match bank {
-            Bank::D => self.d.is_callee_saved(maybe_reg)
-        }
+        self.banks[bank.0].is_callee_saved(maybe_reg)
     }
     pub(super) fn real_reg_to_ranked_reg_mask(&self, bank: Bank, clobbers: u32) -> u32 {
-        match bank {
-            Bank::D => self.d.real_reg_to_ranked_reg_mask(clobbers)
-        }
+        self.banks[bank.0].real_reg_to_ranked_reg_mask(clobbers)
     }
     pub(super) fn reg_rank_mask(&self, bank: Bank) -> u32 {
-        match bank {
-            Bank::D => self.d.reg_rank_mask()
-        }
+        self.banks[bank.0].reg_rank_mask()
     }
 }
 
