@@ -16,12 +16,12 @@ use crate::core::Span;
 // Register Allocation
 
 pub(super) fn run(
-    argument_count:                     u8,
     slot_count:                         usize,
-    scheduled:                          &[&Value<'_>]
+    arguments:                          &[&Value<'_>],
+    scheduled:                          &[&Value<'_>],
 ) -> (Vec<Instr>, Vec<MachineReg>) {
-    let (lowered, slot_count) = lower_to_slots_and_split(argument_count, slot_count, scheduled);
-    let (regs, temp_regs) = allocate(argument_count, slot_count, &lowered);
+    let (lowered, slot_count) = lower_to_slots_and_split(slot_count, arguments, scheduled);
+    let (regs, temp_regs) = allocate(arguments.len(), slot_count, &lowered);
     let mut regs_to_save = BTreeSet::new();
     for maybe_reg in &regs {
         if let Some(r) = REGS.is_callee_saved(Bank::D, *maybe_reg) {
@@ -73,10 +73,10 @@ impl SlotInstr {
 
 /// Lower the Scheduler's Values to Instrs, and split any live ranges that cross calls.
 fn lower_to_slots_and_split(
-    argument_count:                     u8,
     slot_count:                         usize,
-    scheduled:                          &[&Value<'_>]) -> (Vec<SlotInstr>, usize) {
-
+    arguments:                          &[&Value<'_>],
+    scheduled:                          &[&Value<'_>],
+) -> (Vec<SlotInstr>, usize) {
     // Walk backwards through the scheduled instructions finding out when instructions retire
     let mut retirements = vec![0; slot_count];
     let mut used_slots = BitSet::new();
@@ -92,11 +92,11 @@ fn lower_to_slots_and_split(
     let mut reg_slots = vec![usize::MAX; 32];
     let mut slot_map = (0..slot_count).collect::<Vec<_>>();
 
-    for slot in 0..argument_count {
-        reg_slots[usize::from(slot)] = usize::from(slot);
+    for (slot, _) in arguments.iter().enumerate() {
+        reg_slots[slot] = slot;
     }
 
-    let mut slot_count = usize::from(argument_count);
+    let mut slot_count = arguments.len();
     let mut new_schedule = vec![];
 
     for (i, value) in scheduled.iter().enumerate() {
@@ -151,7 +151,7 @@ fn lower_to_slots_and_split(
 // Register Allocation
 
 fn allocate(
-    argument_count:                     u8,
+    argument_count:                     usize,
     slot_count:                         usize,
     instrs:                             &[SlotInstr]
 ) -> (Vec<Option<MachineReg>>, Vec<MachineReg>) {
@@ -185,7 +185,7 @@ fn allocate(
 
     // Allocate registers for arguments
     for slot in 0..argument_count {
-        set_reg(usize::from(slot),
+        set_reg(slot,
             MachineReg::try_from(slot).expect("internal compiler error: too many arguments"),
             &regs, &interfering_slots, &mut available_regs);
     }

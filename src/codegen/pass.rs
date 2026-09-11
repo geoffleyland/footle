@@ -13,7 +13,8 @@ pub fn run(vir_block: &vir::Block) -> binary::CompiledFn {
         .expect("internal compiler error: too many arguments");
 
     let (allocated, registers_to_save) =
-        allocator::run(argument_count, scheduled_block.value_count, &scheduled_block.instrs);
+        allocator::run(scheduled_block.value_count, &scheduled_block.arguments,
+            &scheduled_block.instrs);
     let assembler =
         assembler::run(allocated, &scheduled_block.constants, &scheduled_block.functions,
             argument_count, scheduled_block.return_count, &registers_to_save);
@@ -117,7 +118,8 @@ mod display {
             .expect("internal compiler error: too many arguments");
 
         let (allocated, registers_to_save) =
-            allocator::run(argument_count, scheduled_block.value_count, &scheduled_block.instrs);
+            allocator::run(scheduled_block.value_count, &scheduled_block.arguments,
+                &scheduled_block.instrs);
         assembler::run(allocated, &scheduled_block.constants, &scheduled_block.functions,
             argument_count, scheduled_block.return_count, &registers_to_save)
     }
