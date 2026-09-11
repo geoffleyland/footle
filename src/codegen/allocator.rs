@@ -161,14 +161,14 @@ fn allocate(
     // If they are live, make sure they're not in a clobbered register.
     let mut live_slots = BitSet::new();
     let mut interfering_slots = vec![BitSet::new(); slot_count];
-    let mut available_ranks = vec![REGS.reg_rank_mask(D_BANK); slot_count];
+    let mut available_ranks = vec![REGS.available_rank_mask(D_BANK); slot_count];
 
     for instr in instrs.iter().rev() {
         live_slots.remove(instr.slot);
         if instr.code.clobbers() != 0 {
-            let mask = !REGS.real_reg_to_ranked_reg_mask(D_BANK, instr.code.clobbers());
+            let mask = instr.code.ranked_clobber_mask();
             for slot in &live_slots {
-                available_ranks[slot] &= mask;
+                available_ranks[slot] &= !mask;
             }
         }
         for (_, dest) in &instr.slot_moves { live_slots.remove(*dest); }

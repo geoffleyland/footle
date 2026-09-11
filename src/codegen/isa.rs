@@ -90,11 +90,8 @@ impl RegFile {
     pub(super) fn is_callee_saved(&self, bank: Bank, maybe_reg: Option<MachineReg>) -> Option<MachineReg> {
         self.banks[bank.0].is_callee_saved(maybe_reg)
     }
-    pub(super) fn real_reg_to_ranked_reg_mask(&self, bank: Bank, clobbers: u32) -> u32 {
-        self.banks[bank.0].real_reg_to_ranked_reg_mask(clobbers)
-    }
-    pub(super) fn reg_rank_mask(&self, bank: Bank) -> u32 {
-        self.banks[bank.0].reg_rank_mask()
+    pub(super) fn available_rank_mask(&self, bank: Bank) -> u32 {
+        self.banks[bank.0].available_rank_mask()
     }
 }
 
@@ -107,14 +104,15 @@ pub (super) struct RegBank {
                                                 // never allocate that register.
     callee_saved:       u32,                    // Bitmask of registers we have to save in our
                                                 // prologue and epilogue (if we use them)
-    clobber_rank_mask:  [u32; 32],              // In register order, bitmask of whether this reg
-                                                // is clobbered.
+    ranked_clobber_mask:u32,                    // The register ranks a bl[r] will clobber in this
+                                                // bank
     reg_count:          usize,                  // The number of registers available
 }
 
 impl RegBank {
     #[allow(clippy::cast_possible_truncation)]
     const fn new(callee_saved: u32, u8_order: &[u8]) -> Self {
+        let reg_count = u8_order.len();
         let mut order = [MachineReg::new(0); 32];
         let mut rank = [None; 32];
         let mut i = 0;
@@ -123,13 +121,17 @@ impl RegBank {
             rank[u8_order[i] as usize] = Some(RegRank::new(i));
             i += 1;
         }
-        let mut clobber_rank_mask = [0u32; 32];
-        let mut r = 0;
-        while r < 32 {
-            if let Some(rank) = rank[r] { clobber_rank_mask[r] = 1 << rank.0; }
-            r += 1;
+        let mut c = !callee_saved;
+        let mut ranked_clobber_mask = 0u32;
+        while c != 0 {
+            let reg = c.trailing_zeros() as usize;
+            if let Some(rank) = rank[reg] {
+                ranked_clobber_mask |= 1 << rank.0;
+            }
+            c &= c - 1;
         }
-        Self { order, rank, callee_saved, clobber_rank_mask, reg_count: u8_order.len() }
+
+        Self { order, rank, callee_saved, ranked_clobber_mask, reg_count }
     }
 
     /// Pick a register from `available` (a bitmask of ranks).  If `preferred` is available, use it —
@@ -154,18 +156,7 @@ impl RegBank {
         maybe_reg.filter(|reg| self.callee_saved & (1 << reg.0) != 0)
     }
 
-    fn real_reg_to_ranked_reg_mask(&self, clobbers: u32) -> u32 {
-        let mut c = clobbers;
-        let mut mask = 0u32;
-        while c != 0 {
-            let bit = c.trailing_zeros() as usize;
-            mask |= self.clobber_rank_mask[bit];
-            c &= c - 1;
-        }
-        mask
-    }
-
-    fn reg_rank_mask(&self) -> u32 {
+    fn available_rank_mask(&self) -> u32 {
          if self.reg_count >= 32 { u32::MAX } else { (1u32 << self.reg_count) - 1 }
     }
 }
@@ -215,6 +206,8 @@ pub(super) struct Code {
 impl Code {
     pub fn has_output(&self) -> bool    { self.has_output }
     pub fn clobbers(&self) -> u32       { if self.save_link_reg() { 0xFFFF_00FF} else { 0 }}
+    pub fn ranked_clobber_mask(&self) -> u32
+                                        { if self.save_link_reg() { REGS.banks[0].ranked_clobber_mask } else { 0 }}
     pub fn restore_regs(&self) -> bool  { std::ptr::eq(self, &raw const ret) }
     pub fn save_link_reg(&self) -> bool {
         std::ptr::eq(self, &raw const bl) || std::ptr::eq(self, &raw const blr)
