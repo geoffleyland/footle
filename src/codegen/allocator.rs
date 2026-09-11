@@ -161,14 +161,14 @@ fn allocate(
     // If they are live, make sure they're not in a clobbered register.
     let mut live_slots = BitSet::new();
     let mut interfering_slots = vec![BitSet::new(); slot_count];
-    let mut available_regs = vec![u32::MAX; slot_count];
+    let mut available_ranks = vec![REGS.reg_rank_mask(Bank::D); slot_count];
 
     for instr in instrs.iter().rev() {
         live_slots.remove(instr.slot);
         if instr.code.clobbers() != 0 {
             let mask = !REGS.real_reg_to_ranked_reg_mask(Bank::D, instr.code.clobbers());
             for slot in &live_slots {
-                available_regs[slot] &= mask;
+                available_ranks[slot] &= mask;
             }
         }
         for (_, dest) in &instr.slot_moves { live_slots.remove(*dest); }
@@ -178,7 +178,7 @@ fn allocate(
             interfering_slots[slot].union_with(&live_slots);
         }
     }
-    // Slots don't interfere with themselves - and this matters because we use available_regs
+    // Slots don't interfere with themselves - and this matters because we use available_ranks
     // post-allocation to find a temporary register for every instruction (only used if the
     // instruction needs moves), and available_registers in turn depends on interfering_slots.
     for instr in instrs { interfering_slots[instr.slot].remove(instr.slot); }
@@ -187,13 +187,13 @@ fn allocate(
     for slot in 0..argument_count {
         set_reg(slot,
             MachineReg::try_from(slot).expect("internal compiler error: too many arguments"),
-            &regs, &interfering_slots, &mut available_regs);
+            &regs, &interfering_slots, &mut available_ranks);
     }
 
     // Allocate registers for value with constrained output registers.
     for instr in instrs {
         if let Some(fixed_output) = instr.fixed_output {
-            set_reg(instr.slot, fixed_output, &regs, &interfering_slots, &mut available_regs);
+            set_reg(instr.slot, fixed_output, &regs, &interfering_slots, &mut available_ranks);
         }
     }
 
@@ -201,24 +201,24 @@ fn allocate(
     for instr in instrs {
         for (input_slot, preferred_reg) in &instr.fixed_inputs {
             if regs[*input_slot].get().is_some() { continue; }
-            let reg = REGS.best_reg(Bank::D, available_regs[*input_slot], Some(*preferred_reg));
-            set_reg(*input_slot, reg, &regs, &interfering_slots, &mut available_regs);
+            let reg = REGS.best_reg(Bank::D, available_ranks[*input_slot], Some(*preferred_reg));
+            set_reg(*input_slot, reg, &regs, &interfering_slots, &mut available_ranks);
         }
     }
 
     // Allocate registers for remaining instructions
     for instr in instrs {
         if regs[instr.slot].get().is_some() || !instr.code.has_output() { continue; }
-        let reg = REGS.best_reg(Bank::D, available_regs[instr.slot], None);
-        set_reg(instr.slot, reg, &regs, &interfering_slots, &mut available_regs);
+        let reg = REGS.best_reg(Bank::D, available_ranks[instr.slot], None);
+        set_reg(instr.slot, reg, &regs, &interfering_slots, &mut available_ranks);
     }
 
     // Allocate registers for any slots that get moved (which don't show up in instructions)
     for instr in instrs {
         for (_, dest) in &instr.slot_moves {
             if regs[*dest].get().is_some() { continue; }
-            let reg = REGS.best_reg(Bank::D, available_regs[instr.slot], None);
-            set_reg(*dest, reg, &regs, &interfering_slots, &mut available_regs);
+            let reg = REGS.best_reg(Bank::D, available_ranks[instr.slot], None);
+            set_reg(*dest, reg, &regs, &interfering_slots, &mut available_ranks);
         }
     }
 
@@ -226,7 +226,7 @@ fn allocate(
     // registers available for a temp are the registers available for the instruction MINUS
     // the arguments to the instruction (which, if this is the last use of the argument are
     // available for the function's return value, but NOT during swaps before the instruction).
-    let mut temp_reg_pool = available_regs.clone();
+    let mut temp_reg_pool = available_ranks.clone();
     for instr in instrs {
         // This just says (in rank space) available regs minus the predecessors' regs.
         temp_reg_pool[instr.slot] &=
@@ -246,12 +246,12 @@ fn set_reg(
     reg:                                MachineReg,
     regs:                               &[OnceCell<MachineReg>],
     interfering_slots:                  &[BitSet],
-    available_regs:                     &mut [u32]) {
+    available_ranks:                    &mut [u32]) {
     regs[slot].set(reg)
         .expect("internal compiler error: trying to set a register twice");
     let rank_bits = REGS.get_rank_bits(Bank::D, reg);
     for interfering_slot in &interfering_slots[slot] {
-        available_regs[interfering_slot] &= !rank_bits;
+        available_ranks[interfering_slot] &= !rank_bits;
     }
 }
 

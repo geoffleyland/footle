@@ -68,12 +68,12 @@ pub(super) struct RegFile {
     pub(super) stack_reg:       MachineReg,
     pub(super) link_reg:        MachineReg,
     pub(super) scratch_reg:     MachineReg,
-    d:                          RegBank<32>,
+    d:                          RegBank,
 }
 
 
 impl RegFile {
-    const fn new(stack_reg: u8, link_reg: u8, scratch_reg: u8, d: RegBank<32>) -> Self {
+    const fn new(stack_reg: u8, link_reg: u8, scratch_reg: u8, d: RegBank) -> Self {
         Self {
             stack_reg:          MachineReg::new(stack_reg),
             link_reg:           MachineReg::new(link_reg),
@@ -102,28 +102,34 @@ impl RegFile {
             Bank::D => self.d.real_reg_to_ranked_reg_mask(clobbers)
         }
     }
+    pub(super) fn reg_rank_mask(&self, bank: Bank) -> u32 {
+        match bank {
+            Bank::D => self.d.reg_rank_mask()
+        }
+    }
 }
 
 
 /// Information about a bank of registers (int or FP)  Possibly the structure is cross-platform?
 #[derive(Debug)]
-pub (super) struct RegBank<const N: usize> {
-    order:              [MachineReg; N],        // Order in which we allocate registers
+pub (super) struct RegBank {
+    order:              [MachineReg; 32],       // Order in which we allocate registers
     rank:               [Option<RegRank>; 32],  // Rank (in `order`) of a register.  `None` if we
                                                 // never allocate that register.
     callee_saved:       u32,                    // Bitmask of registers we have to save in our
                                                 // prologue and epilogue (if we use them)
     clobber_rank_mask:  [u32; 32],              // In register order, bitmask of whether this reg
                                                 // is clobbered.
+    reg_count:          usize,                  // The number of registers available
 }
 
-impl<const N:usize> RegBank<N> {
+impl RegBank {
     #[allow(clippy::cast_possible_truncation)]
-    const fn new(callee_saved: u32, u8_order: [u8; N]) -> Self {
-        let mut order = [MachineReg::new(0); N];
+    const fn new(callee_saved: u32, u8_order: &[u8]) -> Self {
+        let mut order = [MachineReg::new(0); 32];
         let mut rank = [None; 32];
         let mut i = 0;
-        while i < N {
+        while i < u8_order.len() {
             order[i] = MachineReg::new(u8_order[i]);
             rank[u8_order[i] as usize] = Some(RegRank::new(i));
             i += 1;
@@ -134,7 +140,7 @@ impl<const N:usize> RegBank<N> {
             if let Some(rank) = rank[r] { clobber_rank_mask[r] = 1 << rank.0; }
             r += 1;
         }
-        Self { order, rank, callee_saved, clobber_rank_mask }
+        Self { order, rank, callee_saved, clobber_rank_mask, reg_count: u8_order.len() }
     }
 
     /// Pick a register from `available` (a bitmask of ranks).  If `preferred` is available, use it —
@@ -169,11 +175,15 @@ impl<const N:usize> RegBank<N> {
         }
         mask
     }
+
+    fn reg_rank_mask(&self) -> u32 {
+         if self.reg_count >= 32 { u32::MAX } else { (1u32 << self.reg_count) - 1 }
+    }
 }
 
 
 pub(super) const REGS: RegFile = RegFile::new(31, 30, 16, RegBank::new(0x0000_FF00,
-    [
+    &[
         16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, // d16-d31 (caller saved)
          8,  9, 10, 11, 12, 13, 14, 15,                                 // d8-d16 (callee saved)
          0,  1,  2,  3,  4,  5,  6,  7,                                 // d0-d7 (function args)
