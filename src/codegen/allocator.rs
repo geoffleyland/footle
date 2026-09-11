@@ -89,11 +89,15 @@ fn lower_to_slots_and_split(
         }
     }
 
-    let mut reg_slots = vec![usize::MAX; 32];
+    // We're just keeping track of the slots (like arguments) that are given to us in a fixed
+    // register - our arguments and fixed function outputs
+    let mut fixed_reg_slots: Vec<Option<usize>> = vec![None; 32];
+    // We're creating new slots, so we need to keep track fo the renumbering from "old slots"
+    // to new slots.
     let mut slot_map = (0..slot_count).collect::<Vec<_>>();
 
     for (slot, _) in arguments.iter().enumerate() {
-        reg_slots[slot] = slot;
+        fixed_reg_slots[slot] = Some(slot);
     }
 
     let mut slot_count = arguments.len();
@@ -106,23 +110,30 @@ fn lower_to_slots_and_split(
                 scheduler::Operand::Value(v)                => SlotOperand::Slot(slot_map[v.slot]),
                 scheduler::Operand::Function(s)             => SlotOperand::Function(s.clone()),
             }).collect();
-        let fixed_inputs = value.fixed_inputs.iter().map(|(v, reg)| (slot_map[v.slot], *reg)).collect();
+
+        // Renumber any fixed inputs
+        let fixed_inputs = value.fixed_inputs.iter()
+            .map(|(v, reg)| (slot_map[v.slot], *reg))
+            .collect();
+
+        // If this instruction clobbers anything, check it against what we've got sitting in
+        // fixed_reg_slots (our arguments or results from functions).  If they're live after this
+        // we need to move them.
         let mut slot_moves: Vec<(usize, usize)> = vec![];
         if let Some(c) = value.code() && c.clobbers() {
             for reg in bit_indices(c.clobber_mask()) {
-                let slot = reg_slots[reg];
-                if slot != usize::MAX &&
-                    retirements[slot] > i {
+                if let Some(slot) =  fixed_reg_slots[reg] && retirements[slot] > i {
                     slot_moves.push((slot_map[slot], slot_count));
                     slot_map[slot] = slot_count;
                     slot_count += 1;
                 }
             }
-            for reg in bit_indices(c.clobber_mask()) { reg_slots[reg] = usize::MAX; }
+            for reg in bit_indices(c.clobber_mask()) { fixed_reg_slots[reg] = None; }
         }
         if let Some(fixed_output) = value.fixed_output {
-            reg_slots[usize::from(fixed_output)] = value.slot;
+            fixed_reg_slots[usize::from(fixed_output)] = Some(value.slot);
         }
+
         let code = value.code().expect("internal compiler error: expected an excutable instruction");
         new_schedule.push(SlotInstr{
             operands, code, slot_moves, fixed_inputs,
