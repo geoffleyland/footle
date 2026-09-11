@@ -205,7 +205,7 @@ pub(super) struct Code {
 
 impl Code {
     pub fn has_output(&self) -> bool    { self.has_output }
-    pub fn clobbers(&self) -> u32       { if self.save_link_reg() { 0xFFFF_00FF} else { 0 }}
+    pub fn clobber_mask(&self) -> u32   { if self.save_link_reg() { !REGS.banks[0].callee_saved } else { 0 }}
     pub fn ranked_clobber_mask(&self) -> u32
                                         { if self.save_link_reg() { REGS.banks[0].ranked_clobber_mask } else { 0 }}
     pub fn restore_regs(&self) -> bool  { std::ptr::eq(self, &raw const ret) }
