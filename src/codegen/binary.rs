@@ -1,5 +1,7 @@
 use std::mem;
 
+use anyhow::{bail, Result};
+
 use super::scheduler::Constant;
 use super::assembler;
 use super::sys;
@@ -10,10 +12,12 @@ use super::sys;
 pub struct CompiledFn {
     ptr:                            *mut u32,
     size:                           usize,
-    pub(super) instruction_count:   usize,
     argument_count:                 u8,
     return_count:                   u8,
     func:                           fn(*const f64, *mut f64),
+
+    #[cfg(feature = "dogfood")]
+    pub(super) instruction_count:   usize,
 }
 
 
@@ -22,22 +26,32 @@ impl CompiledFn {
         ptr:                        *mut u32,
         size:                       usize,
         glue_start_words:           usize,
-        instruction_count:          usize,
         argument_count:             u8,
-        return_count:               u8) -> Self {
-        Self { ptr, size, instruction_count, argument_count, return_count,
-            func: unsafe { mem::transmute::<*mut u32, fn(*const f64, *mut f64)>(ptr.add(glue_start_words)) } }
+        return_count:               u8,
+        #[cfg(feature = "dogfood")]
+        instruction_count:          usize,
+    ) -> Self {
+        let func = unsafe { mem::transmute::<*mut u32, fn(*const f64, *mut f64)>(ptr.add(glue_start_words)) };
+
+        Self { ptr, size, argument_count, return_count, func,
+        #[cfg(feature = "dogfood")]
+            instruction_count
+        }
     }
 
-    pub(super) fn bytes(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.ptr.cast::<u8>(), self.size) }
-    }
-
-    pub fn call(&self, input: &[f64]) -> Vec<f64> {
-        assert_eq!(input.len(), usize::from(self.argument_count));
+    pub fn call(&self, input: &[f64]) -> Result<Vec<f64>> {
+        if usize::from(self.argument_count) != input.len() {
+            bail!("wrong number of arguments: expected {}, got {}",
+                self.argument_count, input.len());
+        }
         let mut output = vec![0.0; usize::from(self.return_count)];
         (self.func)(input.as_ptr(), output.as_mut_ptr());
-        output
+        Ok(output)
+    }
+
+    #[cfg(feature = "dogfood")]
+    pub(super) fn bytes(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self.ptr.cast::<u8>(), self.size) }
     }
 }
 
@@ -66,8 +80,10 @@ pub fn emit(block: &assembler::Block) -> CompiledFn {
 
     sys::finish_jit_compile(ptr, total_code_size_bytes);
 
-    CompiledFn::new(ptr, total_code_size_bytes, block.glue_start_words, instr_words,
-        block.argument_count, block.return_count)
+    CompiledFn::new(ptr, total_code_size_bytes, block.glue_start_words, block.argument_count, block.return_count,
+        #[cfg(feature = "dogfood")]
+        instr_words
+        )
 }
 
 

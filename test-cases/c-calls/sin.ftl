@@ -8,7 +8,7 @@ return sin(a)
 
 #)
 
-#( expected vir not
+#( expected vir
 
   argument I0
   local I1 = sin(I0)

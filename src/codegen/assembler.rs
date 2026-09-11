@@ -1,23 +1,29 @@
-use crate::core::Span;
 use super::scheduler::Constant;
 use super::allocator;
 use super::isa;
+use super::isa::{REGS, MachineReg};
+
+#[cfg(feature = "dogfood")]
+use crate::core::Span;
 
 
 //-------------------------------------------------------------------------------------------------
 
 macro_rules! asm_op {
     (Reg($r:expr))          => { Operand::Reg($r) };
+    (RawReg($r:expr))       => { Operand::Reg(MachineReg::new($r)) };
     (Constant($i:expr))     => { Operand::Constant($i) };
     (Offset($o:expr))       => { Operand::Offset($o) };
 }
 
 macro_rules! assemble {
-    ($vec:expr, $span:expr, $op:ident $(, $($operand:tt $operand_arg:expr),*)?) => {
+    ($vec:expr, $op:ident $(, $($operand:tt $operand_arg:expr),*)?) => {
         $vec.push(Instr {
             code: &isa::$op,
-            span: $span,
             operands: vec![$($(asm_op!($operand($operand_arg))),*)?],
+
+            #[cfg(feature = "dogfood")]
+            span: None,
         })
     }
 }
@@ -26,7 +32,7 @@ macro_rules! assemble {
 //-------------------------------------------------------------------------------------------------
 
 pub(super) enum Operand {
-    Reg(u8),
+    Reg(MachineReg),
     Constant(usize),
     Offset(i32),
     Function(usize),
@@ -36,6 +42,8 @@ pub(super) enum Operand {
 pub(super) struct Instr {
     pub(super) code:                &'static isa::Code,
     pub(super) operands:            Vec<Operand>,
+
+    #[cfg(feature = "dogfood")]
     span:                           Option<Span>,
 }
 
@@ -58,7 +66,7 @@ pub(super) fn run(
     functions:                      &[String],
     argument_count:                 u8,
     return_count:                   u8,
-    regs_to_save:                   &[u8]) -> Block{
+    regs_to_save:                   &[MachineReg]) -> Block{
     let mut instrs = Vec::new();
     emit_function(allocated, &mut instrs, functions, regs_to_save);
     let glue_start_words = instrs.len();
@@ -73,12 +81,12 @@ fn emit_function(
     allocated:                      Vec<allocator::Instr>,
     instrs:                         &mut Vec<Instr>,
     functions:                      &[String],
-    regs_to_save:                   &[u8]) {
+    regs_to_save:                   &[MachineReg]) {
     // Save any callee saved registers
     for pair in regs_to_save.chunks(2) {
         match *pair {
-            [a, b]  => assemble!(instrs, None, stp_d_pre, Reg(a), Reg(b), Reg(31), Offset(-16)),
-            [a]     => assemble!(instrs, None, str_d_pre, Reg(a), Reg(31), Offset(-16)),
+            [a, b]  => assemble!(instrs, stp_d_pre, Reg(a), Reg(b), Reg(REGS.stack_reg), Offset(-16)),
+            [a]     => assemble!(instrs, str_d_pre, Reg(a), Reg(REGS.stack_reg), Offset(-16)),
             _       => unreachable!()
         }
     }
@@ -87,7 +95,8 @@ fn emit_function(
         if !ai.moves.is_empty() { move_regs(&ai.moves, ai.temp_reg, instrs) }
 
         let operands = ai.code.has_output()
-            .then_some(Operand::Reg(ai.result_reg))
+            .then(|| Operand::Reg(ai.result_reg
+                .expect("internal compiler error: no register allocated for instruction result")))
             .into_iter()
             .chain(ai.operands.iter().map(|op| match op {
                 allocator::Operand::Reg(r)          => Operand::Reg(*r),
@@ -104,27 +113,28 @@ fn emit_function(
         if ai.code.restore_regs() {
             for pair in regs_to_save.chunks(2).rev() {
                 match *pair {
-                    [a, b]  => assemble!(instrs, None, ldp_d_post, Reg(a), Reg(b), Reg(31), Offset(16)),
-                    [a]     => assemble!(instrs, None, ldr_d_post, Reg(a), Reg(31), Offset(16)),
+                    [a, b]  => assemble!(instrs, ldp_d_post, Reg(a), Reg(b), Reg(REGS.stack_reg), Offset(16)),
+                    [a]     => assemble!(instrs, ldr_d_post, Reg(a), Reg(REGS.stack_reg), Offset(16)),
                     _       => unreachable!()
                 }
             }
         }
 
         if ai.code.save_link_reg() {
-            assemble!(instrs, None, str_x_pre, Reg(30), Reg(31), Offset(-16));
+            assemble!(instrs, str_x_pre, Reg(REGS.link_reg), Reg(REGS.stack_reg), Offset(-16));
         }
 
-        instrs.push(Instr{ code: ai.code, operands, span: Some(ai.span) });
+        instrs.push(Instr{ code: ai.code, operands,
+        #[cfg(feature = "dogfood")]
+            span: Some(ai.span)
+        });
 
         if ai.code.save_link_reg() {
-            assemble!(instrs, None, ldr_x_post, Reg(30), Reg(31), Offset(16));
+            assemble!(instrs, ldr_x_post, Reg(REGS.link_reg), Reg(REGS.stack_reg), Offset(16));
         }
     }
 }
 
-
-const NO_REG: u8 = u8::MAX;
 
 /// Given a list of register moves (source, dest), move values between registers.
 ///
@@ -137,57 +147,54 @@ const NO_REG: u8 = u8::MAX;
 ///    cycle, using a temp register to hold the value of the first register you write to, and then
 ///    moving the temp register into the last register you read from.  If you've already moved one
 ///    of the values in the cycle as part of a chain, you can save yourself the temp register.
-fn move_regs(moves: &[(u8, u8)], temp_reg: u8, instrs: &mut Vec<Instr>) {
-    let mut sources = [NO_REG; 32];
+fn move_regs(moves: &[(MachineReg, MachineReg)], temp_reg: MachineReg, instrs: &mut Vec<Instr>) {
+    let mut sources = [None; 32];
     let mut destination_counts = [0u8; 32];
     for (source, destination) in moves {
-        sources[usize::from(*destination)] = *source;
+        sources[usize::from(*destination)] = Some(*source);
         destination_counts[usize::from(*source)] += 1;
     }
 
     // Keep track of any copies we make of a value as we move them - they could be useful later
     // if we have to resolve a cycle including the value, where we could avoid using a temporary
     // register.
-    let mut copies = [NO_REG; 32];
+    let mut copies = [None; 32];
     // Handle all the chains by starting from their ends
     for (_, destination) in moves {
-        let source = sources[usize::from(*destination)];
-        if source != NO_REG && destination_counts[usize::from(*destination)] == 0 {
+        if let Some(source) = sources[usize::from(*destination)] &&
+            destination_counts[usize::from(*destination)] == 0 {
             move_regs_backwards(*destination, &mut sources, &mut destination_counts, instrs);
-            copies[usize::from(source)] = *destination;
+            copies[usize::from(source)] = Some(*destination);
         }
     }
 
     // All the remaining moves are cycles.  Do the ones where we've already got a copy and don't
     // need a temp
     for (_, destination) in moves {
-        let source = sources[usize::from(*destination)];
-        if source == NO_REG { continue; }
-        let copy = copies[usize::from(source)];
-        if copy == NO_REG { continue; }
-        sources[usize::from(*destination)] = NO_REG;
-        move_regs_backwards(source, &mut sources, &mut destination_counts, instrs);
-        assemble!(instrs, None, fmov_d, Reg(*destination), Reg(copy));
+    if let Some(source) = sources[usize::from(*destination)] &&
+        let Some(copy) = copies[usize::from(source)] {
+            sources[usize::from(*destination)] = None;
+            move_regs_backwards(source, &mut sources, &mut destination_counts, instrs);
+            assemble!(instrs, fmov_d, Reg(*destination), Reg(copy));
+        }
     }
 
     // Now do the ones where there's no other copy and we need a temp.
     for (_, destination) in moves {
-        let source = sources[usize::from(*destination)];
-        if source == NO_REG { continue; }
-        assemble!(instrs, None, fmov_d, Reg(temp_reg), Reg(source));
-        sources[usize::from(*destination)] = NO_REG;
+        let Some(source) = sources[usize::from(*destination)] else { continue };
+        assemble!(instrs, fmov_d, Reg(temp_reg), Reg(source));
+        sources[usize::from(*destination)] = None;
         move_regs_backwards(source, &mut sources, &mut destination_counts, instrs);
-        assemble!(instrs, None, fmov_d, Reg(*destination), Reg(temp_reg));
+        assemble!(instrs, fmov_d, Reg(*destination), Reg(temp_reg));
     }
 }
 
 
-fn move_regs_backwards(mut destination: u8, sources: &mut[u8], destination_counts: &mut[u8], instrs: &mut Vec<Instr>) {
+fn move_regs_backwards(mut destination: MachineReg, sources: &mut[Option<MachineReg>], destination_counts: &mut[u8], instrs: &mut Vec<Instr>) {
     loop {
-        let source = sources[usize::from(destination)];
-        if source == NO_REG { return }
-        assemble!(instrs, None, fmov_d, Reg(destination), Reg(source));
-        sources[usize::from(destination)] = NO_REG;
+        let Some(source) = sources[usize::from(destination)] else { return };
+        assemble!(instrs, fmov_d, Reg(destination), Reg(source));
+        sources[usize::from(destination)] = None;
         destination_counts[usize::from(source)] -= 1;
         if destination_counts[usize::from(source)] > 0 { return }
         destination = source;
@@ -202,71 +209,75 @@ fn emit_glue(argument_count: u8, return_count: u8, assembler: &mut Vec<Instr>) {
     // In fact, at the moment, we only have floating-point arguments, so it *won't* get clobbered,
     // but if I ever get to types and integers, then I don't want to have a mystery bug strike me
     // because I was too smart about my function glue.
-    assemble!(assembler, None, mov_x, Reg(16), Reg(0));
+    assemble!(assembler, mov_x, Reg(REGS.scratch_reg), RawReg(0));
 
     // Move the output buffer and the return address to the stack, since they're about to get
     // overwritten and we need them later.
-    assemble!(assembler, None, stp_x_pre, Reg(1), Reg(isa::LINK_REG), Reg(isa::STACK_REG), Offset(-16));
+    assemble!(assembler, stp_x_pre, RawReg(1), Reg(REGS.link_reg), Reg(REGS.stack_reg), Offset(-16));
 
     // Move the arguments from the input buffer into the argument registers.
     for i in 0..argument_count {
-        assemble!(assembler, None, ldr_d_offset, Reg(i), Reg(16), Offset(i32::from(i) * 8));
+        assemble!(assembler, ldr_d_offset, RawReg(i), Reg(REGS.scratch_reg), Offset(i32::from(i) * 8));
     }
 
     // Call our function
-    assemble!(assembler, None, bl,
+    assemble!(assembler, bl,
         Offset(-4 * i32::try_from(assembler.len())
             .expect("internal compiler error: function too long for jump")));
 
-    // Load the output buffer in to r16 and the return address to the appropriate spot
-    assemble!(assembler, None, ldp_x_post, Reg(16), Reg(isa::LINK_REG), Reg(isa::STACK_REG), Offset(16));
+    // Load the output buffer in to x16 and the return address to the appropriate spot
+    assemble!(assembler, ldp_x_post, Reg(REGS.scratch_reg), Reg(REGS.link_reg), Reg(REGS.stack_reg), Offset(16));
 
     for i in 0..return_count {
-        assemble!(assembler, None, str_d_offset, Reg(i), Reg(16), Offset(i32::from(i) * 8));
+        assemble!(assembler, str_d_offset, RawReg(i), Reg(REGS.scratch_reg), Offset(i32::from(i) * 8));
     }
 
-    assemble!(assembler, None, ret);
+    assemble!(assembler, ret);
 }
 
 
 //-------------------------------------------------------------------------------------------------
 // Text output for assembler
 
-use std::fmt;
-use crate::core::{Styleable, LineStyle};
+#[cfg(feature = "dogfood")]
+mod display {
+    use std::fmt;
+    use super::*;
+    use crate::core::{Styleable, LineStyle};
 
-impl Styleable for Block {
-    fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
-        let instr_words = self.instrs.len();
-        let constant_start_words = instr_words + usize::from(instr_words.is_multiple_of(2));
-        let function_start_words = constant_start_words + self.constants.len() * 2;
-        for (i, instr) in self.instrs.iter().enumerate() {
+    impl Styleable for Block {
+        fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
+            let instr_words = self.instrs.len();
+            let constant_start_words = instr_words + usize::from(instr_words.is_multiple_of(2));
+            let function_start_words = constant_start_words + self.constants.len() * 2;
+            for (i, instr) in self.instrs.iter().enumerate() {
 
-            let operands = instr.operands.iter().map(|o|
-                match o {
-                    Operand::Constant(c)    => i32::try_from((constant_start_words - i) * 4 + *c * 8).unwrap(),
-                    Operand::Function(f)    => i32::try_from((function_start_words - i) * 4 + *f * 8).unwrap(),
-                    Operand::Reg(r)         => i32::from(*r),
-                    Operand::Offset(o)      => *o,
-                }).collect::<Vec<_>>();
+                let operands = instr.operands.iter().map(|o|
+                    match o {
+                        Operand::Constant(c)    => i32::try_from((constant_start_words - i) * 4 + *c * 8).unwrap(),
+                        Operand::Function(f)    => i32::try_from((function_start_words - i) * 4 + *f * 8).unwrap(),
+                        Operand::Reg(r)         => i32::from(*r),
+                        Operand::Offset(o)      => *o,
+                    }).collect::<Vec<_>>();
 
-            let address = i32::try_from(0x1000 + i * 4).unwrap();
-            writer.writeln(f, indent, instr.span, &format!("{:#06x}: {} {}",
-                address,
-                instr.code.mnemonic(),
-                (instr.code.format)(&operands, address)))?;
+                let address = i32::try_from(0x1000 + i * 4).unwrap();
+                writer.writeln(f, indent, instr.span, &format!("{:#06x}: {} {}",
+                    address,
+                    instr.code.mnemonic(),
+                    (instr.code.format)(&operands, address)))?;
+            }
+            for (i, c) in self.constants.iter().enumerate() {
+                let address = 0x1000 + constant_start_words * 4 + i * 8;
+                writer.writeln(f, indent, Some(c.span), &format!("{address:#06x}: {:?}", c.value))?;
+            }
+            for (i, func) in self.functions.iter().enumerate() {
+                let address = 0x1000 + function_start_words * 4 + i * 8;
+                writer.writeln(f, indent, None, &format!("{address:#06x}: {func}"))?;
+            }
+            Ok(())
         }
-        for (i, c) in self.constants.iter().enumerate() {
-            let address = 0x1000 + constant_start_words * 4 + i * 8;
-            writer.writeln(f, indent, Some(c.span), &format!("{address:#06x}: {:?}", c.value))?;
-        }
-        for (i, func) in self.functions.iter().enumerate() {
-            let address = 0x1000 + function_start_words * 4 + i * 8;
-            writer.writeln(f, indent, None, &format!("{address:#06x}: {func}"))?;
-        }
-        Ok(())
     }
-}
 
+}
 
 //-------------------------------------------------------------------------------------------------

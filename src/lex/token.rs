@@ -1,6 +1,3 @@
-use std::fmt;
-
-
 //-------------------------------------------------------------------------------------------------
 
 #[derive(Debug, PartialEq, Clone)]
@@ -48,54 +45,6 @@ pub enum Token {
 }
 
 
-impl std::fmt::Display for Token {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use Token::*;
-        match self {
-            Identifier(v)                   => write!(f, "{v}"),
-            Number(v)                       => write!(f, "{v}"),
-            Bool(v)                         => write!(f, "{v}"),
-
-            // Math operators
-            Plus                            => write!(f, "+"),
-            Minus                           => write!(f, "-"),
-            Times                           => write!(f, "*"),
-            Divide                          => write!(f, "/"),
-            Power                           => write!(f, "^"),
-            Modulo                          => write!(f, "%"),
-
-            // Comparison operators
-            Equal                           => write!(f, "=="),
-            NotEqual                        => write!(f, "!="),
-            LessThan                        => write!(f, "<"),
-            LessEqual                       => write!(f, "<="),
-            GreaterThan                     => write!(f, ">"),
-            GreaterEqual                    => write!(f, ">="),
-
-            // Other expression parts
-            Assign                          => write!(f, "="),
-            LeftParenthesis                 => write!(f, "("),
-            RightParenthesis                => write!(f, ")"),
-
-            // Punctuation
-            Comma                           => write!(f, ","),
-
-            // Keywords
-            Local                           => write!(f, "local"),
-            Mutable                         => write!(f, "mutable"),
-            Argument                        => write!(f, "argument"),
-            Begin                           => write!(f, "begin"),
-            End                             => write!(f, "end"),
-            Return                          => write!(f, "return"),
-            Eof                             => write!(f, "EOF"),
-
-            // Skipped Tokens
-            Comment | BlockComment => write!(f, " "),
-        }
-    }
-}
-
-
 //-------------------------------------------------------------------------------------------------
 
 pub fn match_reserved_word(word: &str) -> Option<Token> {
@@ -110,6 +59,61 @@ pub fn match_reserved_word(word: &str) -> Option<Token> {
         "true"                              => Some(Bool(true)),
         "false"                             => Some(Bool(false)),
         _                                   => None
+    }
+}
+
+
+//-------------------------------------------------------------------------------------------------
+
+mod display {
+    use std::fmt;
+    use super::Token;
+
+    impl std::fmt::Display for Token {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            use Token::*;
+            match self {
+                Identifier(v)                   => write!(f, "{v}"),
+                Number(v)                       => write!(f, "{v}"),
+                Bool(v)                         => write!(f, "{v}"),
+
+                // Math operators
+                Plus                            => write!(f, "+"),
+                Minus                           => write!(f, "-"),
+                Times                           => write!(f, "*"),
+                Divide                          => write!(f, "/"),
+                Power                           => write!(f, "^"),
+                Modulo                          => write!(f, "%"),
+
+                // Comparison operators
+                Equal                           => write!(f, "=="),
+                NotEqual                        => write!(f, "!="),
+                LessThan                        => write!(f, "<"),
+                LessEqual                       => write!(f, "<="),
+                GreaterThan                     => write!(f, ">"),
+                GreaterEqual                    => write!(f, ">="),
+
+                // Other expression parts
+                Assign                          => write!(f, "="),
+                LeftParenthesis                 => write!(f, "("),
+                RightParenthesis                => write!(f, ")"),
+
+                // Punctuation
+                Comma                           => write!(f, ","),
+
+                // Keywords
+                Local                           => write!(f, "local"),
+                Mutable                         => write!(f, "mutable"),
+                Argument                        => write!(f, "argument"),
+                Begin                           => write!(f, "begin"),
+                End                             => write!(f, "end"),
+                Return                          => write!(f, "return"),
+                Eof                             => write!(f, "EOF"),
+
+                // Skipped Tokens
+                Comment | BlockComment => write!(f, " "),
+            }
+        }
     }
 }
 

@@ -11,8 +11,12 @@ pub enum ExprKind {
     Binary(BinaryOperator, Expr, Expr),
     Number(f64),
     Bool(bool),
-    Argument(usize, String),
     Call(String, Vec<Expr>),
+
+    #[cfg(any(feature = "dogfood", test))]
+    Argument(usize, String),
+    #[cfg(not(any(feature = "dogfood", test)))]
+    Argument(usize),
 }
 
 
@@ -85,11 +89,16 @@ pub struct ExprEntry {
 
 
 impl ExprEntry {
-    pub fn new(kind: ExprKind, pool_index: usize, span: Span) -> Self {
-        Self{kind, pool_index, span}
+    pub fn new(
+        kind:                               ExprKind,
+        pool_index:                         usize,
+        span:                               Span
+    ) -> Self {
+        Self{ kind, pool_index, span }
     }
     pub fn kind(&self) -> &ExprKind         { &self.kind }
     pub fn pool_index(&self) -> usize       { self.pool_index }
+
     pub fn span(&self) -> &Span             { &self.span }
 }
 
@@ -108,8 +117,9 @@ impl Expr {
     }
     pub fn kind(&self) -> &ExprKind         { self.entry.kind() }
     pub fn pool_index(&self) -> usize       { self.entry.pool_index() }
-    pub fn span(&self) -> &Span             { self.entry.span() }
     pub fn is_constant(&self) -> bool       { self.entry.kind().is_constant() }
+
+    pub fn span(&self) -> &Span             { self.entry.span() }
 }
 
 

@@ -1,5 +1,3 @@
-use std::fmt;
-
 use crate::core::{BinaryOperator, Span};
 
 
@@ -12,23 +10,6 @@ pub enum ExprKind {
     Bool(bool),
     Identifier(String),
     Call(String, Vec<Expr>),
-}
-
-
-impl fmt::Display for ExprKind {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use ExprKind::*;
-        match self {
-            Binary(op, lhs, rhs)                    => write!(f, "({lhs} {op} {rhs})"),
-            Number(value)                           => write!(f, "{value}"),
-            Bool(value)                             => write!(f, "{value}"),
-            Identifier(name)                        => write!(f, "{name}"),
-            Call(name, exprs) => {
-                write!(f, "{name}({})", exprs.iter()
-                    .map(ToString::to_string).collect::<Vec<_>>().join(", "))
-            }
-        }
-    }
 }
 
 
@@ -56,8 +37,33 @@ impl Expr {
 }
 
 
-impl fmt::Display for Expr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { self.kind().fmt(f) }
+//-------------------------------------------------------------------------------------------------
+
+#[cfg(any(feature = "dogfood", test))]
+mod display {
+    use std::fmt;
+    use super::*;
+
+    impl fmt::Display for ExprKind {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            use ExprKind::*;
+            match self {
+                Binary(op, lhs, rhs)                    => write!(f, "({lhs} {op} {rhs})"),
+                Number(value)                           => write!(f, "{value}"),
+                Bool(value)                             => write!(f, "{value}"),
+                Identifier(name)                        => write!(f, "{name}"),
+                Call(name, exprs) => {
+                    write!(f, "{name}({})", exprs.iter()
+                        .map(ToString::to_string).collect::<Vec<_>>().join(", "))
+                }
+            }
+        }
+    }
+
+
+    impl fmt::Display for Expr {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { self.kind().fmt(f) }
+    }
 }
 
 

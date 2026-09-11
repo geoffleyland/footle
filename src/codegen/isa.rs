@@ -3,6 +3,183 @@
 use enumset::{EnumSet, EnumSetType, enum_set};
 use paste::paste;
 
+#[cfg(feature = "dogfood")]
+use display::*;
+
+
+//-------------------------------------------------------------------------------------------------
+// Not really architecture specific stuff (maybe it'll move if we ever get to a second arch)
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct MachineReg(u8);
+
+impl MachineReg {
+    pub(super) const fn new(index: u8) -> Self {
+        debug_assert!(index < 32);
+        Self(index)
+    }
+}
+
+impl From<MachineReg> for u8    { fn from(m: MachineReg) -> Self  { m.0 } }
+impl From<MachineReg> for u32   { fn from(m: MachineReg) -> Self  { m.0.into() } }
+impl From<MachineReg> for i32   { fn from(m: MachineReg) -> Self  { m.0.into() } }
+impl From<MachineReg> for usize { fn from(m: MachineReg) -> Self  { m.0.into() } }
+
+
+impl TryFrom<u8> for MachineReg {
+    type Error = ();
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        if value < 32 { Ok(Self(value)) } else { Err(()) }
+    }
+}
+
+impl TryFrom<usize> for MachineReg {
+    type Error = ();
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        let v = u8::try_from(value).map_err(|_| ())?;
+        if value < 32 { Ok(Self(v)) } else { Err(()) }
+    }
+}
+
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct RegRank(u8);
+
+impl RegRank {
+    #[allow(clippy::cast_possible_truncation)]
+    const fn new(index: usize) -> Self {
+        debug_assert!(index < 32);
+        Self(index as u8)
+    }
+}
+
+
+//-------------------------------------------------------------------------------------------------
+// Register details
+
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Bank {
+    D
+}
+
+
+#[derive(Debug)]
+pub(super) struct RegFile {
+    pub(super) stack_reg:       MachineReg,
+    pub(super) link_reg:        MachineReg,
+    pub(super) scratch_reg:     MachineReg,
+    d:                          RegBank<32>,
+}
+
+
+impl RegFile {
+    const fn new(stack_reg: u8, link_reg: u8, scratch_reg: u8, d: RegBank<32>) -> Self {
+        Self {
+            stack_reg:          MachineReg::new(stack_reg),
+            link_reg:           MachineReg::new(link_reg),
+            scratch_reg:        MachineReg::new(scratch_reg),
+            d,
+        }
+    }
+
+    pub(super) fn best_reg(&self, bank: Bank, available: u32, preferred: Option<MachineReg>) -> MachineReg {
+        match bank {
+            Bank::D => self.d.best_reg(available, preferred)
+        }
+    }
+    pub(super) fn get_rank_bits(&self, bank: Bank, reg: MachineReg) -> u32 {
+        match bank {
+            Bank::D => self.d.get_rank_bits(reg)
+        }
+    }
+    pub(super) fn is_callee_saved(&self, bank: Bank, maybe_reg: Option<MachineReg>) -> Option<MachineReg> {
+        match bank {
+            Bank::D => self.d.is_callee_saved(maybe_reg)
+        }
+    }
+    pub(super) fn real_reg_to_ranked_reg_mask(&self, bank: Bank, clobbers: u32) -> u32 {
+        match bank {
+            Bank::D => self.d.real_reg_to_ranked_reg_mask(clobbers)
+        }
+    }
+}
+
+
+/// Information about a bank of registers (int or FP)  Possibly the structure is cross-platform?
+#[derive(Debug)]
+pub (super) struct RegBank<const N: usize> {
+    order:              [MachineReg; N],        // Order in which we allocate registers
+    rank:               [Option<RegRank>; 32],  // Rank (in `order`) of a register.  `None` if we
+                                                // never allocate that register.
+    callee_saved:       u32,                    // Bitmask of registers we have to save in our
+                                                // prologue and epilogue (if we use them)
+    clobber_rank_mask:  [u32; 32],              // In register order, bitmask of whether this reg
+                                                // is clobbered.
+}
+
+impl<const N:usize> RegBank<N> {
+    #[allow(clippy::cast_possible_truncation)]
+    const fn new(callee_saved: u32, u8_order: [u8; N]) -> Self {
+        let mut order = [MachineReg::new(0); N];
+        let mut rank = [None; 32];
+        let mut i = 0;
+        while i < N {
+            order[i] = MachineReg::new(u8_order[i]);
+            rank[u8_order[i] as usize] = Some(RegRank::new(i));
+            i += 1;
+        }
+        let mut clobber_rank_mask = [0u32; 32];
+        let mut r = 0;
+        while r < 32 {
+            if let Some(rank) = rank[r] { clobber_rank_mask[r] = 1 << rank.0; }
+            r += 1;
+        }
+        Self { order, rank, callee_saved, clobber_rank_mask }
+    }
+
+    /// Pick a register from `available` (a bitmask of ranks).  If `preferred` is available, use it —
+    /// this just avoids an extra move later, it's not required for correctness (the move machinery
+    /// will fix up the register either way).
+    fn best_reg(&self, available: u32, preferred: Option<MachineReg>) -> MachineReg {
+        if let Some(p) = preferred {
+            let rank = self.rank[usize::from(p)]
+                .expect("internal compiler error: trying to use system register");
+            if (available >> rank.0) & 1 == 1 { return p; }
+        }
+        self.order[available.trailing_zeros() as usize]
+    }
+
+    fn get_rank_bits(&self, reg: MachineReg) -> u32 {
+        let r = self.rank[usize::from(reg)]
+            .expect("internal compiler error: trying to use system register");
+        1 << r.0
+    }
+
+    fn is_callee_saved(&self, maybe_reg: Option<MachineReg>) -> Option<MachineReg> {
+        maybe_reg.filter(|reg| self.callee_saved & (1 << reg.0) != 0)
+    }
+
+    fn real_reg_to_ranked_reg_mask(&self, clobbers: u32) -> u32 {
+        let mut c = clobbers;
+        let mut mask = 0u32;
+        while c != 0 {
+            let bit = c.trailing_zeros() as usize;
+            mask |= self.clobber_rank_mask[bit];
+            c &= c - 1;
+        }
+        mask
+    }
+}
+
+
+pub(super) const REGS: RegFile = RegFile::new(31, 30, 16, RegBank::new(0x0000_FF00,
+    [
+        16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, // d16-d31 (caller saved)
+         8,  9, 10, 11, 12, 13, 14, 15,                                 // d8-d16 (callee saved)
+         0,  1,  2,  3,  4,  5,  6,  7,                                 // d0-d7 (function args)
+    ])
+);
+
 
 //-------------------------------------------------------------------------------------------------
 // Architecture details.
@@ -18,81 +195,25 @@ pub(super) enum Unit {
     FP14,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(super) enum AddressingMode {
-    None,
-    Pre,
-    Post,
-    Offset,
-}
-
-pub(super) const STACK_REG: u8 = 31;
-pub(super) const LINK_REG: u8 = 30;
-pub(super) const CALLEE_SAVED_REGS: u32 = 0x0000_FF00;
-
-/// The order in which we want to allocate registers.
-pub(super) const REG_ORDER: [u8; 32] = [
-    16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,     // d16-d31
-     8,  9, 10, 11, 12, 13, 14, 15,                                     // d8-d16 (callee saved)
-     0,  1,  2,  3,  4,  5,  6,  7,                                     // d0-d7
-];
-
-
-#[allow(clippy::cast_possible_truncation)]
-pub(super) const REG_INDEX: [u8; 32] = {
-    let mut t = [255u8; 32];
-    let mut i = 0;
-    while i < REG_ORDER.len() {
-        t[REG_ORDER[i] as usize] = i as u8;
-        i += 1;
-    }
-    t
-};
-
-
-// For each real register dN, make a mask of the appropriate bit in REG_ORDER.
-// `for` and iterators aren't allowed in const blocks, hence the weird while loop.
-const CLOBBER_MASK: [u32; 32] = {
-    let mut t = [0u32; 32];
-    let mut i = 0;
-    while i < 32 {
-        t[i] = 1 << REG_INDEX[i];
-        i += 1;
-    }
-    t
-};
-
-
-// Convert a mask in real registers to a mask in register order
-pub(super) fn real_reg_to_ordered_reg_mask(clobbers: u32) -> u32 {
-    let mut c = clobbers;
-    let mut mask = 0u32;
-    while c != 0 {
-        let bit = c.trailing_zeros() as usize;
-        mask |= CLOBBER_MASK[bit];
-        c &= c - 1;
-    }
-    mask
-}
-
 
 //-------------------------------------------------------------------------------------------------
 // Instruction encoding structures and macros.
 
 #[derive(Debug)]
 pub(super) struct Code {
-    mnemonic:                   &'static str,
     pub(super) encode:          fn(&[u32]) -> u32,
     pub(super) latency:         u8,
     has_output:                 bool,
     units:                      EnumSet<Unit>,
 
+    #[cfg(any(feature = "dogfood", test))]
+    mnemonic:                   &'static str,
+    #[cfg(feature = "dogfood")]
     pub(super) format:          fn(&[i32], i32) -> String,
 }
 
 
 impl Code {
-    pub fn mnemonic(&self) -> &str      { self.mnemonic }
     pub fn has_output(&self) -> bool    { self.has_output }
     pub fn clobbers(&self) -> u32       { if self.save_link_reg() { 0xFFFF_00FF} else { 0 }}
     pub fn restore_regs(&self) -> bool  { std::ptr::eq(self, &raw const ret) }
@@ -102,83 +223,9 @@ impl Code {
     pub fn try_pick_unit(&self, free_units: EnumSet<Unit>) -> Option<Unit> {
         (self.units & free_units).iter().next()
     }
-}
 
-
-fn format_operands(
-    addressing_mode:    AddressingMode,
-    operands:           &[i32],
-    address:            i32,
-    formatters:         &[fn(i32, i32, AddressingMode) -> String]
-) -> String {
-    debug_assert_eq!(operands.len(), formatters.len());
-    formatters.iter().zip(operands)
-        .map(|(f, &v)| f(v, address, addressing_mode))
-        .fold(String::new(), |mut acc, piece| {
-            if !acc.is_empty() && !piece.starts_with(']') {
-                acc.push_str(", ");
-            }
-            acc.push_str(&piece);
-            acc
-        })
-}
-
-macro_rules! format_operand {
-    (dd)    => { format_d_reg };
-    (dn)    => { format_d_reg };
-    (dm)    => { format_d_reg };
-    (da)    => { format_d_reg };
-    (dt)    => { format_d_reg };
-    (dt1)   => { format_d_reg };
-    (dt2)   => { format_d_reg };
-    (xd)    => { format_x_reg };
-    (xn)    => { format_xn };
-    (xm)    => { format_x_reg };
-    (xa)    => { format_x_reg };
-    (xt)    => { format_x_reg };
-    (xt1)   => { format_x_reg };
-    (xt2)   => { format_x_reg };
-    (imm7)  => { format_imm };
-    (imm9)  => { format_imm };
-    (imm12) => { format_imm12 };
-    (imm19) => { format_address };
-    (imm26) => { format_address };
-}
-
-
-fn format_xn(n: i32, _address: i32, mode: AddressingMode) -> String {
-    let reg = x_reg(n);
-    match mode {
-        AddressingMode::Pre | AddressingMode::Offset => format!("[{reg}"),
-        AddressingMode::Post => format!("[{reg}]"),
-        AddressingMode::None => reg
-    }
-}
-fn format_d_reg(n: i32, _address: i32, _mode: AddressingMode) -> String { format!("d{n}") }
-fn format_x_reg(n: i32, _address: i32, _mode: AddressingMode) -> String  { x_reg(n) }
-fn format_address(n: i32, address: i32, _mode: AddressingMode) -> String  { format!("#{:#x}", address + n) }
-fn format_imm(n: i32, _address: i32, mode: AddressingMode) -> String
-{
-    let offset = if n > -10 && n < 10 { format!("#{n}")}
-        else if n < 0 { format!("#-{:#x}", -n) }
-        else { format!("#{n:#x}") };
-    match mode {
-        AddressingMode::Pre => format!("{offset}]!"),
-        _ => offset
-    }
-}
-fn format_imm12(n: i32, _address: i32, _mode: AddressingMode) -> String {
-    if n == 0                   { "]".to_string() }
-    else if n > -10 && n < 10   { format!("#{n}]")}
-    else if n < 0               { format!("#-{:#x}]", -n) }
-    else                        { format!("#{n:#x}]") }
-}
-
-fn x_reg(n: i32) -> String {
-    match n {
-        31 => "sp".into(),
-        n  => format!("x{n}"),
-    }
+    #[cfg(any(feature = "dogfood", test))]
+    pub fn mnemonic(&self) -> &str      { self.mnemonic }
 }
 
 
@@ -205,13 +252,19 @@ macro_rules! reg {
 }
 
 macro_rules! output_reg {
-    (dd) => { true };
-    (dt) => { true };
-    (dt1) => { true };
-    (xd) => { true };
-    (xt) => { true };
-    (xt1) => { true };
+    (dd)    => { true };
+    (dt)    => { true };
+    (dt1)   => { true };
+    (xd)    => { true };
+    (xt)    => { true };
+    (xt1)   => { true };
     ($other:tt) => { false };
+}
+
+macro_rules! has_output {
+    (str, $($reg:ident),*)  => { false };
+    (stp, $($reg:ident),*)  => { false };
+    ($mnemonic:ident, $($reg:ident),*) => { $( output_reg!($reg) ||)* false };
 }
 
 // Cover the instruction operand patterns to try to figure out the addressing mode (if there is one)
@@ -239,12 +292,12 @@ macro_rules! code {
 
 // Try to figure out if our destination is a x or d register.
 macro_rules! find_reg_bank {
-    (xd, $($rest:tt)*) => { _code!(@reg_bank:_x, $($rest)*); };
-    (xt, $($rest:tt)*) => { _code!(@reg_bank:_x, $($rest)*); };
-    (xt1, $($rest:tt)*) => { _code!(@reg_bank:_x, $($rest)*); };
-    (dd, $($rest:tt)*) => { _code!(@reg_bank:_d, $($rest)*); };
-    (dt, $($rest:tt)*) => { _code!(@reg_bank:_d, $($rest)*); };
-    (dt1, $($rest:tt)*) => { _code!(@reg_bank:_d, $($rest)*); };
+    (xd,    $($rest:tt)*)   => { _code!(@reg_bank:_x, $($rest)*); };
+    (xt,    $($rest:tt)*)   => { _code!(@reg_bank:_x, $($rest)*); };
+    (xt1,   $($rest:tt)*)   => { _code!(@reg_bank:_x, $($rest)*); };
+    (dd,    $($rest:tt)*)   => { _code!(@reg_bank:_d, $($rest)*); };
+    (dt,    $($rest:tt)*)   => { _code!(@reg_bank:_d, $($rest)*); };
+    (dt1,   $($rest:tt)*)   => { _code!(@reg_bank:_d, $($rest)*); };
     ($other:ident, $($rest:tt)*) => { _code!($($rest)*); };
 }
 
@@ -261,8 +314,7 @@ macro_rules! _code {
         $pattern:literal
     ) => {
         paste!(pub(super) static [<$mnemonic $($reg_bank)? $($mode_suffix)?>]: Code = Code {
-            mnemonic:           stringify!($mnemonic),
-            has_output:         $( output_reg!($reg) ||)* false,
+            has_output:         $( has_output!($mnemonic, $reg) ||)* false,
             latency:            $latency,
             units:              enum_set!($(Unit::$unit)|*),
             encode: |operands: &[u32]| -> u32 {
@@ -270,6 +322,10 @@ macro_rules! _code {
                 let mut _it = operands.iter().copied();
                 $pattern $(| reg!($reg, _it.next().unwrap()))*
             },
+
+            #[cfg(any(feature = "dogfood", test))]
+            mnemonic:           stringify!($mnemonic),
+            #[cfg(feature = "dogfood")]
             format: |operands, address|
                 format_operands(AddressingMode::$addressing_mode, operands, address, &[$(format_operand!($reg)),*]),
             };);
@@ -310,5 +366,96 @@ code!(stp dt1, dt2, [xn, #imm7]!    => 10, [LS8 | L9 | L10],            0b01_101
 code!(bl imm26                      =>  1, [LS8 | L9 | L10],            0b1_00_101_00000000000000000000000000);
 code!(blr xn                        =>  1, [LS8 | L9 | L10],            0b110_101_1_0_0_01_11111_0000_0_0_00000_00000);
 code!(ret                           =>  1, [LS8 | L9 | L10],            0xD65F_03C0);
+
+//-------------------------------------------------------------------------------------------------
+
+#[cfg(feature = "dogfood")]
+mod display {
+    #[derive(Debug, Clone, Copy)]
+    pub(super) enum AddressingMode {
+        None,
+        Pre,
+        Post,
+        Offset,
+    }
+
+    pub(super) fn format_operands(
+        addressing_mode:    AddressingMode,
+        operands:           &[i32],
+        address:            i32,
+        formatters:         &[fn(i32, i32, AddressingMode) -> String]
+    ) -> String {
+        debug_assert_eq!(operands.len(), formatters.len());
+        formatters.iter().zip(operands)
+            .map(|(f, &v)| f(v, address, addressing_mode))
+            .fold(String::new(), |mut acc, piece| {
+                if !acc.is_empty() && !piece.starts_with(']') {
+                    acc.push_str(", ");
+                }
+                acc.push_str(&piece);
+                acc
+            })
+    }
+
+    macro_rules! format_operand {
+        (dd)    => { format_d_reg };
+        (dn)    => { format_d_reg };
+        (dm)    => { format_d_reg };
+        (da)    => { format_d_reg };
+        (dt)    => { format_d_reg };
+        (dt1)   => { format_d_reg };
+        (dt2)   => { format_d_reg };
+        (xd)    => { format_x_reg };
+        (xn)    => { format_xn };
+        (xm)    => { format_x_reg };
+        (xa)    => { format_x_reg };
+        (xt)    => { format_x_reg };
+        (xt1)   => { format_x_reg };
+        (xt2)   => { format_x_reg };
+        (imm7)  => { format_imm };
+        (imm9)  => { format_imm };
+        (imm12) => { format_imm12 };
+        (imm19) => { format_address };
+        (imm26) => { format_address };
+    }
+    pub(super) use format_operand;
+
+
+    pub(super) fn format_xn(n: i32, _address: i32, mode: AddressingMode) -> String {
+        let reg = x_reg(n);
+        match mode {
+            AddressingMode::Pre | AddressingMode::Offset => format!("[{reg}"),
+            AddressingMode::Post => format!("[{reg}]"),
+            AddressingMode::None => reg
+        }
+    }
+    pub(super) fn format_d_reg(n: i32, _address: i32, _mode: AddressingMode) -> String { format!("d{n}") }
+    pub(super) fn format_x_reg(n: i32, _address: i32, _mode: AddressingMode) -> String  { x_reg(n) }
+    pub(super) fn format_address(n: i32, address: i32, _mode: AddressingMode) -> String  { format!("#{:#x}", address + n) }
+    pub(super) fn format_imm(n: i32, _address: i32, mode: AddressingMode) -> String
+    {
+        let offset = if n > -10 && n < 10 { format!("#{n}")}
+            else if n < 0 { format!("#-{:#x}", -n) }
+            else { format!("#{n:#x}") };
+        match mode {
+            AddressingMode::Pre => format!("{offset}]!"),
+            _ => offset
+        }
+    }
+    pub(super) fn format_imm12(n: i32, _address: i32, _mode: AddressingMode) -> String {
+        if n == 0                   { "]".to_string() }
+        else if n > -10 && n < 10   { format!("#{n}]")}
+        else if n < 0               { format!("#-{:#x}]", -n) }
+        else                        { format!("#{n:#x}]") }
+    }
+
+    pub(super) fn x_reg(n: i32) -> String {
+        match n {
+            31 => "sp".into(),
+            n  => format!("x{n}"),
+        }
+    }
+}
+
 
 //-------------------------------------------------------------------------------------------------

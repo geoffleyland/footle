@@ -6,18 +6,37 @@ TEST_FILE=test-cases/arguments/operators.txt
 case $1 in
 
     test)
-        RUST_BACKTRACE=1 cargo test && cargo run -- -t ${2:-$TEST_DIR} && cargo clippy
+        RUST_BACKTRACE=1 \
+            cargo test \
+            && cargo run --features dogfood -- -t ${2:-$TEST_DIR} \
+            && cargo clippy \
+            && cargo clippy --features dogfood \
+            && cargo clippy --tests \
+            && cargo clippy --features dogfood --tests
         ;;
 
     watch)
         case $2 in
 
             test)
-                RUST_BACKTRACE=1 watchexec -w src -w ${3:-$TEST_DIR} -w Cargo.toml -c -- "cargo test && cargo run -q -- --test ${3:-$TEST_DIR} && cargo clippy --tests"
+                RUST_BACKTRACE=1 watchexec -w src -w ${3:-$TEST_DIR} -w Cargo.toml -c -- "\
+                    cargo test \
+                    && cargo run -q --features dogfood -- --test ${3:-$TEST_DIR} \
+                    && cargo clippy \
+                    && cargo clippy --features dogfood \
+                    && cargo clippy --tests \
+                    && cargo clippy --features dogfood --tests \
+                    "
+                ;;
+
+            verbose)
+                RUST_BACKTRACE=1 watchexec -w src -w ${3:-$TEST_FILE} -w Cargo.toml -c -- cargo run -q --features dogfood -- -v ${3:-$TEST_FILE}
                 ;;
 
             **)
-                RUST_BACKTRACE=1 watchexec -w src -w ${2:-$TEST_FILE} -w Cargo.toml -c -- cargo run -q -- ${2:-$TEST_FILE}
+                F=$2
+                shift 2
+                RUST_BACKTRACE=1 watchexec -w src -w ${F:-$TEST_FILE} -w Cargo.toml -c -- cargo run -q -- ${F:-$TEST_FILE} $@
                 ;;
 
         esac

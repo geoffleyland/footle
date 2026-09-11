@@ -1,7 +1,9 @@
-use std::cmp::{max, min};
-use std::fmt::{Formatter, Result, Display};
+use std::fmt::{Formatter, Result};
 
-use super::source::{Span, Source, SourceMap};
+use super::source::Span;
+
+#[cfg(feature = "dogfood")]
+use display::Styled;
 
 
 //-------------------------------------------------------------------------------------------------
@@ -9,25 +11,13 @@ use super::source::{Span, Source, SourceMap};
 pub trait Styleable {
     fn write<S: LineStyle>(&self, f: &mut Formatter, indent: u16, style: &S) -> Result;
 
+    #[cfg(feature = "dogfood")]
     fn styled<'a, S: LineStyle>(&'a self, indent: u16, style: &'a S) -> Styled<'a, Self, S> {
         Styled { item: self, indent, style }
     }
 
     fn fmt_styled(&self, f: &mut Formatter) -> Result {
         self.write(f, 0, &IndentedStyle::new(2))
-    }
-}
-
-
-pub struct Styled<'a, S: Styleable + ?Sized, LS: LineStyle> {
-    item:                   &'a S,
-    indent:                 u16,
-    style:                  &'a LS,
-}
-
-impl<S: Styleable, LS: LineStyle> Display for Styled<'_, S, LS> {
-    fn fmt(&self, f: &mut Formatter) -> Result {
-        self.item.write(f, self.indent, self.style)
     }
 }
 
@@ -62,43 +52,68 @@ impl LineStyle for IndentedStyle {
 
 //-------------------------------------------------------------------------------------------------
 
-pub struct SourceStyle<'a, S: Source> {
-    tab:                    u16,
-    width:                  u16,
-    highlight:              bool,
-    map:                    &'a SourceMap<S>,
-}
+#[cfg(feature = "dogfood")]
+mod display {
+    use std::cmp::{max, min};
+    use std::fmt;
+    use super::*;
+    use crate::core::source::{Source, SourceMap};
 
 
-impl <'a, S: Source> SourceStyle<'a, S> {
-    pub fn new(tab: u16, width: u16, highlight: bool, map: &'a SourceMap<S>) -> Self {
-        Self{tab, width, highlight, map}
+    pub struct Styled<'a, S: Styleable + ?Sized, LS: LineStyle> {
+        pub(super) item:        &'a S,
+        pub(super) indent:      u16,
+        pub(super) style:       &'a LS,
     }
-}
+
+    impl<S: Styleable, LS: LineStyle> fmt::Display for Styled<'_, S, LS> {
+        fn fmt(&self, f: &mut Formatter) -> Result {
+            self.item.write(f, self.indent, self.style)
+        }
+    }
 
 
-impl<S: Source> LineStyle for SourceStyle<'_, S> {
-    fn write(&self, f: &mut Formatter, indent: u16, span: Option<Span>, line: &str) -> Result {
-        let (yellow, stop) = ("\x1b[1;33m", "\x1b[0m");
+    pub struct SourceStyle<'a, S: Source> {
+        tab:                    u16,
+        width:                  u16,
+        highlight:              bool,
+        map:                    &'a SourceMap<S>,
+    }
 
-        let width = self.width as usize;
-        let indented_line = format!("{}{line}", " ".repeat((indent * self.tab) as usize));
 
-        if let Some(span) = span {
-            let (_, line_span) = self.map.line_span_from_span(span);
-            let source_line = self.map.span(line_span);
-            write!(f, "{indented_line:width$} # {source_line}")?;
-            if self.highlight {
-                write!(f, "\n{} # {}{yellow}{}{stop}",
-                    " ".repeat(width),
-                    " ".repeat(span.start() - line_span.start()),
-                    "^".repeat(max(1, min(span.len(), line_span.end() - span.start()))))
-            } else { Ok(() )}
-        } else {
-            write!(f, "{indented_line:width$}")
+    impl <'a, S: Source> SourceStyle<'a, S> {
+        pub fn new(tab: u16, width: u16, highlight: bool, map: &'a SourceMap<S>) -> Self {
+            Self{tab, width, highlight, map}
+        }
+    }
+
+
+    impl<S: Source> LineStyle for SourceStyle<'_, S> {
+        fn write(&self, f: &mut Formatter, indent: u16, span: Option<Span>, line: &str) -> Result {
+            let (yellow, stop) = ("\x1b[1;33m", "\x1b[0m");
+
+            let width = self.width as usize;
+            let indented_line = format!("{}{line}", " ".repeat((indent * self.tab) as usize));
+
+            if let Some(span) = span {
+                let (_, line_span) = self.map.line_span_from_span(span);
+                let source_line = self.map.span(line_span);
+                write!(f, "{indented_line:width$} # {source_line}")?;
+                if self.highlight {
+                    write!(f, "\n{} # {}{yellow}{}{stop}",
+                        " ".repeat(width),
+                        " ".repeat(span.start() - line_span.start()),
+                        "^".repeat(max(1, min(span.len(), line_span.end() - span.start()))))
+                } else { Ok(() )}
+            } else {
+                write!(f, "{indented_line:width$}")
+            }
         }
     }
 }
+
+#[cfg(feature = "dogfood")]
+pub use display::SourceStyle;
 
 
 //-------------------------------------------------------------------------------------------------

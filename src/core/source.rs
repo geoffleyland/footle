@@ -16,13 +16,15 @@ impl Span {
     #[cfg(test)]
     pub const fn new(start: usize, end: usize) -> Self { Self { start, end } }
     pub const fn start(&self) -> usize { self.start }
-    pub const fn end(self) -> usize { self.end }
     pub const fn len(&self) -> usize { self.end - self.start }
     pub const fn first(&self) -> Self { Self { start: self.start, end: self.start } }
     pub fn union(&self, other: &Self) -> Self {
         Self { start: self.start.min(other.start), end: self.end.max(other.end) }
     }
     const fn offset_from(&self, other: &Self) -> usize { self.start.saturating_sub(other.start) }
+
+    #[cfg(any(feature = "dogfood", test))]
+    pub const fn end(self) -> usize { self.end }
 }
 
 
@@ -134,10 +136,12 @@ impl<S: Source> SourceMap<S> {
         SpanToShow { map: self, span: span.into(), colour }
     }
 
+    #[cfg(feature = "dogfood")]
     pub fn line_span_from_span(&self, span: Span) -> (usize, Span) {
         self.map.line_span_from_span(span)
     }
 
+    #[cfg(feature = "dogfood")]
     pub fn span(&self, span: Span) -> &str {
         self.source.span(span)
     }

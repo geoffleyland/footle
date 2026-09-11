@@ -1,15 +1,15 @@
-use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::collections::HashSet;
 
 use crate::env::{Env, FunctionDef};
-use crate::core::{BinaryOperator, ParseError, Span, Styleable, LineStyle};
+use crate::core::{BinaryOperator, ParseError};
 use crate::{ast, vir, nev};
-use crate::lex::Token;
 use super::symbol_table::{AssignmentError, SymbolTable};
 use super::expr_pool::ExprPool;
 use super::expr::ExprKind;
 use super::operators::fold_constants;
 use crate::parse_error;
+use crate::core::Span;
 
 
 //-------------------------------------------------------------------------------------------------
@@ -31,9 +31,9 @@ pub fn run(env: &Env, stmts: &[ast::Stmt]) -> (Block, Vec<ParseError>) {
 //-------------------------------------------------------------------------------------------------
 
 pub struct Block {
-    pub argument_count:     usize,
     pub instrs:             Vec<vir::Expr>,
     pub return_values:      Vec<vir::Expr>,
+    #[cfg(any(feature = "dogfood", test))]
     pub return_span:        Span,
 }
 
@@ -68,7 +68,11 @@ impl Pass {
         match &stmt.kind {
             ast::StmtKind::Arguments(names) => {
                 for (name, span) in names {
-                    let expr = self.exprs.argument(self.arguments.len(), name, *span);
+                    #[cfg(any(feature = "dogfood", test))]
+                    let expr = self.exprs.argument(self.arguments.len(), *span, name);
+                    #[cfg(not(any(feature = "dogfood", test)))]
+                    let expr = self.exprs.argument(self.arguments.len(), *span);
+
                     self.symbols.insert(false, name, *span, nev![expr.clone()]);
                     self.arguments.push(expr);
                 }
@@ -78,7 +82,10 @@ impl Pass {
                     .map(|expr| self.transform_expr(env, expr).ok())
                     .collect::<Option<Vec<_>>>();
                 if let Some(exprs) = maybe_exprs {
-                    self.stmts.push(vir::Stmt::return_stmt(exprs.try_into().unwrap(), stmt.span));
+                    self.stmts.push(vir::Stmt::return_stmt(exprs.try_into().unwrap(),
+                        #[cfg(any(feature = "dogfood", test))]
+                        stmt.span
+                    ));
                 }
             }
             ast::StmtKind::Assignment(assignment) => {
@@ -176,7 +183,6 @@ impl Pass {
                     .map(|e| self.transform_expr(env, e).ok())
                     .collect::<Option<Vec<_>>>()
                     .ok_or(())?;
-                // Ok(self.exprs.call(name, exprs.ok_or(())?, *expr.span()))
                 Ok(self.exprs.intern(fold_call(name, def, exprs), *expr.span()))
             }
         }
@@ -186,9 +192,9 @@ impl Pass {
         let mut instrs = vec![];
         let mut emitted = HashSet::<usize>::new();
 
-        for expr in &self.arguments {
-            emit_expr(expr, &mut instrs, &mut emitted);
-        }
+        for expr in &self.arguments { emit_expr(expr, &mut instrs, &mut emitted); }
+
+        #[cfg(any(feature = "dogfood", test))]
         let (return_values, return_span) = match self.stmts.last() {
             Some(vir::Stmt{ span, kind: vir::StmtKind::Return(exprs)}) => {
                 for expr in exprs { emit_expr(expr, &mut instrs, &mut emitted); }
@@ -196,7 +202,18 @@ impl Pass {
             }
             _ => (vec![], Span::from((0, 0))),
         };
-        Block { instrs, return_values, return_span, argument_count: self.arguments.len() }
+        #[cfg(not(any(feature = "dogfood", test)))]
+        let return_values = match self.stmts.last() {
+            Some(vir::Stmt{ kind: vir::StmtKind::Return(exprs), .. }) => {
+                for expr in exprs { emit_expr(expr, &mut instrs, &mut emitted); }
+                exprs.to_vec()
+            }
+            _ => vec![],
+        };
+        Block { instrs, return_values,
+            #[cfg(any(feature = "dogfood", test))]
+            return_span
+        }
     }
 
 
@@ -488,33 +505,41 @@ impl Typer {
 //-------------------------------------------------------------------------------------------------
 // Text output support
 
-impl Styleable for Block {
-    fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
-        let mut address_map = HashMap::<usize, usize>::new();
-        for (address, expr) in self.instrs.iter().enumerate() {
-            use ExprKind::*;
-            address_map.insert(expr.pool_index(), address);
-            let line = match &expr.kind() {
-                Argument(..)                    => format!("{} I{address}", Token::Argument),
-                Number(value)                   => format!("{} I{address} = {value}", Token::Local),
-                Bool(value)                     => format!("{} I{address} = {value}", Token::Local),
-                Binary(op, lhs, rhs)            => format!("{} I{address} = I{} {op} I{}",
-                    Token::Local, address_map[&lhs.pool_index()], address_map[&rhs.pool_index()]),
-                Call(name, exprs)               => format!("{} I{address} = {name}({})", Token::Local,
-                    exprs.iter().map(|e| format!("I{}", address_map[&e.pool_index()])).collect::<Vec<_>>().join(", ")),
-            };
-            writer.writeln(f, indent, Some(*expr.span()), &line)?;
+#[cfg(any(feature = "dogfood", test))]
+mod display {
+    use std::collections::HashMap;
+    use super::*;
+    use crate::lex::Token;
+    use crate::core::{Styleable, LineStyle};
+
+    impl Styleable for Block {
+        fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
+            let mut address_map = HashMap::<usize, usize>::new();
+            for (address, expr) in self.instrs.iter().enumerate() {
+                use ExprKind::*;
+                address_map.insert(expr.pool_index(), address);
+                let line = match &expr.kind() {
+                    Argument(..)                    => format!("{} I{address}", Token::Argument),
+                    Number(value)                   => format!("{} I{address} = {value}", Token::Local),
+                    Bool(value)                     => format!("{} I{address} = {value}", Token::Local),
+                    Binary(op, lhs, rhs)            => format!("{} I{address} = I{} {op} I{}",
+                        Token::Local, address_map[&lhs.pool_index()], address_map[&rhs.pool_index()]),
+                    Call(name, exprs)               => format!("{} I{address} = {name}({})", Token::Local,
+                        exprs.iter().map(|e| format!("I{}", address_map[&e.pool_index()])).collect::<Vec<_>>().join(", ")),
+                };
+                writer.writeln(f, indent, Some(*expr.span()), &line)?;
+            }
+            let line = format!("{} {}", Token::Return,
+                self.return_values.iter().map(|e| format!("I{}", address_map[&e.pool_index()])).collect::<Vec<_>>().join(", "));
+            writer.write(f, indent, Some(self.return_span), &line)
         }
-        let line = format!("{} {}", Token::Return,
-            self.return_values.iter().map(|e| format!("I{}", address_map[&e.pool_index()])).collect::<Vec<_>>().join(", "));
-        writer.write(f, indent, Some(self.return_span), &line)
     }
-}
 
 
-impl std::fmt::Display for Block {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.fmt_styled(f)
+    impl std::fmt::Display for Block {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            self.fmt_styled(f)
+        }
     }
 }
 
