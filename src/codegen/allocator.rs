@@ -100,7 +100,7 @@ fn lower_to_slots_and_split(
         fixed_reg_slots[slot] = Some(slot);
     }
 
-    let mut slot_count = arguments.len();
+    let mut new_slot_count = arguments.len();
     let mut new_schedule = vec![];
 
     for (i, value) in scheduled.iter().enumerate() {
@@ -124,9 +124,9 @@ fn lower_to_slots_and_split(
             for (reg, maybe_slot) in fixed_reg_slots.iter_mut().enumerate() {
                 if let Some(slot) = *maybe_slot && (c.clobber_mask() >> reg) & 1 != 0 {
                     if  retirements[slot] > i {
-                        slot_moves.push((slot_map[slot], slot_count));
-                        slot_map[slot] = slot_count;
-                        slot_count += 1;
+                        slot_moves.push((slot_map[slot], new_slot_count));
+                        slot_map[slot] = new_slot_count;
+                        new_slot_count += 1;
                     }
                     *maybe_slot = None;
                 }
@@ -140,16 +140,16 @@ fn lower_to_slots_and_split(
         let code = value.code().expect("internal compiler error: expected an excutable instruction");
         new_schedule.push(SlotInstr{
             operands, code, slot_moves, fixed_inputs,
-            slot:                           slot_count,
+            slot:                           new_slot_count,
             fixed_output:                   value.fixed_output,
 
             #[cfg(feature = "dogfood")]
             span:                           value.span,
         });
-        slot_map[value.slot] = slot_count;
-        slot_count += 1;
+        slot_map[value.slot] = new_slot_count;
+        new_slot_count += 1;
     }
-    (new_schedule, slot_count)
+    (new_schedule, new_slot_count)
 }
 
 
