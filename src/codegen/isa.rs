@@ -6,20 +6,6 @@ use paste::paste;
 #[cfg(feature = "dogfood")]
 use display::*;
 
-//-------------------------------------------------------------------------------------------------
-
-pub(super) fn bit_indices(mut bits: u32) -> impl Iterator<Item = usize> {
-    std::iter::from_fn(move || {
-        (bits != 0).then(|| {
-            let i = bits.trailing_zeros() as usize;
-            // believe it or not, this erases the rightmost 1 bit and keeps all the zeros to the
-            // right of it at zero, so we move on to the next bit.
-            bits &= bits - 1;
-            i
-        })
-    })
-}
-
 
 //-------------------------------------------------------------------------------------------------
 // Not really architecture specific stuff (maybe it'll move if we ever get to a second arch)

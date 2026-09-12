@@ -6,7 +6,7 @@ use bit_set::BitSet;
 use super::scheduler::Value;
 use super::scheduler;
 use super::isa;
-use super::isa::{REGS, D_BANK, MachineReg, bit_indices};
+use super::isa::{REGS, D_BANK, MachineReg};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -106,7 +106,7 @@ fn lower_to_slots_and_split(
     for (i, value) in scheduled.iter().enumerate() {
         let operands = value.operands.iter().map(|op|
             match op {
-                scheduler::Operand::Constant(i)             => SlotOperand::Constant(*i),
+                scheduler::Operand::Constant(c)             => SlotOperand::Constant(*c),
                 scheduler::Operand::Value(v)                => SlotOperand::Slot(slot_map[v.slot]),
                 scheduler::Operand::Function(s)             => SlotOperand::Function(s.clone()),
             }).collect();
@@ -121,15 +121,18 @@ fn lower_to_slots_and_split(
         // we need to move them.
         let mut slot_moves: Vec<(usize, usize)> = vec![];
         if let Some(c) = value.code() && c.clobbers() {
-            for reg in bit_indices(c.clobber_mask()) {
-                if let Some(slot) =  fixed_reg_slots[reg] && retirements[slot] > i {
-                    slot_moves.push((slot_map[slot], slot_count));
-                    slot_map[slot] = slot_count;
-                    slot_count += 1;
+            for (reg, maybe_slot) in fixed_reg_slots.iter_mut().enumerate() {
+                if let Some(slot) = *maybe_slot && (c.clobber_mask() >> reg) & 1 != 0 {
+                    if  retirements[slot] > i {
+                        slot_moves.push((slot_map[slot], slot_count));
+                        slot_map[slot] = slot_count;
+                        slot_count += 1;
+                    }
+                    *maybe_slot = None;
                 }
             }
-            for reg in bit_indices(c.clobber_mask()) { fixed_reg_slots[reg] = None; }
         }
+
         if let Some(fixed_output) = value.fixed_output {
             fixed_reg_slots[usize::from(fixed_output)] = Some(value.slot);
         }
