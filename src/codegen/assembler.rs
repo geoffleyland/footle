@@ -92,7 +92,8 @@ fn emit_function(
     }
 
     for ai in allocated {
-        if !ai.moves.is_empty() { move_regs(&ai.moves, ai.temp_reg, instrs) }
+        let temp_reg = ai.temp_reg.expect("internal compiler error: no temp reg for moves");
+        if !ai.moves.is_empty() { move_regs(&ai.moves, temp_reg, instrs) }
 
         let operands = ai.code.has_output()
             .then(|| Operand::Reg(ai.result_reg

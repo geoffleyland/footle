@@ -159,7 +159,7 @@ fn lower_to_slots_and_split(
 struct SlotResult {
     reg:                                Option<MachineReg>,
     moves:                              Vec<(MachineReg, MachineReg)>,
-    temp_reg:                           MachineReg,
+    temp_reg:                           Option<MachineReg>,
 }
 
 
@@ -237,7 +237,12 @@ fn allocate(
 
     // Unify fixed_input moves and slot_moves and figure out which slot moves are actually between
     // registers.
+    // While we're at it, if there are slot moves, then figure out a temporary register.  The
+    // registers available for a temp are the registers available for the instruction MINUS
+    // the arguments to the instruction (which, if this is the last use of the argument are
+    // available for the function's return value, but NOT during swaps before the instruction).
     let mut moves = vec![vec![]; slot_count];
+    let mut temp_regs: Vec<Option<MachineReg>> = vec![None; slot_count];
     for instr in instrs {
         moves[instr.slot] = instr.fixed_inputs.iter()
             .map(|(slot, reg)| (regs[*slot].get().copied().unwrap(), *reg))
@@ -246,22 +251,13 @@ fn allocate(
                     (regs[*src].get().copied().unwrap(), regs[*dst].get().copied().unwrap())))
             .filter(|(source, dest)| source != dest)
             .collect();
-    }
-
-    // If an instruction needs a temporary register (for swaps *before* the instruction), the
-    // registers available for a temp are the registers available for the instruction MINUS
-    // the arguments to the instruction (which, if this is the last use of the argument are
-    // available for the function's return value, but NOT during swaps before the instruction).
-    let mut temp_reg_pool = available_ranks.clone();
-    for instr in instrs {
-        // This just says (in rank space) available regs minus the predecessors' regs.
-        temp_reg_pool[instr.slot] &=
+        if !moves.is_empty() {
+            let temp_reg_pool = available_ranks[instr.slot] &
             !instr.predecessors().fold(0,
                 |mask, p| mask | REGS.get_rank_bits(D_BANK, *regs[p].get().unwrap()));
+            temp_regs[instr.slot] = Some(REGS.best_reg(D_BANK, temp_reg_pool, None));
+        }
     }
-    let temp_regs = temp_reg_pool.iter()
-        .map(|&a| REGS.best_reg(D_BANK, a, None))
-        .collect::<Vec<_>>();
 
     regs.iter_mut().zip(temp_regs).zip(moves)
         .map(|((reg, temp_reg), moves)| SlotResult { reg: reg.take(), moves, temp_reg })
@@ -300,7 +296,7 @@ pub(super) struct Instr {
     pub(super) result_reg:              Option<MachineReg>,
     pub(super) operands:                Vec<Operand>,
     pub(super) moves:                   Vec<(MachineReg, MachineReg)>,
-    pub(super) temp_reg:                MachineReg,
+    pub(super) temp_reg:                Option<MachineReg>,
 
     #[cfg(feature = "dogfood")]
     pub(super) span:                    Span,
