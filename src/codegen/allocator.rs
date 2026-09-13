@@ -167,7 +167,6 @@ pub(super) struct Instr {
     pub(super) result_reg:              Option<MachineReg>,
     pub(super) operands:                Vec<Operand>,
     pub(super) moves:                   Vec<(MachineReg, MachineReg)>,
-    pub(super) temp_reg:                Option<MachineReg>,
 
     #[cfg(feature = "dogfood")]
     pub(super) span:                    Span,
@@ -178,7 +177,6 @@ fn allocate(
     argument_count:                     usize,
     slot_count:                         usize,
     instrs:                             &[SlotInstr],
-    //    ) -> Vec<SlotResult> {
 ) -> (Vec<Instr>, Vec<Option<MachineReg>>) {
 
     let mut regs: Vec<OnceCell<MachineReg>> = vec![OnceCell::new(); slot_count];
@@ -254,20 +252,21 @@ fn allocate(
     // the arguments to the instruction (which, if this is the last use of the argument are
     // available for the function's return value, but NOT during swaps before the instruction).
     let mut moves = vec![vec![]; slot_count];
-    let mut temp_regs: Vec<Option<MachineReg>> = vec![None; slot_count];
     for instr in instrs {
-        moves[instr.slot] = instr.fixed_inputs.iter()
+        let unordered_moves: Vec<_> = instr.fixed_inputs.iter()
             .map(|(slot, reg)| (regs[*slot].get().copied().unwrap(), *reg))
             .chain(instr.slot_moves.iter()
                 .map(|(src, dst)|
                     (regs[*src].get().copied().unwrap(), regs[*dst].get().copied().unwrap())))
             .filter(|(source, dest)| source != dest)
             .collect();
-        if !moves.is_empty() {
+
+        if !unordered_moves.is_empty() {
             let temp_reg_pool = available_ranks[instr.slot] &
             !instr.predecessors().fold(0,
                 |mask, p| mask | REGS.get_rank_bits(D_BANK, *regs[p].get().unwrap()));
-            temp_regs[instr.slot] = Some(REGS.best_reg(D_BANK, temp_reg_pool, None));
+
+            moves[instr.slot] = move_regs(&unordered_moves, temp_reg_pool);
         }
     }
 
@@ -292,7 +291,6 @@ fn allocate(
             code:                       instr.code,
             result_reg:                 regs[instr.slot],
             moves:                      moves[instr.slot].clone(),
-            temp_reg:                   temp_regs[instr.slot],
 
             #[cfg(feature = "dogfood")]
             span:                       instr.span,
@@ -315,6 +313,83 @@ fn set_reg(
     let rank_bits = REGS.get_rank_bits(D_BANK, reg);
     for interfering_slot in &interfering_slots[slot] {
         available_ranks[interfering_slot] &= !rank_bits;
+    }
+}
+
+
+/// Given a list of register moves (source, dest), move values between registers.
+///
+/// To do this correctly, you have to be careful not to overwrite values before you've read them.
+///  * If all the moves are disjoint, it's easy, just do the moves.
+///  * If there are any chains, you have to move them from the destination end to the source end
+///    (otherwise you'll write a source to a destination, and then copy that source again, rather
+///    than the over-written value, to the next destination)
+///  * If there are any cycles, you can start anywhere, and work your way backwards around the
+///    cycle, using a temp register to hold the value of the first register you write to, and then
+///    moving the temp register into the last register you read from.  If you've already moved one
+///    of the values in the cycle as part of a chain, you can save yourself the temp register.
+fn move_regs(
+    moves:                              &[(MachineReg, MachineReg)],
+    temp_reg_pool:                      u32,
+) -> Vec<(MachineReg, MachineReg)> {
+    let mut sources = [None; 32];
+    let mut destination_counts = [0u8; 32];
+    for (source, destination) in moves {
+        sources[usize::from(*destination)] = Some(*source);
+        destination_counts[usize::from(*source)] += 1;
+    }
+
+    let mut new_moves = vec![];
+    // Keep track of any copies we make of a value as we move them - they could be useful later
+    // if we have to resolve a cycle including the value, where we could avoid using a temporary
+    // register.
+    let mut copies = [None; 32];
+    // Handle all the chains by starting from their ends
+    for (_, destination) in moves {
+        if let Some(source) = sources[usize::from(*destination)] &&
+            destination_counts[usize::from(*destination)] == 0 {
+            move_regs_backwards(*destination, &mut sources, &mut destination_counts, &mut new_moves);
+            copies[usize::from(source)] = Some(*destination);
+        }
+    }
+    // All the remaining moves are cycles.  Do the ones where we've already got a copy and don't
+    // need a temp
+    for (_, destination) in moves {
+    if let Some(source) = sources[usize::from(*destination)] &&
+        let Some(copy) = copies[usize::from(source)] {
+            sources[usize::from(*destination)] = None;
+            move_regs_backwards(source, &mut sources, &mut destination_counts, &mut new_moves);
+            new_moves.push((copy, *destination));
+        }
+    }
+    // Now do the ones where there's no other copy and we need a temp.
+    if moves.iter().any(|(_, destination)| sources[usize::from(*destination)].is_some()) {
+        let temp_reg = REGS.best_reg(D_BANK, temp_reg_pool, None);
+        for (_, destination) in moves {
+            let Some(source) = sources[usize::from(*destination)] else { continue };
+            new_moves.push((source, temp_reg));
+            sources[usize::from(*destination)] = None;
+            move_regs_backwards(source, &mut sources, &mut destination_counts, &mut new_moves);
+            new_moves.push((temp_reg, *destination));
+        }
+    }
+
+    new_moves
+}
+
+
+fn move_regs_backwards(
+    mut destination:                    MachineReg,
+    sources:                            &mut[Option<MachineReg>],
+    destination_counts:                 &mut[u8],
+    new_moves:                          &mut Vec<(MachineReg, MachineReg)>) {
+    loop {
+        let Some(source) = sources[usize::from(destination)] else { return };
+        new_moves.push((source, destination));
+        sources[usize::from(destination)] = None;
+        destination_counts[usize::from(source)] -= 1;
+        if destination_counts[usize::from(source)] > 0 { return }
+        destination = source;
     }
 }
 

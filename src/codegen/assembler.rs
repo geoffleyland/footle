@@ -92,8 +92,9 @@ fn emit_function(
     }
 
     for ai in allocated {
-        let temp_reg = ai.temp_reg.expect("internal compiler error: no temp reg for moves");
-        if !ai.moves.is_empty() { move_regs(&ai.moves, temp_reg, instrs) }
+        for (source, destination) in ai.moves {
+            assemble!(instrs, fmov_d, Reg(destination), Reg(source));
+        }
 
         let operands = ai.code.has_output()
             .then(|| Operand::Reg(ai.result_reg
@@ -133,72 +134,6 @@ fn emit_function(
         if ai.code.save_link_reg() {
             assemble!(instrs, ldr_x_post, Reg(REGS.link_reg), Reg(REGS.stack_reg), Offset(16));
         }
-    }
-}
-
-
-/// Given a list of register moves (source, dest), move values between registers.
-///
-/// To do this correctly, you have to be careful not to overwrite values before you've read them.
-///  * If all the moves are disjoint, it's easy, just do the moves.
-///  * If there are any chains, you have to move them from the destination end to the source end
-///    (otherwise you'll write a source to a destination, and then copy that source again, rather
-///    than the over-written value, to the next destination)
-///  * If there are any cycles, you can start anywhere, and work your way backwards around the
-///    cycle, using a temp register to hold the value of the first register you write to, and then
-///    moving the temp register into the last register you read from.  If you've already moved one
-///    of the values in the cycle as part of a chain, you can save yourself the temp register.
-fn move_regs(moves: &[(MachineReg, MachineReg)], temp_reg: MachineReg, instrs: &mut Vec<Instr>) {
-    let mut sources = [None; 32];
-    let mut destination_counts = [0u8; 32];
-    for (source, destination) in moves {
-        sources[usize::from(*destination)] = Some(*source);
-        destination_counts[usize::from(*source)] += 1;
-    }
-
-    // Keep track of any copies we make of a value as we move them - they could be useful later
-    // if we have to resolve a cycle including the value, where we could avoid using a temporary
-    // register.
-    let mut copies = [None; 32];
-    // Handle all the chains by starting from their ends
-    for (_, destination) in moves {
-        if let Some(source) = sources[usize::from(*destination)] &&
-            destination_counts[usize::from(*destination)] == 0 {
-            move_regs_backwards(*destination, &mut sources, &mut destination_counts, instrs);
-            copies[usize::from(source)] = Some(*destination);
-        }
-    }
-
-    // All the remaining moves are cycles.  Do the ones where we've already got a copy and don't
-    // need a temp
-    for (_, destination) in moves {
-    if let Some(source) = sources[usize::from(*destination)] &&
-        let Some(copy) = copies[usize::from(source)] {
-            sources[usize::from(*destination)] = None;
-            move_regs_backwards(source, &mut sources, &mut destination_counts, instrs);
-            assemble!(instrs, fmov_d, Reg(*destination), Reg(copy));
-        }
-    }
-
-    // Now do the ones where there's no other copy and we need a temp.
-    for (_, destination) in moves {
-        let Some(source) = sources[usize::from(*destination)] else { continue };
-        assemble!(instrs, fmov_d, Reg(temp_reg), Reg(source));
-        sources[usize::from(*destination)] = None;
-        move_regs_backwards(source, &mut sources, &mut destination_counts, instrs);
-        assemble!(instrs, fmov_d, Reg(*destination), Reg(temp_reg));
-    }
-}
-
-
-fn move_regs_backwards(mut destination: MachineReg, sources: &mut[Option<MachineReg>], destination_counts: &mut[u8], instrs: &mut Vec<Instr>) {
-    loop {
-        let Some(source) = sources[usize::from(destination)] else { return };
-        assemble!(instrs, fmov_d, Reg(destination), Reg(source));
-        sources[usize::from(destination)] = None;
-        destination_counts[usize::from(source)] -= 1;
-        if destination_counts[usize::from(source)] > 0 { return }
-        destination = source;
     }
 }
 
