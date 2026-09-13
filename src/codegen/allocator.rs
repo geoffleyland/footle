@@ -21,18 +21,16 @@ pub(super) fn run(
     scheduled:                          &[&Value<'_>],
 ) -> (Vec<Instr>, Vec<MachineReg>) {
     let (lowered, slot_count) = lower_to_slots_and_split(slot_count, arguments, scheduled);
-    let slot_allocation = allocate(arguments.len(), slot_count, &lowered);
+    let (instrs, regs) = allocate(arguments.len(), slot_count, &lowered);
+
     let mut regs_to_save = BTreeSet::new();
-    for result in &slot_allocation {
-        if let Some(r) = REGS.is_callee_saved(D_BANK, result.reg) {
+    for &reg in &regs {
+        if let Some(r) = REGS.is_callee_saved(D_BANK, reg) {
             regs_to_save.insert(r);
         }
     }
-    let regs_to_save: Vec<_> = regs_to_save.into_iter().collect();
-    (
-        lower_to_regs(&lowered, &slot_allocation),
-        regs_to_save
-    )
+
+    (instrs, regs_to_save.into_iter().collect())
 }
 
 
@@ -156,18 +154,33 @@ fn lower_to_slots_and_split(
 //-------------------------------------------------------------------------------------------------
 // Register Allocation
 
-struct SlotResult {
-    reg:                                Option<MachineReg>,
-    moves:                              Vec<(MachineReg, MachineReg)>,
-    temp_reg:                           Option<MachineReg>,
+#[derive(Debug)]
+pub(super) enum Operand {
+    Constant(usize),
+    Function(String),
+    Reg(MachineReg),
+}
+
+#[derive(Debug)]
+pub(super) struct Instr {
+    pub(super) code:                    &'static isa::Code,
+    pub(super) result_reg:              Option<MachineReg>,
+    pub(super) operands:                Vec<Operand>,
+    pub(super) moves:                   Vec<(MachineReg, MachineReg)>,
+    pub(super) temp_reg:                Option<MachineReg>,
+
+    #[cfg(feature = "dogfood")]
+    pub(super) span:                    Span,
 }
 
 
 fn allocate(
     argument_count:                     usize,
     slot_count:                         usize,
-    instrs:                             &[SlotInstr]
-) -> Vec<SlotResult> {
+    instrs:                             &[SlotInstr],
+    //    ) -> Vec<SlotResult> {
+) -> (Vec<Instr>, Vec<Option<MachineReg>>) {
+
     let mut regs: Vec<OnceCell<MachineReg>> = vec![OnceCell::new(); slot_count];
 
     // Find which slots interfere with which, and which are live across calls.
@@ -234,7 +247,6 @@ fn allocate(
         }
     }
 
-
     // Unify fixed_input moves and slot_moves and figure out which slot moves are actually between
     // registers.
     // While we're at it, if there are slot moves, then figure out a temporary register.  The
@@ -259,9 +271,36 @@ fn allocate(
         }
     }
 
-    regs.iter_mut().zip(temp_regs).zip(moves)
-        .map(|((reg, temp_reg), moves)| SlotResult { reg: reg.take(), moves, temp_reg })
-        .collect()
+    // Collect all the registers from the OnceCells into a Vec<Option<MachineReg>>
+    let regs: Vec<_> = regs.iter_mut().map(OnceCell::take).collect();
+
+    let instrs = instrs.iter().map(|instr| {
+        let mut operands = vec![];
+        for op in &instr.operands {
+            match op {
+                SlotOperand::Constant(i)    => operands.push(Operand::Constant(*i)),
+                SlotOperand::Function(name) => operands.push(Operand::Function(name.clone())),
+                SlotOperand::Slot(s)        => {
+                    operands.push(Operand::Reg(regs[*s]
+                        .expect("internal compiler error: no register assigned for slot")));
+                }
+            }
+        }
+
+        Instr{
+            operands,
+            code:                       instr.code,
+            result_reg:                 regs[instr.slot],
+            moves:                      moves[instr.slot].clone(),
+            temp_reg:                   temp_regs[instr.slot],
+
+            #[cfg(feature = "dogfood")]
+            span:                       instr.span,
+        }
+    })
+    .collect();
+
+    (instrs, regs)
 }
 
 
@@ -277,62 +316,6 @@ fn set_reg(
     for interfering_slot in &interfering_slots[slot] {
         available_ranks[interfering_slot] &= !rank_bits;
     }
-}
-
-
-//-------------------------------------------------------------------------------------------------
-// Lower SlotIntrs to allocator::Instrs
-
-#[derive(Debug)]
-pub(super) enum Operand {
-    Constant(usize),
-    Function(String),
-    Reg(MachineReg),
-}
-
-#[derive(Debug)]
-pub(super) struct Instr {
-    pub(super) code:                    &'static isa::Code,
-    pub(super) result_reg:              Option<MachineReg>,
-    pub(super) operands:                Vec<Operand>,
-    pub(super) moves:                   Vec<(MachineReg, MachineReg)>,
-    pub(super) temp_reg:                Option<MachineReg>,
-
-    #[cfg(feature = "dogfood")]
-    pub(super) span:                    Span,
-}
-
-
-fn lower_to_regs(
-    instrs:                             &[SlotInstr],
-    slot_allocations:                   &[SlotResult],
-) -> Vec<Instr> {
-    instrs.iter().map(|instr| {
-        let mut operands = vec![];
-        for op in &instr.operands {
-            match op {
-                SlotOperand::Constant(i)    => operands.push(Operand::Constant(*i)),
-                SlotOperand::Function(name) => operands.push(Operand::Function(name.clone())),
-                SlotOperand::Slot(s)        => {
-                    operands.push(Operand::Reg(slot_allocations[*s].reg
-                        .expect("internal compiler error: no register assigned for slot")));
-                }
-            }
-        }
-
-        let allocation = &slot_allocations[instr.slot];
-        Instr{
-            operands,
-            code:                       instr.code,
-            result_reg:                 allocation.reg,
-            moves:                      allocation.moves.clone(),
-            temp_reg:                   allocation.temp_reg,
-
-            #[cfg(feature = "dogfood")]
-            span:                       instr.span,
-        }
-    })
-    .collect()
 }
 
 
