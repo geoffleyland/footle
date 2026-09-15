@@ -120,7 +120,7 @@ fn lower_to_slots_and_split(
         let mut slot_moves: Vec<(usize, usize)> = vec![];
         if let Some(c) = value.code() && c.clobbers() {
             for (reg, maybe_slot) in fixed_reg_slots.iter_mut().enumerate() {
-                if let Some(slot) = *maybe_slot && (c.clobber_mask() >> reg) & 1 != 0 {
+                if let Some(slot) = *maybe_slot && (c.clobber_mask(Some(D_BANK)) >> reg) & 1 != 0 {
                     if  retirements[slot] > i {
                         slot_moves.push((slot_map[slot], new_slot_count));
                         slot_map[slot] = new_slot_count;
@@ -185,13 +185,13 @@ fn allocate(
     // If they are live, make sure they're not in a clobbered register.
     let mut live_slots = BitSet::new();
     let mut interfering_slots = vec![BitSet::new(); slot_count];
-    let mut available_ranks = vec![REGS.available_rank_mask(D_BANK); slot_count];
+    let mut available_ranks = vec![REGS.available_rank_mask(Some(D_BANK)); slot_count];
 
     for instr in instrs.iter().rev() {
         live_slots.remove(instr.slot);
         if instr.code.clobbers() {
             for slot in &live_slots {
-                available_ranks[slot] &= !instr.code.ranked_clobber_mask();
+                available_ranks[slot] &= !instr.code.ranked_clobber_mask(Some(D_BANK));
             }
         }
         for (_, dest) in &instr.slot_moves { live_slots.remove(*dest); }
@@ -224,7 +224,7 @@ fn allocate(
     for instr in instrs {
         for (input_slot, preferred_reg) in &instr.fixed_inputs {
             if regs[*input_slot].get().is_some() { continue; }
-            let reg = REGS.best_reg(D_BANK, available_ranks[*input_slot], Some(*preferred_reg));
+            let reg = REGS.best_reg(Some(D_BANK), available_ranks[*input_slot], Some(*preferred_reg));
             set_reg(*input_slot, reg, &regs, &interfering_slots, &mut available_ranks);
         }
     }
@@ -232,7 +232,7 @@ fn allocate(
     // Allocate registers for remaining instructions
     for instr in instrs {
         if regs[instr.slot].get().is_some() || !instr.code.has_output() { continue; }
-        let reg = REGS.best_reg(D_BANK, available_ranks[instr.slot], None);
+        let reg = REGS.best_reg(Some(D_BANK), available_ranks[instr.slot], None);
         set_reg(instr.slot, reg, &regs, &interfering_slots, &mut available_ranks);
     }
 
@@ -240,7 +240,7 @@ fn allocate(
     for instr in instrs {
         for (_, dest) in &instr.slot_moves {
             if regs[*dest].get().is_some() { continue; }
-            let reg = REGS.best_reg(D_BANK, available_ranks[instr.slot], None);
+            let reg = REGS.best_reg(Some(D_BANK), available_ranks[instr.slot], None);
             set_reg(*dest, reg, &regs, &interfering_slots, &mut available_ranks);
         }
     }
@@ -364,7 +364,7 @@ fn move_regs(
     }
     // Now do the ones where there's no other copy and we need a temp.
     if moves.iter().any(|(_, destination)| sources[usize::from(*destination)].is_some()) {
-        let temp_reg = REGS.best_reg(D_BANK, temp_reg_pool, None);
+        let temp_reg = REGS.best_reg(Some(D_BANK), temp_reg_pool, None);
         for (_, destination) in moves {
             let Some(source) = sources[usize::from(*destination)] else { continue };
             new_moves.push((source, temp_reg));

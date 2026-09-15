@@ -80,8 +80,14 @@ impl RegFile {
         }
     }
 
-    pub(super) fn best_reg(&self, bank: Bank, available: u32, preferred: Option<MachineReg>) -> MachineReg {
-        self.banks[bank.0].best_reg(available, preferred)
+    pub(super) fn best_reg(
+        &self,
+        bank:                   Option<Bank>,
+        available:              u32,
+        preferred:              Option<MachineReg>
+    ) -> MachineReg {
+        let b = bank.expect("internal compiler error: trying to get a register for an instruction with no register bank");
+        self.banks[b.0].best_reg(available, preferred)
     }
     pub(super) fn get_rank_bits(&self, bank: Bank, reg: MachineReg) -> u32 {
         self.banks[bank.0].get_rank_bits(reg)
@@ -89,8 +95,8 @@ impl RegFile {
     pub(super) fn is_callee_saved(&self, bank: Bank, maybe_reg: Option<MachineReg>) -> Option<MachineReg> {
         self.banks[bank.0].is_callee_saved(maybe_reg)
     }
-    pub(super) fn available_rank_mask(&self, bank: Bank) -> u32 {
-        self.banks[bank.0].available_rank_mask()
+    pub(super) fn available_rank_mask(&self, bank: Option<Bank>) -> u32 {
+        bank.map_or(0, |b| self.banks[b.0].available_rank_mask())
     }
 }
 
@@ -205,14 +211,24 @@ pub(super) struct Code {
 
 impl Code {
     pub fn has_output(&self) -> bool    { self.has_output }
+
     pub fn clobbers(&self) -> bool      { self.save_link_reg() }
-    pub fn clobber_mask(&self) -> u32   { if self.save_link_reg() { !REGS.banks[0].callee_saved } else { 0 }}
-    pub fn ranked_clobber_mask(&self) -> u32
-                                        { if self.save_link_reg() { REGS.banks[0].ranked_clobber_mask } else { 0 }}
+    pub fn clobber_mask(&self, bank: Option<Bank>) -> u32 {
+        if let Some(b) = bank && self.save_link_reg() {
+            !REGS.banks[b.0].callee_saved
+        } else { 0 }
+    }
+    pub fn ranked_clobber_mask(&self, bank: Option<Bank>) -> u32 {
+        if let Some(b) = bank && self.save_link_reg() {
+            REGS.banks[b.0].ranked_clobber_mask
+        } else { 0 }
+    }
+
     pub fn restore_regs(&self) -> bool  { std::ptr::eq(self, &raw const ret) }
     pub fn save_link_reg(&self) -> bool {
         std::ptr::eq(self, &raw const bl) || std::ptr::eq(self, &raw const blr)
     }
+
     pub fn try_pick_unit(&self, free_units: EnumSet<Unit>) -> Option<Unit> {
         (self.units & free_units).iter().next()
     }
