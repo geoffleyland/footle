@@ -66,6 +66,7 @@ pub(super) struct RegFile {
     pub(super) stack_reg:       MachineReg,
     pub(super) link_reg:        MachineReg,
     pub(super) scratch_reg:     MachineReg,
+    pub(super) num_banks:       usize,
     banks:                      [RegBank; 1],
 }
 
@@ -76,6 +77,7 @@ impl RegFile {
             stack_reg:          MachineReg::new(stack_reg),
             link_reg:           MachineReg::new(link_reg),
             scratch_reg:        MachineReg::new(scratch_reg),
+            num_banks:          1,
             banks:              [d],
         }
     }

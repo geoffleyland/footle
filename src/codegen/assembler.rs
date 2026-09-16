@@ -92,8 +92,8 @@ fn emit_function(
     }
 
     for ai in allocated {
-        for (source, destination) in ai.moves {
-            assemble!(instrs, fmov_d, Reg(destination), Reg(source));
+        for (source, destination) in &ai.moves[0] {
+            assemble!(instrs, fmov_d, Reg(*destination), Reg(*source));
         }
 
         let operands = ai.code.has_output()

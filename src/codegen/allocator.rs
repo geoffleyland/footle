@@ -166,7 +166,7 @@ pub(super) struct Instr {
     pub(super) code:                    &'static isa::Code,
     pub(super) result_reg:              Option<MachineReg>,
     pub(super) operands:                Vec<Operand>,
-    pub(super) moves:                   Vec<(MachineReg, MachineReg)>,
+    pub(super) moves:                   [Vec<(MachineReg, MachineReg)>; REGS.num_banks],
 
     #[cfg(feature = "dogfood")]
     pub(super) span:                    Span,
@@ -268,20 +268,24 @@ fn allocate(
         // registers available for a temp are the registers available for the instruction MINUS
         // the arguments to the instruction (which, if this is the last use of the argument are
         // available for the function's return value, but NOT during swaps before the instruction).
-        let unordered_moves: Vec<_> = instr.fixed_inputs.iter()
-            .map(|(slot, reg)| (regs[*slot].unwrap(), *reg))
-            .chain(instr.slot_moves.iter()
-                .map(|(src, dst)| (regs[*src].unwrap(), regs[*dst].unwrap())))
-            .filter(|(source, dest)| source != dest)
-            .collect();
+        let mut moves = [vec![]; REGS.num_banks];
+        #[allow(clippy::needless_range_loop)]
+        for bank_index in 0..REGS.num_banks {
+            let unordered_moves: Vec<_> = instr.fixed_inputs.iter()
+                .map(|(slot, reg)| (regs[*slot].unwrap(), *reg))
+                .chain(instr.slot_moves.iter()
+                    .map(|(src, dst)| (regs[*src].unwrap(), regs[*dst].unwrap())))
+                .filter(|(source, dest)| source != dest)
+                .collect();
 
-        let moves = if unordered_moves.is_empty() { vec![] } else {
-            let temp_reg_pool = available_ranks[instr.slot] &
-            !instr.predecessors().fold(0,
-                |mask, p| mask | REGS.get_rank_bits(D_BANK, regs[p].unwrap()));
+            moves[bank_index] = if unordered_moves.is_empty() { vec![] } else {
+                let temp_reg_pool = available_ranks[instr.slot] &
+                !instr.predecessors().fold(0,
+                    |mask, p| mask | REGS.get_rank_bits(D_BANK, regs[p].unwrap()));
 
-            move_regs(&unordered_moves, temp_reg_pool)
-        };
+                move_regs(&unordered_moves, temp_reg_pool)
+            };
+        }
 
         reg_instrs.push(Instr{
             operands, moves,
