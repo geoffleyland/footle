@@ -94,8 +94,8 @@ impl RegFile {
     pub(super) fn get_rank_bits(&self, bank: Bank, reg: MachineReg) -> u32 {
         self.banks[bank.0].get_rank_bits(reg)
     }
-    pub(super) fn is_callee_saved(&self, bank: Bank, maybe_reg: Option<MachineReg>) -> Option<MachineReg> {
-        self.banks[bank.0].is_callee_saved(maybe_reg)
+    pub(super) fn is_callee_saved(&self, bank: Bank, reg: MachineReg) -> bool {
+        self.banks[bank.0].is_callee_saved(reg)
     }
     pub(super) fn available_rank_mask(&self, bank: Option<Bank>) -> u32 {
         bank.map_or(0, |b| self.banks[b.0].available_rank_mask())
@@ -160,8 +160,8 @@ impl RegBank {
         1 << r.0
     }
 
-    fn is_callee_saved(&self, maybe_reg: Option<MachineReg>) -> Option<MachineReg> {
-        maybe_reg.filter(|reg| self.callee_saved & (1 << reg.0) != 0)
+    fn is_callee_saved(&self, reg: MachineReg) -> bool {
+        self.callee_saved & (1 << reg.0) != 0
     }
 
     fn available_rank_mask(&self) -> u32 {

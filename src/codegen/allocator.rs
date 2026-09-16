@@ -6,7 +6,7 @@ use bit_set::BitSet;
 use super::scheduler::Value;
 use super::scheduler;
 use super::isa;
-use super::isa::{REGS, D_BANK, MachineReg};
+use super::isa::{REGS, D_BANK, Bank, MachineReg};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -19,18 +19,9 @@ pub(super) fn run(
     slot_count:                         usize,
     arguments:                          &[&Value<'_>],
     scheduled:                          &[&Value<'_>],
-) -> (Vec<Instr>, Vec<MachineReg>) {
+) -> (Vec<Instr>, [Vec<MachineReg>; REGS.num_banks]) {
     let (lowered, slot_count) = lower_to_slots_and_split(slot_count, arguments, scheduled);
-    let (instrs, regs) = allocate(arguments.len(), slot_count, &lowered);
-
-    let mut regs_to_save = BTreeSet::new();
-    for &reg in &regs {
-        if let Some(r) = REGS.is_callee_saved(D_BANK, reg) {
-            regs_to_save.insert(r);
-        }
-    }
-
-    (instrs, regs_to_save.into_iter().collect())
+    allocate(arguments.len(), slot_count, &lowered)
 }
 
 
@@ -177,7 +168,7 @@ fn allocate(
     argument_count:                     usize,
     slot_count:                         usize,
     instrs:                             &[SlotInstr],
-) -> (Vec<Instr>, Vec<Option<MachineReg>>) {
+) -> (Vec<Instr>, [Vec<MachineReg>; REGS.num_banks]) {
 
     let mut regs: Vec<OnceCell<MachineReg>> = vec![OnceCell::new(); slot_count];
 
@@ -249,6 +240,8 @@ fn allocate(
     let regs: Vec<_> = regs.iter_mut().map(OnceCell::take).collect();
 
     let mut reg_instrs = vec![];
+    let mut regs_to_save = [const { BTreeSet::new() }; REGS.num_banks];
+
     for instr in instrs {
         let mut operands = vec![];
         for op in &instr.operands {
@@ -278,13 +271,22 @@ fn allocate(
                 .filter(|(source, dest)| source != dest)
                 .collect();
 
-            moves[bank_index] = if unordered_moves.is_empty() { vec![] } else {
+            let bank_moves = if unordered_moves.is_empty() { vec![] } else {
                 let temp_reg_pool = available_ranks[instr.slot] &
                 !instr.predecessors().fold(0,
                     |mask, p| mask | REGS.get_rank_bits(D_BANK, regs[p].unwrap()));
 
                 move_regs(&unordered_moves, temp_reg_pool)
             };
+            for (s, d) in &bank_moves {
+                if REGS.is_callee_saved(Bank(bank_index), *s) { regs_to_save[bank_index].insert(*s); }
+                if REGS.is_callee_saved(Bank(bank_index), *d) { regs_to_save[bank_index].insert(*d); }
+            }
+            moves[bank_index] = bank_moves;
+        }
+
+        if let Some(r) = regs[instr.slot] && REGS.is_callee_saved(D_BANK, r) {
+            regs_to_save[D_BANK.0].insert(r);
         }
 
         reg_instrs.push(Instr{
@@ -297,7 +299,7 @@ fn allocate(
         });
     }
 
-    (reg_instrs, regs)
+    (reg_instrs, regs_to_save.map(|r| r.into_iter().collect()))
 }
 
 

@@ -66,7 +66,7 @@ pub(super) fn run(
     functions:                      &[String],
     argument_count:                 u8,
     return_count:                   u8,
-    regs_to_save:                   &[MachineReg]) -> Block{
+    regs_to_save:                   &[Vec<MachineReg>; REGS.num_banks]) -> Block{
     let mut instrs = Vec::new();
     emit_function(allocated, &mut instrs, functions, regs_to_save);
     let glue_start_words = instrs.len();
@@ -81,9 +81,9 @@ fn emit_function(
     allocated:                      Vec<allocator::Instr>,
     instrs:                         &mut Vec<Instr>,
     functions:                      &[String],
-    regs_to_save:                   &[MachineReg]) {
+    regs_to_save:                   &[Vec<MachineReg>; REGS.num_banks]) {
     // Save any callee saved registers
-    for pair in regs_to_save.chunks(2) {
+    for pair in regs_to_save[0].chunks(2) {
         match *pair {
             [a, b]  => assemble!(instrs, stp_d_pre, Reg(a), Reg(b), Reg(REGS.stack_reg), Offset(-16)),
             [a]     => assemble!(instrs, str_d_pre, Reg(a), Reg(REGS.stack_reg), Offset(-16)),
@@ -113,7 +113,7 @@ fn emit_function(
 
         // Restore callee saved registers before a `ret`.
         if ai.code.restore_regs() {
-            for pair in regs_to_save.chunks(2).rev() {
+            for pair in regs_to_save[0].chunks(2).rev() {
                 match *pair {
                     [a, b]  => assemble!(instrs, ldp_d_post, Reg(a), Reg(b), Reg(REGS.stack_reg), Offset(16)),
                     [a]     => assemble!(instrs, ldr_d_post, Reg(a), Reg(REGS.stack_reg), Offset(16)),
