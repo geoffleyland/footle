@@ -21,7 +21,8 @@ pub(super) fn run(
     scheduled:                          &[&Value<'_>],
 ) -> (Vec<Instr>, [Vec<MachineReg>; REGS.num_banks]) {
     let (lowered, slot_count) = lower_to_slots_and_split(slot_count, arguments, scheduled);
-    allocate(arguments.len(), slot_count, &lowered)
+    let (regs, available_ranks) = allocate(arguments.len(), slot_count, &lowered);
+    lower_to_regs(&lowered, &regs, &available_ranks)
 }
 
 
@@ -145,30 +146,12 @@ fn lower_to_slots_and_split(
 //-------------------------------------------------------------------------------------------------
 // Register Allocation
 
-#[derive(Debug)]
-pub(super) enum Operand {
-    Constant(usize),
-    Function(String),
-    Reg(MachineReg),
-}
-
-#[derive(Debug)]
-pub(super) struct Instr {
-    pub(super) code:                    &'static isa::Code,
-    pub(super) result_reg:              Option<MachineReg>,
-    pub(super) operands:                Vec<Operand>,
-    pub(super) moves:                   [Vec<(MachineReg, MachineReg)>; REGS.num_banks],
-
-    #[cfg(feature = "dogfood")]
-    pub(super) span:                    Span,
-}
-
-
 fn allocate(
     argument_count:                     usize,
     slot_count:                         usize,
     instrs:                             &[SlotInstr],
-) -> (Vec<Instr>, [Vec<MachineReg>; REGS.num_banks]) {
+    //) -> (Vec<Instr>, [Vec<MachineReg>; REGS.num_banks]) {
+) -> (Vec<Option<MachineReg>>, Vec<u32>) {
 
     let mut regs: Vec<OnceCell<MachineReg>> = vec![OnceCell::new(); slot_count];
 
@@ -238,6 +221,52 @@ fn allocate(
 
     // Collect all the registers from the OnceCells into a Vec<Option<MachineReg>>
     let regs: Vec<_> = regs.iter_mut().map(OnceCell::take).collect();
+    (regs, available_ranks)
+}
+
+
+fn set_reg(
+    slot:                               usize,
+    reg:                                MachineReg,
+    regs:                               &[OnceCell<MachineReg>],
+    interfering_slots:                  &[BitSet],
+    available_ranks:                    &mut [u32]) {
+    regs[slot].set(reg)
+        .expect("internal compiler error: trying to set a register twice");
+    let rank_bits = REGS.get_rank_bits(D_BANK, reg);
+    for interfering_slot in &interfering_slots[slot] {
+        available_ranks[interfering_slot] &= !rank_bits;
+    }
+}
+
+
+//-------------------------------------------------------------------------------------------------
+// Lowering to Instrs with registers and register swaps.
+
+#[derive(Debug)]
+pub(super) enum Operand {
+    Constant(usize),
+    Function(String),
+    Reg(MachineReg),
+}
+
+#[derive(Debug)]
+pub(super) struct Instr {
+    pub(super) code:                    &'static isa::Code,
+    pub(super) result_reg:              Option<MachineReg>,
+    pub(super) operands:                Vec<Operand>,
+    pub(super) moves:                   [Vec<(MachineReg, MachineReg)>; REGS.num_banks],
+
+    #[cfg(feature = "dogfood")]
+    pub(super) span:                    Span,
+}
+
+
+fn lower_to_regs(
+    instrs:                             &[SlotInstr],
+    regs:                               &[Option<MachineReg>],
+    available_ranks:                    &[u32],
+) -> (Vec<Instr>, [Vec<MachineReg>; REGS.num_banks]) {
 
     let mut reg_instrs = vec![];
     let mut regs_to_save = [const { BTreeSet::new() }; REGS.num_banks];
@@ -300,21 +329,6 @@ fn allocate(
     }
 
     (reg_instrs, regs_to_save.map(|r| r.into_iter().collect()))
-}
-
-
-fn set_reg(
-    slot:                               usize,
-    reg:                                MachineReg,
-    regs:                               &[OnceCell<MachineReg>],
-    interfering_slots:                  &[BitSet],
-    available_ranks:                    &mut [u32]) {
-    regs[slot].set(reg)
-        .expect("internal compiler error: trying to set a register twice");
-    let rank_bits = REGS.get_rank_bits(D_BANK, reg);
-    for interfering_slot in &interfering_slots[slot] {
-        available_ranks[interfering_slot] &= !rank_bits;
-    }
 }
 
 
