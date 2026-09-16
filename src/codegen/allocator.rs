@@ -245,38 +245,14 @@ fn allocate(
         }
     }
 
-    // Unify fixed_input moves and slot_moves and figure out which slot moves are actually between
-    // registers.
-    // While we're at it, if there are slot moves, then figure out a temporary register.  The
-    // registers available for a temp are the registers available for the instruction MINUS
-    // the arguments to the instruction (which, if this is the last use of the argument are
-    // available for the function's return value, but NOT during swaps before the instruction).
-    let mut moves = vec![vec![]; slot_count];
-    for instr in instrs {
-        let unordered_moves: Vec<_> = instr.fixed_inputs.iter()
-            .map(|(slot, reg)| (regs[*slot].get().copied().unwrap(), *reg))
-            .chain(instr.slot_moves.iter()
-                .map(|(src, dst)|
-                    (regs[*src].get().copied().unwrap(), regs[*dst].get().copied().unwrap())))
-            .filter(|(source, dest)| source != dest)
-            .collect();
-
-        if !unordered_moves.is_empty() {
-            let temp_reg_pool = available_ranks[instr.slot] &
-            !instr.predecessors().fold(0,
-                |mask, p| mask | REGS.get_rank_bits(D_BANK, *regs[p].get().unwrap()));
-
-            moves[instr.slot] = move_regs(&unordered_moves, temp_reg_pool);
-        }
-    }
-
     // Collect all the registers from the OnceCells into a Vec<Option<MachineReg>>
     let regs: Vec<_> = regs.iter_mut().map(OnceCell::take).collect();
 
-    let instrs = instrs.iter().map(|instr| {
+    let mut reg_instrs = vec![];
+    for instr in instrs {
         let mut operands = vec![];
         for op in &instr.operands {
-            match op {
+            match &op {
                 SlotOperand::Constant(i)    => operands.push(Operand::Constant(*i)),
                 SlotOperand::Function(name) => operands.push(Operand::Function(name.clone())),
                 SlotOperand::Slot(s)        => {
@@ -286,19 +262,38 @@ fn allocate(
             }
         }
 
-        Instr{
-            operands,
+        // Unify fixed_input moves and slot_moves and figure out which slot moves are actually between
+        // registers.
+        // While we're at it, if there are slot moves, then figure out a temporary register.  The
+        // registers available for a temp are the registers available for the instruction MINUS
+        // the arguments to the instruction (which, if this is the last use of the argument are
+        // available for the function's return value, but NOT during swaps before the instruction).
+        let unordered_moves: Vec<_> = instr.fixed_inputs.iter()
+            .map(|(slot, reg)| (regs[*slot].unwrap(), *reg))
+            .chain(instr.slot_moves.iter()
+                .map(|(src, dst)| (regs[*src].unwrap(), regs[*dst].unwrap())))
+            .filter(|(source, dest)| source != dest)
+            .collect();
+
+        let moves = if unordered_moves.is_empty() { vec![] } else {
+            let temp_reg_pool = available_ranks[instr.slot] &
+            !instr.predecessors().fold(0,
+                |mask, p| mask | REGS.get_rank_bits(D_BANK, regs[p].unwrap()));
+
+            move_regs(&unordered_moves, temp_reg_pool)
+        };
+
+        reg_instrs.push(Instr{
+            operands, moves,
             code:                       instr.code,
             result_reg:                 regs[instr.slot],
-            moves:                      moves[instr.slot].clone(),
 
             #[cfg(feature = "dogfood")]
             span:                       instr.span,
-        }
-    })
-    .collect();
+        });
+    }
 
-    (instrs, regs)
+    (reg_instrs, regs)
 }
 
 
@@ -362,6 +357,7 @@ fn move_regs(
             new_moves.push((copy, *destination));
         }
     }
+
     // Now do the ones where there's no other copy and we need a temp.
     if moves.iter().any(|(_, destination)| sources[usize::from(*destination)].is_some()) {
         let temp_reg = REGS.best_reg(Some(D_BANK), temp_reg_pool, None);
