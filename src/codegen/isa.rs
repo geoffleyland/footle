@@ -3,6 +3,8 @@
 use enumset::{EnumSet, EnumSetType, enum_set};
 use paste::paste;
 
+use super::scheduler::Type;
+
 #[cfg(feature = "dogfood")]
 use display::*;
 
@@ -59,7 +61,16 @@ impl RegRank {
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Bank(pub(super) usize);
-pub(super) const D_BANK: Bank = Bank(0);
+pub(super) const X_BANK: Bank = Bank(0);
+pub(super) const D_BANK: Bank = Bank(1);
+pub(super) fn bank_for(ty: Type) -> Option<Bank> {
+    match ty {
+        Type::F64               => Some(D_BANK),
+        Type::FunctionPointer   => Some(X_BANK),
+        Type::None              => None
+    }
+}
+
 
 #[derive(Debug)]
 pub(super) struct RegFile {
@@ -67,18 +78,18 @@ pub(super) struct RegFile {
     pub(super) link_reg:        MachineReg,
     pub(super) scratch_reg:     MachineReg,
     pub(super) num_banks:       usize,
-    banks:                      [RegBank; 1],
+    banks:                      [RegBank; 2],
 }
 
 
 impl RegFile {
-    const fn new(stack_reg: u8, link_reg: u8, scratch_reg: u8, d: RegBank) -> Self {
+    const fn new(stack_reg: u8, link_reg: u8, scratch_reg: u8, x: RegBank, d: RegBank) -> Self {
         Self {
             stack_reg:          MachineReg::new(stack_reg),
             link_reg:           MachineReg::new(link_reg),
             scratch_reg:        MachineReg::new(scratch_reg),
-            num_banks:          1,
-            banks:              [d],
+            num_banks:          2,
+            banks:              [x, d],
         }
     }
 
@@ -170,7 +181,14 @@ impl RegBank {
 }
 
 
-pub(super) const REGS: RegFile = RegFile::new(31, 30, 16, RegBank::new(0x0000_FF00,
+pub(super) const REGS: RegFile = RegFile::new(31, 30, 16,
+    RegBank::new(0x1FF8_0000,
+    &[
+        9, 10, 11, 12, 13, 14, 15,                  // caller-saved temps (x16-18 excluded)
+        19, 20, 21, 22, 23, 24, 25, 26, 27, 28,     // callee-saved
+        0, 1, 2, 3, 4, 5, 6, 7,                     // argument registers
+    ]),
+    RegBank::new(0x0000_FF00,
     &[
         16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, // d16-d31 (caller saved)
          8,  9, 10, 11, 12, 13, 14, 15,                                 // d8-d16 (callee saved)

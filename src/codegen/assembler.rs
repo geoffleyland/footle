@@ -16,15 +16,22 @@ macro_rules! asm_op {
     (Offset($o:expr))       => { Operand::Offset($o) };
 }
 
-macro_rules! assemble {
-    ($vec:expr, $op:ident $(, $($operand:tt $operand_arg:expr),*)?) => {
+macro_rules! assemble_expr {
+    ($vec:expr, $op:expr $(, $($operand:tt $operand_arg:expr),*)?) => {
         $vec.push(Instr {
-            code: &isa::$op,
+            code: $op,
             operands: vec![$($(asm_op!($operand($operand_arg))),*)?],
 
             #[cfg(feature = "dogfood")]
             span: None,
         })
+    }
+}
+
+
+macro_rules! assemble {
+    ($vec:expr, $op:ident $(, $($operand:tt $operand_arg:expr),*)?) => {
+        assemble_expr!($vec, &isa::$op $(, $($operand $operand_arg),*)?)
     }
 }
 
@@ -83,17 +90,14 @@ fn emit_function(
     functions:                      &[String],
     regs_to_save:                   &[Vec<MachineReg>; REGS.num_banks]) {
     // Save any callee saved registers
-    for pair in regs_to_save[0].chunks(2) {
-        match *pair {
-            [a, b]  => assemble!(instrs, stp_d_pre, Reg(a), Reg(b), Reg(REGS.stack_reg), Offset(-16)),
-            [a]     => assemble!(instrs, str_d_pre, Reg(a), Reg(REGS.stack_reg), Offset(-16)),
-            _       => unreachable!()
-        }
-    }
+    for pair in regs_to_save[0].chunks(2) { save_restore(instrs, pair, &isa::stp_x_pre, &isa::str_x_pre, -16) }
+    for pair in regs_to_save[1].chunks(2) { save_restore(instrs, pair, &isa::stp_d_pre, &isa::str_d_pre, -16) }
 
     for ai in allocated {
-        for (source, destination) in &ai.moves[0] {
-            assemble!(instrs, fmov_d, Reg(*destination), Reg(*source));
+        for (move_op, moves) in [&isa::mov_x, &isa::fmov_d].iter().zip(&ai.moves) {
+            for (source, destination) in moves {
+                assemble_expr!(instrs, *move_op, Reg(*destination), Reg(*source));
+            }
         }
 
         let operands = ai.code.has_output()
@@ -113,13 +117,8 @@ fn emit_function(
 
         // Restore callee saved registers before a `ret`.
         if ai.code.restore_regs() {
-            for pair in regs_to_save[0].chunks(2).rev() {
-                match *pair {
-                    [a, b]  => assemble!(instrs, ldp_d_post, Reg(a), Reg(b), Reg(REGS.stack_reg), Offset(16)),
-                    [a]     => assemble!(instrs, ldr_d_post, Reg(a), Reg(REGS.stack_reg), Offset(16)),
-                    _       => unreachable!()
-                }
-            }
+            for pair in regs_to_save[1].chunks(2).rev() { save_restore(instrs, pair, &isa::ldp_d_post, &isa::ldr_d_post, 16) }
+            for pair in regs_to_save[0].chunks(2).rev() { save_restore(instrs, pair, &isa::ldp_x_post, &isa::ldr_x_post, 16) }
         }
 
         if ai.code.save_link_reg() {
@@ -134,6 +133,20 @@ fn emit_function(
         if ai.code.save_link_reg() {
             assemble!(instrs, ldr_x_post, Reg(REGS.link_reg), Reg(REGS.stack_reg), Offset(16));
         }
+    }
+}
+
+
+fn save_restore(
+    instrs:                         &mut Vec<Instr>,
+    pair:                           &[MachineReg],
+    pair_op:                        &'static isa::Code,
+    single_op:                      &'static isa::Code,
+    offset:                         i32) {
+    match *pair {
+        [a, b]  => assemble_expr!(instrs, pair_op, Reg(a), Reg(b), Reg(REGS.stack_reg), Offset(offset)),
+        [a]     => assemble_expr!(instrs, single_op, Reg(a), Reg(REGS.stack_reg), Offset(offset)),
+        _       => unreachable!()
     }
 }
 
