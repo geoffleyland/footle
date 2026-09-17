@@ -3,6 +3,8 @@
 use enumset::{EnumSet, EnumSetType, enum_set};
 use paste::paste;
 
+use super::scheduler::Type;
+
 #[cfg(feature = "dogfood")]
 use display::*;
 
@@ -58,8 +60,15 @@ impl RegRank {
 // Register details
 
 #[derive(Debug, Clone, Copy)]
-pub(super) enum Bank {
-    D
+pub(super) struct Bank(pub(super) usize);
+pub(super) const X_BANK: Bank = Bank(0);
+pub(super) const D_BANK: Bank = Bank(1);
+pub(super) fn bank_for(ty: Type) -> Option<Bank> {
+    match ty {
+        Type::F64               => Some(D_BANK),
+        Type::FunctionPointer   => Some(X_BANK),
+        Type::None              => None
+    }
 }
 
 
@@ -68,73 +77,80 @@ pub(super) struct RegFile {
     pub(super) stack_reg:       MachineReg,
     pub(super) link_reg:        MachineReg,
     pub(super) scratch_reg:     MachineReg,
-    d:                          RegBank<32>,
+    pub(super) num_banks:       usize,
+    banks:                      [RegBank; 2],
 }
 
 
 impl RegFile {
-    const fn new(stack_reg: u8, link_reg: u8, scratch_reg: u8, d: RegBank<32>) -> Self {
+    const fn new(stack_reg: u8, link_reg: u8, scratch_reg: u8, x: RegBank, d: RegBank) -> Self {
         Self {
             stack_reg:          MachineReg::new(stack_reg),
             link_reg:           MachineReg::new(link_reg),
             scratch_reg:        MachineReg::new(scratch_reg),
-            d,
+            num_banks:          2,
+            banks:              [x, d],
         }
     }
 
-    pub(super) fn best_reg(&self, bank: Bank, available: u32, preferred: Option<MachineReg>) -> MachineReg {
-        match bank {
-            Bank::D => self.d.best_reg(available, preferred)
-        }
+    pub(super) fn best_reg(
+        &self,
+        bank:                   Option<Bank>,
+        available:              u32,
+        preferred:              Option<MachineReg>
+    ) -> MachineReg {
+        let b = bank.expect("internal compiler error: trying to get a register for an instruction with no register bank");
+        self.banks[b.0].best_reg(available, preferred)
     }
     pub(super) fn get_rank_bits(&self, bank: Bank, reg: MachineReg) -> u32 {
-        match bank {
-            Bank::D => self.d.get_rank_bits(reg)
-        }
+        self.banks[bank.0].get_rank_bits(reg)
     }
-    pub(super) fn is_callee_saved(&self, bank: Bank, maybe_reg: Option<MachineReg>) -> Option<MachineReg> {
-        match bank {
-            Bank::D => self.d.is_callee_saved(maybe_reg)
-        }
+    pub(super) fn is_callee_saved(&self, bank: Bank, reg: MachineReg) -> bool {
+        self.banks[bank.0].is_callee_saved(reg)
     }
-    pub(super) fn real_reg_to_ranked_reg_mask(&self, bank: Bank, clobbers: u32) -> u32 {
-        match bank {
-            Bank::D => self.d.real_reg_to_ranked_reg_mask(clobbers)
-        }
+    pub(super) fn available_rank_mask(&self, bank: Option<Bank>) -> u32 {
+        bank.map_or(0, |b| self.banks[b.0].available_rank_mask())
     }
 }
 
 
 /// Information about a bank of registers (int or FP)  Possibly the structure is cross-platform?
 #[derive(Debug)]
-pub (super) struct RegBank<const N: usize> {
-    order:              [MachineReg; N],        // Order in which we allocate registers
+pub (super) struct RegBank {
+    order:              [MachineReg; 32],       // Order in which we allocate registers
     rank:               [Option<RegRank>; 32],  // Rank (in `order`) of a register.  `None` if we
                                                 // never allocate that register.
     callee_saved:       u32,                    // Bitmask of registers we have to save in our
                                                 // prologue and epilogue (if we use them)
-    clobber_rank_mask:  [u32; 32],              // In register order, bitmask of whether this reg
-                                                // is clobbered.
+    ranked_clobber_mask:u32,                    // The register ranks a bl[r] will clobber in this
+                                                // bank
+    reg_count:          usize,                  // The number of registers available
 }
 
-impl<const N:usize> RegBank<N> {
+impl RegBank {
     #[allow(clippy::cast_possible_truncation)]
-    const fn new(callee_saved: u32, u8_order: [u8; N]) -> Self {
-        let mut order = [MachineReg::new(0); N];
+    const fn new(callee_saved: u32, u8_order: &[u8]) -> Self {
+        let reg_count = u8_order.len();
+        let mut order = [MachineReg::new(0); 32];
         let mut rank = [None; 32];
         let mut i = 0;
-        while i < N {
+        while i < u8_order.len() {
             order[i] = MachineReg::new(u8_order[i]);
             rank[u8_order[i] as usize] = Some(RegRank::new(i));
             i += 1;
         }
-        let mut clobber_rank_mask = [0u32; 32];
-        let mut r = 0;
-        while r < 32 {
-            if let Some(rank) = rank[r] { clobber_rank_mask[r] = 1 << rank.0; }
-            r += 1;
+        // Ideally we'd use bit_indices here, but it's not const.
+        let mut c = !callee_saved;
+        let mut ranked_clobber_mask = 0u32;
+        while c != 0 {
+            let reg = c.trailing_zeros() as usize;
+            if let Some(rank) = rank[reg] {
+                ranked_clobber_mask |= 1 << rank.0;
+            }
+            c &= c - 1;
         }
-        Self { order, rank, callee_saved, clobber_rank_mask }
+
+        Self { order, rank, callee_saved, ranked_clobber_mask, reg_count }
     }
 
     /// Pick a register from `available` (a bitmask of ranks).  If `preferred` is available, use it —
@@ -155,25 +171,25 @@ impl<const N:usize> RegBank<N> {
         1 << r.0
     }
 
-    fn is_callee_saved(&self, maybe_reg: Option<MachineReg>) -> Option<MachineReg> {
-        maybe_reg.filter(|reg| self.callee_saved & (1 << reg.0) != 0)
+    fn is_callee_saved(&self, reg: MachineReg) -> bool {
+        self.callee_saved & (1 << reg.0) != 0
     }
 
-    fn real_reg_to_ranked_reg_mask(&self, clobbers: u32) -> u32 {
-        let mut c = clobbers;
-        let mut mask = 0u32;
-        while c != 0 {
-            let bit = c.trailing_zeros() as usize;
-            mask |= self.clobber_rank_mask[bit];
-            c &= c - 1;
-        }
-        mask
+    fn available_rank_mask(&self) -> u32 {
+         if self.reg_count >= 32 { u32::MAX } else { (1u32 << self.reg_count) - 1 }
     }
 }
 
 
-pub(super) const REGS: RegFile = RegFile::new(31, 30, 16, RegBank::new(0x0000_FF00,
-    [
+pub(super) const REGS: RegFile = RegFile::new(31, 30, 16,
+    RegBank::new(0x1FF8_0000,
+    &[
+        9, 10, 11, 12, 13, 14, 15,                  // caller-saved temps (x16-18 excluded)
+        19, 20, 21, 22, 23, 24, 25, 26, 27, 28,     // callee-saved
+        0, 1, 2, 3, 4, 5, 6, 7,                     // argument registers
+    ]),
+    RegBank::new(0x0000_FF00,
+    &[
         16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, // d16-d31 (caller saved)
          8,  9, 10, 11, 12, 13, 14, 15,                                 // d8-d16 (callee saved)
          0,  1,  2,  3,  4,  5,  6,  7,                                 // d0-d7 (function args)
@@ -215,11 +231,24 @@ pub(super) struct Code {
 
 impl Code {
     pub fn has_output(&self) -> bool    { self.has_output }
-    pub fn clobbers(&self) -> u32       { if self.save_link_reg() { 0xFFFF_00FF} else { 0 }}
+
+    pub fn clobbers(&self) -> bool      { self.save_link_reg() }
+    pub fn clobber_mask(&self, bank: Option<Bank>) -> u32 {
+        if let Some(b) = bank && self.save_link_reg() {
+            !REGS.banks[b.0].callee_saved
+        } else { 0 }
+    }
+    pub fn ranked_clobber_mask(&self, bank: Option<Bank>) -> u32 {
+        if let Some(b) = bank && self.save_link_reg() {
+            REGS.banks[b.0].ranked_clobber_mask
+        } else { 0 }
+    }
+
     pub fn restore_regs(&self) -> bool  { std::ptr::eq(self, &raw const ret) }
     pub fn save_link_reg(&self) -> bool {
         std::ptr::eq(self, &raw const bl) || std::ptr::eq(self, &raw const blr)
     }
+
     pub fn try_pick_unit(&self, free_units: EnumSet<Unit>) -> Option<Unit> {
         (self.units & free_units).iter().next()
     }

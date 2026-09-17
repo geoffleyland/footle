@@ -27,9 +27,9 @@ return sin(a)
 
 #( expected assembler
 
-  0x1000: ldr x16, #0x1034
+  0x1000: ldr x9, #0x1034
   0x1004: str x30, [sp, #-0x10]!
-  0x1008: blr x16
+  0x1008: blr x9
   0x100c: ldr x30, [sp], #0x10
   0x1010: ret
   0x1014: mov x16, x0
