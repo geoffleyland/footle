@@ -210,7 +210,7 @@ impl<'arena> Builder<'arena> {
                     });
 
                     let constant_index = self.constants.len() - 1;
-                    self.lower_instr(Type::F64, &isa::ldr_d_literal, vec![Operand::Constant(constant_index)], expr);
+                    self.lower_instr(Type::F64, &isa::ldr_d_literal, vec![Operand::PooledF64(constant_index)], expr);
                 }
                 vir::ExprKind::Binary(op, lhs, rhs) => {
                     if *op == BinaryOperator::Power {

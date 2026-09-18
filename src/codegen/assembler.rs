@@ -12,7 +12,7 @@ use crate::core::Span;
 macro_rules! asm_op {
     (Reg($r:expr))          => { Operand::Reg($r) };
     (RawReg($r:expr))       => { Operand::Reg(MachineReg::new($r)) };
-    (Constant($i:expr))     => { Operand::Constant($i) };
+    (PooledF64($i:expr))    => { Operand::PooledF64($i) };
     (Offset($o:expr))       => { Operand::Offset($o) };
 }
 
@@ -40,7 +40,7 @@ macro_rules! assemble {
 
 pub(super) enum Operand {
     Reg(MachineReg),
-    Constant(usize),
+    PooledF64(usize),
     Offset(i32),
     Function(usize),
 }
@@ -106,7 +106,7 @@ fn emit_function(
             .into_iter()
             .chain(ai.operands.iter().map(|op| match op {
                 super::operand::Operand::Reg(r)             => Operand::Reg(*r),
-                super::operand::Operand::Constant(i)        => Operand::Constant(*i),
+                super::operand::Operand::PooledF64(i)       => Operand::PooledF64(*i),
                 super::operand::Operand::Function(name) => {
                     let index = functions.iter().position(|s| s == name)
                         .expect("internal compiler error: unknown function name");
@@ -203,7 +203,7 @@ mod display {
 
                 let operands = instr.operands.iter().map(|o|
                     match o {
-                        Operand::Constant(c)    => i32::try_from((constant_start_words - i) * 4 + *c * 8).unwrap(),
+                        Operand::PooledF64(c)   => i32::try_from((constant_start_words - i) * 4 + *c * 8).unwrap(),
                         Operand::Function(f)    => i32::try_from((function_start_words - i) * 4 + *f * 8).unwrap(),
                         Operand::Reg(r)         => i32::from(*r),
                         Operand::Offset(o)      => *o,
