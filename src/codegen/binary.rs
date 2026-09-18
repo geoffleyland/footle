@@ -97,6 +97,7 @@ fn encode_instrs(
         let operands = instr.operands.iter().map(|op| {
             match op {
                 Reg(i)                  => u32::from(*i),
+                ImmU16(v)               => u32::from(*v),
                 PooledF64(i)            => u32::try_from((constant_start_words - word_index) * 4 + (*i * 8))
                                             .expect("internal compiler error: constant offset too large"),
                 Function(i)             => u32::try_from((function_start_words - word_index) * 4 + (*i * 8))

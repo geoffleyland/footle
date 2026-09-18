@@ -30,7 +30,19 @@ pub(super) enum ValueDef {
 pub(super) enum Type {
     None,
     F64,
+    I64,
     FunctionPointer,
+}
+
+
+fn type_for(ty: vir::TypeInfo) -> Type {
+    match ty {
+        vir::TypeInfo::F64 |
+            vir::TypeInfo::Unknown  => Type::F64,
+        vir::TypeInfo::Bool         => Type::I64,
+        // TODO!  This should be a panic, but we have some work to do
+        // vir::TypeInfo::Unknown  => panic!("internal compile error: incomplete type information")
+    }
 }
 
 
@@ -190,16 +202,17 @@ impl<'arena> Builder<'arena> {
 
     fn lower_vir(&mut self, input: &vir::Block) {
         for expr in &input.instrs {
+            let ty = type_for(input.types[expr.pool_index()]);
             match expr.kind() {
                 #[cfg(any(feature = "dogfood", test))]
                 vir::ExprKind::Argument(index, name) => {
-                    let value = self.lower_value(Type::F64, ValueDef::Argument(*index, name.clone()),
+                    let value = self.lower_value(ty, ValueDef::Argument(*index, name.clone()),
                         vec![], vec![], None, expr);
                     self.arguments.push(value);
                 }
                 #[cfg(not(any(feature = "dogfood", test)))]
                 vir::ExprKind::Argument(..) => {
-                    let value = self.lower_value(Type::F64, ValueDef::Argument,
+                    let value = self.lower_value(ty, ValueDef::Argument,
                         vec![], vec![], None, expr);
                     self.arguments.push(value);
                 }
@@ -210,26 +223,29 @@ impl<'arena> Builder<'arena> {
                     });
 
                     let constant_index = self.constants.len() - 1;
-                    self.lower_instr(Type::F64, &isa::ldr_d_literal, vec![Operand::PooledF64(constant_index)], expr);
+                    self.lower_instr(ty, &isa::ldr_d_literal, vec![Operand::PooledF64(constant_index)], expr);
                 }
-                vir::ExprKind::Bool(..) => todo!(),
+                vir::ExprKind::Bool(value) => {
+                    self.lower_instr(ty,
+                        &isa::mov_x_imm, vec![Operand::ImmU16((*value).into())], expr);
+                },
                 vir::ExprKind::Binary(op, lhs, rhs) => {
                     if *op == BinaryOperator::Power {
-                        self.lower_call("pow", &[lhs.clone(), rhs.clone()], MachineReg::new(0), expr);
+                        self.lower_call("pow", ty, &[lhs.clone(), rhs.clone()], MachineReg::new(0), expr);
 
                     } else if *op == BinaryOperator::Modulo {
                         // AArch64 has no fmod; compute a - trunc(a / b) * b instead.
-                        let quotient = self.make_instr(Type::F64,
+                        let quotient = self.make_instr(ty,
                             &isa::fdiv_d, operands!(self, lhs, rhs),
                             #[cfg(feature = "dogfood")]
                             *expr.span()
                         );
-                        let truncated = self.make_instr(Type::F64,
+                        let truncated = self.make_instr(ty,
                             &isa::frintz_d, operands!(self, quotient),
                             #[cfg(feature = "dogfood")]
                             *expr.span()
                         );
-                        self.lower_instr(Type::F64,
+                        self.lower_instr(ty,
                             &isa::fmsub_d, operands!(self, truncated, rhs, lhs), expr);
 
                     } else {
@@ -241,11 +257,11 @@ impl<'arena> Builder<'arena> {
 
                             _                               => todo!("More machine ops")
                         };
-                        self.lower_instr(Type::F64, machine_instr, operands!(self, lhs, rhs), expr);
+                        self.lower_instr(ty, machine_instr, operands!(self, lhs, rhs), expr);
                     }
                 }
                 vir::ExprKind::Call(name, exprs) => {
-                    self.lower_call(name, exprs, MachineReg::new(0), expr);
+                    self.lower_call(name, ty, exprs, MachineReg::new(0), expr);
                 }
             }
         }
@@ -271,6 +287,7 @@ impl<'arena> Builder<'arena> {
     fn lower_call(
         &mut self,
         name:                                   &str,
+        ty:                                     Type,
         operands:                               &[vir::Expr],
         fixed_output:                           MachineReg,
         expr:                                   &vir::Expr,
@@ -289,7 +306,7 @@ impl<'arena> Builder<'arena> {
             v
         };
 
-        self.lower_value(Type::F64,
+        self.lower_value(ty,
             &isa::blr, operands!(self, function_value), fixed_inputs, Some(fixed_output), expr)
     }
 
@@ -513,7 +530,8 @@ mod display {
             use Type::*;
             let str = match self {
                 None                            => "None",
-                F64                             => "F64",
+                I64                             => "i64",
+                F64                             => "f64",
                 FunctionPointer                 => "FunctionPointer",
             };
             write!(f, "{str}")

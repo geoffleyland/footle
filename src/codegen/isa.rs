@@ -66,6 +66,7 @@ pub(super) const D_BANK: Bank = Bank(1);
 pub(super) fn bank_for(ty: Type) -> Option<Bank> {
     match ty {
         Type::F64               => Some(D_BANK),
+        Type::I64 |
         Type::FunctionPointer   => Some(X_BANK),
         Type::None              => None
     }
@@ -276,6 +277,7 @@ macro_rules! reg {
     (imm7, $it:expr)  => { (($it >> 3) & 0x7F) << 15 };
     (imm9, $it:expr)  => { ($it & 0x01FF) << 12 };
     (imm12, $it:expr) => { (($it >> 3) & 0x0FFF) << 10 };
+    (imm16, $it:expr) => { ($it & 0xFFFF) << 5 };
     (imm19, $it:expr) => { (($it >> 2) & 0x7_FFFF) << 5 };
     (imm26, $it:expr) => { ($it >> 2) & 0x03FF_FFFF };
 }
@@ -300,6 +302,9 @@ macro_rules! has_output {
 macro_rules! code {
     ($mnemonic:ident => $($rest:tt)*) => {
         find_reg_bank!(nothing, None, $mnemonic, (), $($rest)*);
+    };
+    ($mnemonic:ident $rd:ident, #$imm:ident => $($rest:tt)*) => {
+        find_reg_bank!($rd, @mode_suffix:_imm, None, $mnemonic, ($rd, $imm), $($rest)*);
     };
     ($mnemonic:ident $rd:ident, imm19 => $($rest:tt)*) => {
         find_reg_bank!($rd, @mode_suffix:_literal, None, $mnemonic, ($rd, imm19), $($rest)*);
@@ -376,6 +381,7 @@ code!(fmov dd, dn                   =>  2, [FP11 | FP12 | FP13 | FP14], 0x1E60_4
 
 // TODO! mov doesn't actually use a unit and has no latency.
 code!(mov xd, xm                    =>  1, [LS8 | L9 | L10],            0b1_01_01010_00_0_00000_000000_11111_00000);
+code!(mov xd, #imm16                =>  1, [LS8 | L9 | L10],            0b1_10_100101_00_0000000000000000_00000);
 
 code!(ldr xd, imm19                 => 10, [LS8 | L9 | L10],            0b01_011_0_00_0000000000000000000_00000);
 code!(ldr dd, imm19                 => 10, [LS8 | L9 | L10],            0x5C00_0000);
@@ -446,6 +452,7 @@ mod display {
         (imm7)  => { format_imm };
         (imm9)  => { format_imm };
         (imm12) => { format_imm12 };
+        (imm16) => { format_imm };
         (imm19) => { format_address };
         (imm26) => { format_address };
     }

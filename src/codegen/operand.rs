@@ -1,6 +1,7 @@
 #[derive(Debug, Clone)]
 pub(super) enum Operand<REG> {
     PooledF64(usize),
+    ImmU16(u16),
     Function(String),
     Reg(REG),
 }
@@ -9,6 +10,7 @@ impl<REG> Operand<REG> {
     pub(super) fn map_reg<R2>(self, f: impl FnOnce(REG) -> R2) -> Operand<R2> {
         match self {
             Self::PooledF64(c)      => Operand::PooledF64(c),
+            Self::ImmU16(v)         => Operand::ImmU16(v),
             Self::Function(s)       => Operand::Function(s),
             Self::Reg(r)            => Operand::Reg(f(r)),
         }
@@ -28,6 +30,7 @@ pub mod display {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             match self {
                 Self::PooledF64(i)              => write!(f, "K{i}"),
+                Self::ImmU16(v)                 => write!(f, "#{v}"),
                 Self::Function(s)               => write!(f, "{s}"),
                 Self::Reg(r)                    => r.fmt_operand(f),
             }

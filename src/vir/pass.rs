@@ -20,11 +20,17 @@ pub fn run(env: &Env, stmts: &[ast::Stmt]) -> (Block, Vec<ParseError>) {
     for stmt in stmts {
         p.transform_stmt(env, stmt);
     }
-    let block = p.flatten();
-    if p.errors.is_empty() {
-        let _types = p.types();
-    }
-    (block, p.errors)
+    let flattened = p.flatten();
+
+    let types = if p.errors.is_empty() { p.types() } else { vec![] };
+
+    (Block {
+        types,
+        instrs:             flattened.instrs,
+        return_values:      flattened.return_values,
+        #[cfg(any(feature = "dogfood", test))]
+        return_span:        flattened.return_span
+    }, p.errors)
 }
 
 
@@ -33,6 +39,7 @@ pub fn run(env: &Env, stmts: &[ast::Stmt]) -> (Block, Vec<ParseError>) {
 pub struct Block {
     pub instrs:             Vec<vir::Expr>,
     pub return_values:      Vec<vir::Expr>,
+    pub types:              Vec<TypeInfo>,
     #[cfg(any(feature = "dogfood", test))]
     pub return_span:        Span,
 }
@@ -47,6 +54,14 @@ struct Pass {
     exprs:                      ExprPool,
     errors:                     Vec<ParseError>,
     reassignments:              Vec<(String, vir::Expr, vir::Expr, Span)>,
+}
+
+
+struct Flattened {
+    instrs:                              Vec<vir::Expr>,
+    return_values:                       Vec<vir::Expr>,
+    #[cfg(any(feature = "dogfood", test))]
+    return_span:                         Span,
 }
 
 
@@ -188,7 +203,7 @@ impl Pass {
         }
     }
 
-    pub fn flatten(&self) -> Block {
+    pub fn flatten(&self) -> Flattened {
         let mut instrs = vec![];
         let mut emitted = HashSet::<usize>::new();
 
@@ -210,7 +225,7 @@ impl Pass {
             }
             _ => vec![],
         };
-        Block { instrs, return_values,
+        Flattened { instrs, return_values,
             #[cfg(any(feature = "dogfood", test))]
             return_span
         }
@@ -328,8 +343,8 @@ fn emit_expr(expr: &vir::Expr, instrs: &mut Vec<vir::Expr>, emitted: &mut HashSe
 //-------------------------------------------------------------------------------------------------
 // Type Figurer-outer
 
-#[derive(Debug, Copy, Clone, PartialEq)]
-enum TypeInfo { Unknown, F64, Bool }
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum TypeInfo { Unknown, F64, Bool }
 
 impl fmt::Display for TypeInfo {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
@@ -383,7 +398,7 @@ impl Typer {
     fn new(len: usize) -> Self { Self { records: vec![TypeRecord::new(); len]}}
 
     fn extract_types(&mut self) -> Vec<TypeInfo> {
-        (1..self.records.len()).map(|i| {
+        (0..self.records.len()).map(|i| {
             let root = self.find_root(i);
             match self.records[root].node {
                 TypeNode::Pointer(..)   => panic!("internal compiler error: not all types were resolved"),
