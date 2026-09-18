@@ -373,7 +373,9 @@ code!(fmsub dd, dn, dm, da          =>  4, [FP11 | FP12 | FP13 | FP14], 0x1F40_8
 code!(frintz dd, dn                 =>  3, [FP11 | FP12 | FP13 | FP14], 0x1E65_C000);
 
 code!(fmov dd, dn                   =>  2, [FP11 | FP12 | FP13 | FP14], 0x1E60_4000);
-code!(mov xd, xm                    =>  2, [FP11 | FP12 | FP13 | FP14], 0b1_01_01010_00_0_00000_000000_11111_00000);
+
+// TODO! mov doesn't actually use a unit and has no latency.
+code!(mov xd, xm                    =>  1, [LS8 | L9 | L10],            0b1_01_01010_00_0_00000_000000_11111_00000);
 
 code!(ldr xd, imm19                 => 10, [LS8 | L9 | L10],            0b01_011_0_00_0000000000000000000_00000);
 code!(ldr dd, imm19                 => 10, [LS8 | L9 | L10],            0x5C00_0000);
