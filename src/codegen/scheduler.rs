@@ -11,21 +11,6 @@ use super::isa::MachineReg;
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
 
-//-------------------------------------------------------------------------------------------------
-
-#[derive(Debug, Clone)]
-pub(super) enum Operand<'arena> {
-    Constant(usize),
-    Function(String),
-    Value(&'arena Value<'arena>),
-}
-
-impl<'arena> Operand<'arena> {
-    fn value(&self) -> Option<&'arena Value<'arena>> {
-        if let Self::Value(v) = self { Some(v) } else { None }
-    }
-}
-
 
 //-------------------------------------------------------------------------------------------------
 
@@ -47,6 +32,15 @@ pub(super) enum Type {
     F64,
     FunctionPointer,
 }
+
+
+pub(super) type Operand<'arena> = super::operand::Operand<&'arena Value<'arena>>;
+impl<'arena> Operand<'arena> {
+    fn value(&self) -> Option<&'arena Value<'arena>> {
+        if let Self::Reg(v) = self { Some(v) } else { None }
+    }
+}
+
 
 #[derive(Debug)]
 pub(super) struct Value<'arena> {
@@ -148,7 +142,7 @@ impl<'arena> IntoOperand<'arena> for Operand<'arena> {
 
 impl<'arena> IntoOperand<'arena> for &'arena Value<'arena> {
     fn into_operand(self, _: &Builder<'arena>) -> Operand<'arena> {
-        Operand::Value(self)
+        Operand::Reg(self)
     }
 }
 
@@ -358,7 +352,7 @@ impl<'arena> Builder<'arena> {
         exprs.iter().enumerate()
             .map(|(reg, expr)|
                 (
-                    if let Operand::Value(v) = self.operand_map[&expr.pool_index()] {
+                    if let Operand::Reg(v) = self.operand_map[&expr.pool_index()] {
                         v
                     } else {
                         panic!("internal compiler error: constant as a fixed input")
@@ -483,14 +477,9 @@ mod display {
     use std::fmt;
     use super::*;
 
-    impl fmt::Display for Operand<'_> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            use Operand::*;
-            match self {
-                Value(v)                        => write!(f, "I{}", v.slot),
-                Constant(i)                     => write!(f, "K{i}"),
-                Function(s)                     => write!(f, "{s}"),
-            }
+    impl super::super::operand::display::OperandDisplay for &'_ Value<'_> {
+        fn fmt_operand(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "{}", self.slot)
         }
     }
 

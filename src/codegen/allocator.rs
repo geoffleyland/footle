@@ -4,7 +4,6 @@ use std::collections::BTreeSet;
 use bit_set::BitSet;
 
 use super::scheduler::Value;
-use super::scheduler;
 use super::isa;
 use super::isa::{REGS, Bank, MachineReg};
 
@@ -29,12 +28,7 @@ pub(super) fn run(
 //-------------------------------------------------------------------------------------------------
 // Lower Values to SlotInstrs
 
-#[derive(Debug)]
-enum SlotOperand {
-    Constant(usize),
-    Function(String),
-    Slot(usize),
-}
+type SlotOperand = super::operand::Operand<usize>;
 
 #[derive(Debug)]
 struct SlotInstr {
@@ -53,7 +47,7 @@ struct SlotInstr {
 impl SlotInstr {
     pub(super) fn predecessors(&self) -> impl Iterator<Item = usize> {
         let operands = self.operands.iter().filter_map(|op| {
-            if let SlotOperand::Slot(s) = op { Some(*s) } else { None }
+            if let SlotOperand::Reg(s) = op { Some(*s) } else { None }
         });
         let fixed_inputs = self.fixed_inputs.iter().map(|(v, _)| *v);
         operands.chain(fixed_inputs)
@@ -100,12 +94,7 @@ fn lower_to_slots_and_split(
     let mut new_schedule = vec![];
 
     for (i, value) in scheduled.iter().enumerate() {
-        let operands = value.operands.iter().map(|op|
-            match op {
-                scheduler::Operand::Constant(c)             => SlotOperand::Constant(*c),
-                scheduler::Operand::Value(v)                => SlotOperand::Slot(slot_map[v.slot]),
-                scheduler::Operand::Function(s)             => SlotOperand::Function(s.clone()),
-            }).collect();
+        let operands = value.operands.iter().cloned().map(|o| o.map_reg::<usize>(|v| slot_map[v.slot])).collect();
 
         // Renumber any fixed inputs
         let fixed_inputs = value.fixed_inputs.iter()
@@ -266,12 +255,7 @@ fn set_reg(
 //-------------------------------------------------------------------------------------------------
 // Lowering to Instrs with registers and register swaps.
 
-#[derive(Debug)]
-pub(super) enum Operand {
-    Constant(usize),
-    Function(String),
-    Reg(MachineReg),
-}
+type Operand = super::operand::Operand<MachineReg>;
 
 #[derive(Debug)]
 pub(super) struct Instr {
@@ -299,17 +283,8 @@ fn lower_to_regs(
     };
 
     for instr in instrs {
-        let mut operands = vec![];
-        for op in &instr.operands {
-            match &op {
-                SlotOperand::Constant(i)    => operands.push(Operand::Constant(*i)),
-                SlotOperand::Function(name) => operands.push(Operand::Function(name.clone())),
-                SlotOperand::Slot(s)        => {
-                    operands.push(Operand::Reg(regs[*s]
-                        .expect("internal compiler error: no register assigned for slot")));
-                }
-            }
-        }
+        let operands: Vec<Operand> = instr.operands.iter().cloned().map(|o| o.map_reg(|s|
+            regs[s].expect("internal compiler error: no register assigned for slot"))).collect();
 
         // Unify fixed_input moves and slot_moves and transform them into an ordered list of moves
         // between registers.

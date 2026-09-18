@@ -105,9 +105,9 @@ fn emit_function(
                 .expect("internal compiler error: no register allocated for instruction result")))
             .into_iter()
             .chain(ai.operands.iter().map(|op| match op {
-                allocator::Operand::Reg(r)          => Operand::Reg(*r),
-                allocator::Operand::Constant(i)     => Operand::Constant(*i),
-                allocator::Operand::Function(name) => {
+                super::operand::Operand::Reg(r)             => Operand::Reg(*r),
+                super::operand::Operand::Constant(i)        => Operand::Constant(*i),
+                super::operand::Operand::Function(name) => {
                     let index = functions.iter().position(|s| s == name)
                         .expect("internal compiler error: unknown function name");
                     Operand::Function(index)

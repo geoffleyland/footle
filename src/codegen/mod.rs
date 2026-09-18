@@ -1,3 +1,4 @@
+mod operand;
 mod pass;
 mod scheduler;
 mod allocator;
