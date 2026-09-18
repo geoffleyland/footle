@@ -31,17 +31,18 @@ mod display {
     use super::*;
     use crate::core::{Span, Styleable, LineStyle};
 
-    enum InstrOperand {
-        Constant(usize),
-        Function(String),
-        Instr(usize),
-    }
+    type Operand = super::super::operand::Operand<usize>;
 
+    impl super::super::operand::display::OperandDisplay for usize {
+        fn fmt_operand(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "I{self}")
+        }
+    }
 
     struct Instr {
         slot:                                   usize,
         opcode:                                 String,
-        operands:                               Vec<InstrOperand>,
+        operands:                               Vec<Operand>,
         fixed_inputs:                           Vec<usize>,
         span:                                   Span,
     }
@@ -60,12 +61,7 @@ mod display {
                 writer.writeln(f, indent, Some(*span), &format!("I{i}: argument"))?;
             }
             for instr in &self.instrs {
-                let operands = instr.operands.iter().map(|o|
-                    match o {
-                        InstrOperand::Constant(i)           => format!("K{i}"),
-                        InstrOperand::Instr(i)              => format!("I{i}"),
-                        InstrOperand::Function(name)        => name.clone(),
-                    }).collect::<Vec<_>>();
+                let operands = instr.operands.iter().map(|o| format!("{o}")).collect::<Vec<_>>();
                 writer.writeln(f, indent, Some(instr.span), &format!("I{}: {}{}{}{}{}",
                     instr.slot, instr.opcode,
                     if operands.is_empty() { "" } else { " " }, operands.join(" "),
@@ -94,12 +90,7 @@ mod display {
                 opcode:         c.code()
                                     .expect("internal compiler error: instruction without opcode")
                                     .mnemonic().to_string(),
-                operands:       c.operands.iter().map(|o|
-                    match o {
-                        scheduler::Operand::Constant(i)     => InstrOperand::Constant(*i),
-                        scheduler::Operand::Value(v)        => InstrOperand::Instr(v.slot),
-                        scheduler::Operand::Function(s)     => InstrOperand::Function(s.clone()),
-                    }).collect(),
+                operands:       c.operands.iter().cloned().map(|o| o.map_reg::<usize>(|v| v.slot)).collect(),
                 fixed_inputs:   c.fixed_inputs.iter().map(|(v, _)| v.slot).collect(),
                 span:           c.span})
             .collect();
