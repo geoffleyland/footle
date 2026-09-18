@@ -221,7 +221,7 @@ fn allocate(
     for instr in instrs {
         for (_, dest) in &instr.slot_moves {
             if regs[*dest].get().is_some() { continue; }
-            let reg = REGS.best_reg(slot_banks[*dest], available_ranks[instr.slot], None);
+            let reg = REGS.best_reg(slot_banks[*dest], available_ranks[*dest], None);
             set_reg(*dest, reg, &regs, &interfering_slots, slot_banks, &mut available_ranks);
         }
     }
