@@ -1,3 +1,5 @@
+use seq_macro::seq;
+
 use super::scheduler::Constant;
 use super::allocator;
 use super::isa;
@@ -9,18 +11,45 @@ use crate::core::Span;
 
 //-------------------------------------------------------------------------------------------------
 
-macro_rules! asm_op {
-    (Reg($r:expr))          => { Operand::Reg($r) };
-    (RawReg($r:expr))       => { Operand::Reg(MachineReg::new($r)) };
-    (PooledF64($i:expr))    => { Operand::PooledF64($i) };
-    (Offset($o:expr))       => { Operand::Offset($o) };
+pub(super) enum Operand {
+    Reg(u8),
+    PooledF64(usize),
+    ImmU16(u16),
+    Offset(i32),
+    Function(usize),
 }
 
+struct Reg(u8);
+impl From<Reg> for Operand {
+    fn from(r: Reg) -> Self { Self::Reg(r.0) }
+}
+seq!(N in 0..32 {
+    #[allow(non_upper_case_globals, dead_code)]
+    const x~N: Reg = Reg(N);
+    #[allow(non_upper_case_globals, dead_code)]
+    const d~N: Reg = Reg(N);
+});
+
+struct Offset(i32);
+impl From<Offset> for Operand {
+    fn from(o: Offset) -> Self { Self::Offset(o.0) }
+}
+
+struct PooledF64(usize);
+impl From<PooledF64> for Operand {
+    fn from(p: PooledF64) -> Self { Self::PooledF64(p.0) }
+}
+
+impl From<MachineReg> for Operand {
+    fn from(r: MachineReg) -> Self { Self::Reg(r.0) }
+}
+
+
 macro_rules! assemble_expr {
-    ($vec:expr, $op:expr $(, $($operand:tt $operand_arg:expr),*)?) => {
-        $vec.push(Instr {
+    ($instrs:expr, $op:expr $(, $($operand:expr),*)?) => {
+        $instrs.push(Instr {
             code: $op,
-            operands: vec![$($(asm_op!($operand($operand_arg))),*)?],
+            operands: vec![$($($operand.into()),*)?],
 
             #[cfg(feature = "dogfood")]
             span: None,
@@ -30,22 +59,13 @@ macro_rules! assemble_expr {
 
 
 macro_rules! assemble {
-    ($vec:expr, $op:ident $(, $($operand:tt $operand_arg:expr),*)?) => {
-        assemble_expr!($vec, &isa::$op $(, $($operand $operand_arg),*)?)
+    ($instrs:expr, $op:ident $(, $($operand:expr),*)?) => {
+        assemble_expr!($instrs, &isa::$op $(, $($operand),*)?)
     }
 }
 
 
 //-------------------------------------------------------------------------------------------------
-
-pub(super) enum Operand {
-    Reg(MachineReg),
-    PooledF64(usize),
-    ImmU16(u16),
-    Offset(i32),
-    Function(usize),
-}
-
 
 pub(super) struct Instr {
     pub(super) code:                &'static isa::Code,
@@ -97,17 +117,17 @@ fn emit_function(
     for ai in allocated {
         for (move_op, moves) in [&isa::mov_x, &isa::fmov_d].iter().zip(&ai.moves) {
             for (source, destination) in moves {
-                assemble_expr!(instrs, *move_op, Reg(*destination), Reg(*source));
+                assemble_expr!(instrs, *move_op, *destination, *source);
             }
         }
 
         let operands = ai.code.has_output()
             .then(|| Operand::Reg(ai.result_reg
-                .expect("internal compiler error: no register allocated for instruction result")))
+                .expect("internal compiler error: no register allocated for instruction result").into()))
             .into_iter()
             .chain(ai.operands.iter().map(|op| match op {
-                super::operand::Operand::Reg(r)             => Operand::Reg(*r),
-                super::operand::Operand::PooledF64(i)       => Operand::PooledF64(*i),
+                super::operand::Operand::Reg(r)             => (*r).into(),
+                super::operand::Operand::PooledF64(i)       => PooledF64(*i).into(),
                 super::operand::Operand::ImmU16(v)          => Operand::ImmU16(*v),
                 super::operand::Operand::Function(name) => {
                     let index = functions.iter().position(|s| s == name)
@@ -124,7 +144,7 @@ fn emit_function(
         }
 
         if ai.code.save_link_reg() {
-            assemble!(instrs, str_x_pre, Reg(REGS.link_reg), Reg(REGS.stack_reg), Offset(-16));
+            assemble!(instrs, str_x_pre, REGS.link_reg, REGS.stack_reg, Offset(-16));
         }
 
         instrs.push(Instr{ code: ai.code, operands,
@@ -133,7 +153,7 @@ fn emit_function(
         });
 
         if ai.code.save_link_reg() {
-            assemble!(instrs, ldr_x_post, Reg(REGS.link_reg), Reg(REGS.stack_reg), Offset(16));
+            assemble!(instrs, ldr_x_post, REGS.link_reg, REGS.stack_reg, Offset(16));
         }
     }
 }
@@ -146,8 +166,8 @@ fn save_restore(
     single_op:                      &'static isa::Code,
     offset:                         i32) {
     match *pair {
-        [a, b]  => assemble_expr!(instrs, pair_op, Reg(a), Reg(b), Reg(REGS.stack_reg), Offset(offset)),
-        [a]     => assemble_expr!(instrs, single_op, Reg(a), Reg(REGS.stack_reg), Offset(offset)),
+        [a, b]  => assemble_expr!(instrs, pair_op, a, b, REGS.stack_reg, Offset(offset)),
+        [a]     => assemble_expr!(instrs, single_op, a, REGS.stack_reg, Offset(offset)),
         _       => unreachable!()
     }
 }
@@ -155,35 +175,35 @@ fn save_restore(
 
 //-------------------------------------------------------------------------------------------------
 
-fn emit_glue(argument_count: u8, return_count: u8, assembler: &mut Vec<Instr>) {
+fn emit_glue(argument_count: u8, return_count: u8, instrs: &mut Vec<Instr>) {
     // Move the input buffer pointer to x16 so it doesn't get clobbered by arguments to our function.
     // In fact, at the moment, we only have floating-point arguments, so it *won't* get clobbered,
     // but if I ever get to types and integers, then I don't want to have a mystery bug strike me
     // because I was too smart about my function glue.
-    assemble!(assembler, mov_x, Reg(REGS.scratch_reg), RawReg(0));
+    assemble!(instrs, mov_x, REGS.scratch_reg, x0);
 
     // Move the output buffer and the return address to the stack, since they're about to get
     // overwritten and we need them later.
-    assemble!(assembler, stp_x_pre, RawReg(1), Reg(REGS.link_reg), Reg(REGS.stack_reg), Offset(-16));
+    assemble!(instrs, stp_x_pre, x1, REGS.link_reg, REGS.stack_reg, Offset(-16));
 
     // Move the arguments from the input buffer into the argument registers.
     for i in 0..argument_count {
-        assemble!(assembler, ldr_d_offset, RawReg(i), Reg(REGS.scratch_reg), Offset(i32::from(i) * 8));
+        assemble!(instrs, ldr_d_offset, Reg(i), REGS.scratch_reg, Offset(i32::from(i) * 8));
     }
 
     // Call our function
-    assemble!(assembler, bl,
-        Offset(-4 * i32::try_from(assembler.len())
+    assemble!(instrs, bl,
+        Offset(-4 * i32::try_from(instrs.len())
             .expect("internal compiler error: function too long for jump")));
 
     // Load the output buffer in to x16 and the return address to the appropriate spot
-    assemble!(assembler, ldp_x_post, Reg(REGS.scratch_reg), Reg(REGS.link_reg), Reg(REGS.stack_reg), Offset(16));
+    assemble!(instrs, ldp_x_post, REGS.scratch_reg, REGS.link_reg, REGS.stack_reg, Offset(16));
 
     for i in 0..return_count {
-        assemble!(assembler, str_d_offset, RawReg(i), Reg(REGS.scratch_reg), Offset(i32::from(i) * 8));
+        assemble!(instrs, str_d_offset, Reg(i), REGS.scratch_reg, Offset(i32::from(i) * 8));
     }
 
-    assemble!(assembler, ret);
+    assemble!(instrs, ret);
 }
 
 
