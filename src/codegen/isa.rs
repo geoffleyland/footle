@@ -13,7 +13,7 @@ use display::*;
 // Not really architecture specific stuff (maybe it'll move if we ever get to a second arch)
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct MachineReg(u8);
+pub(super) struct MachineReg(pub(super) u8);
 
 impl MachineReg {
     pub(super) const fn new(index: u8) -> Self {
