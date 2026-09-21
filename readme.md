@@ -32,8 +32,7 @@ It has some features:
 
  It has some big holes:
   * No control flow is pretty significant
-  * Only one type (floats), but I think adding bool (and the whole type system for two types) is
-    next on the list - any time this decade!
+  * Only two types (f64 and bool), but it does mild type-inference.
 
 And, if I were to dream, the list of things I'll probably never get to implementing include:
  * An "interpreter" mode that runs interpreted control flow over compiled
