@@ -17,7 +17,7 @@ pub fn run(vir_block: &vir::Block) -> binary::CompiledFn {
             &scheduled_block.instrs);
     let assembler =
         assembler::run(allocated, &scheduled_block.constants, &scheduled_block.functions,
-            argument_count, scheduled_block.return_count, &registers_to_save);
+            argument_count, scheduled_block.return_types, &registers_to_save);
     binary::emit(&assembler)
 }
 
@@ -112,7 +112,7 @@ mod display {
             allocator::run(scheduled_block.value_count, &scheduled_block.arguments,
                 &scheduled_block.instrs);
         assembler::run(allocated, &scheduled_block.constants, &scheduled_block.functions,
-            argument_count, scheduled_block.return_count, &registers_to_save)
+            argument_count, scheduled_block.return_types, &registers_to_save)
     }
 
 } // mod display

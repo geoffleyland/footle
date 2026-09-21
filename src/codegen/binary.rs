@@ -1,10 +1,28 @@
+use std::fmt;
 use std::mem;
 
 use anyhow::{bail, Result};
 
-use super::scheduler::Constant;
+use super::scheduler::{Constant, Type};
 use super::assembler;
 use super::sys;
+
+
+//-------------------------------------------------------------------------------------------------
+
+pub enum Value {
+    Bool(bool),
+    F64(f64),
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Bool(b)           => write!(f, "{b}"),
+            Self::F64(v)            => write!(f, "{v}"),
+        }
+    }
+}
 
 
 //-------------------------------------------------------------------------------------------------
@@ -13,8 +31,8 @@ pub struct CompiledFn {
     ptr:                            *mut u32,
     size:                           usize,
     argument_count:                 u8,
-    return_count:                   u8,
-    func:                           fn(*const f64, *mut f64),
+    return_types:                   Vec<Type>,
+    func:                           fn(*const f64, *mut u64),
 
     #[cfg(feature = "dogfood")]
     pub(super) instruction_count:   usize,
@@ -27,26 +45,32 @@ impl CompiledFn {
         size:                       usize,
         glue_start_words:           usize,
         argument_count:             u8,
-        return_count:               u8,
+        return_types:               &[Type],
         #[cfg(feature = "dogfood")]
         instruction_count:          usize,
     ) -> Self {
-        let func = unsafe { mem::transmute::<*mut u32, fn(*const f64, *mut f64)>(ptr.add(glue_start_words)) };
+        let func = unsafe { mem::transmute::<*mut u32, fn(*const f64, *mut u64)>(ptr.add(glue_start_words)) };
 
-        Self { ptr, size, argument_count, return_count, func,
+        Self { ptr, size, argument_count, func,
+            return_types: return_types.to_vec(),
         #[cfg(feature = "dogfood")]
             instruction_count
         }
     }
 
-    pub fn call(&self, input: &[f64]) -> Result<Vec<f64>> {
+    pub fn call(&self, input: &[f64]) -> Result<Vec<Value>> {
         if usize::from(self.argument_count) != input.len() {
             bail!("wrong number of arguments: expected {}, got {}",
                 self.argument_count, input.len());
         }
-        let mut output = vec![0.0; usize::from(self.return_count)];
+        let mut output = vec![0u64; self.return_types.len()];
         (self.func)(input.as_ptr(), output.as_mut_ptr());
-        Ok(output)
+        let result = output.iter().zip(&self.return_types).map(|(&bits, &ty)| match ty {
+            Type::F64 => Value::F64(f64::from_bits(bits)),
+            Type::I64 => Value::Bool(bits != 0),
+            _ => unreachable!("internal compiler error: not a return type"),
+        }).collect();
+        Ok(result)
     }
 
     #[cfg(feature = "dogfood")]
@@ -80,7 +104,7 @@ pub fn emit(block: &assembler::Block) -> CompiledFn {
 
     sys::finish_jit_compile(ptr, total_code_size_bytes);
 
-    CompiledFn::new(ptr, total_code_size_bytes, block.glue_start_words, block.argument_count, block.return_count,
+    CompiledFn::new(ptr, total_code_size_bytes, block.glue_start_words, block.argument_count, &block.return_types,
         #[cfg(feature = "dogfood")]
         instr_words
         )

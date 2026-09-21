@@ -1,9 +1,9 @@
 use seq_macro::seq;
 
-use super::scheduler::Constant;
+use super::scheduler::{Constant, Type};
 use super::allocator;
 use super::isa;
-use super::isa::{REGS, MachineReg};
+use super::isa::{REGS, X_BANK, D_BANK, MachineReg, bank_for};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -82,7 +82,7 @@ pub struct Block {
     pub(super) constants:           Vec<Constant>,
     pub(super) functions:           Vec<String>,
     pub(super) argument_count:      u8,
-    pub(super) return_count:        u8,
+    pub(super) return_types:        Vec<Type>,
 }
 
 
@@ -93,15 +93,15 @@ pub(super) fn run(
     constants:                      &[Constant],
     functions:                      &[String],
     argument_count:                 u8,
-    return_count:                   u8,
+    return_types:                   Vec<Type>,
     regs_to_save:                   &[Vec<MachineReg>; REGS.num_banks]) -> Block{
     let mut instrs = Vec::new();
     emit_function(allocated, &mut instrs, functions, regs_to_save);
     let glue_start_words = instrs.len();
-    emit_glue(argument_count, return_count, &mut instrs);
+    emit_glue(argument_count, &return_types, &mut instrs);
 
     Block{ instrs, glue_start_words, constants: constants.into(), functions: functions.to_vec(),
-        argument_count, return_count }
+        argument_count, return_types }
 }
 
 
@@ -110,9 +110,10 @@ fn emit_function(
     instrs:                         &mut Vec<Instr>,
     functions:                      &[String],
     regs_to_save:                   &[Vec<MachineReg>; REGS.num_banks]) {
+    let stack = REGS.stack_reg;
     // Save any callee saved registers
-    for pair in regs_to_save[0].chunks(2) { save_restore(instrs, pair, &isa::stp_x_pre, &isa::str_x_pre, -16) }
-    for pair in regs_to_save[1].chunks(2) { save_restore(instrs, pair, &isa::stp_d_pre, &isa::str_d_pre, -16) }
+    for pair in regs_to_save[0].chunks(2) { save_restore(instrs, pair, &isa::stp_x_pre, &isa::str_x_pre, stack, -16) }
+    for pair in regs_to_save[1].chunks(2) { save_restore(instrs, pair, &isa::stp_d_pre, &isa::str_d_pre, stack, -16) }
 
     for ai in allocated {
         for (move_op, moves) in [&isa::mov_x, &isa::fmov_d].iter().zip(&ai.moves) {
@@ -139,8 +140,8 @@ fn emit_function(
 
         // Restore callee saved registers before a `ret`.
         if ai.code.restore_regs() {
-            for pair in regs_to_save[1].chunks(2).rev() { save_restore(instrs, pair, &isa::ldp_d_post, &isa::ldr_d_post, 16) }
-            for pair in regs_to_save[0].chunks(2).rev() { save_restore(instrs, pair, &isa::ldp_x_post, &isa::ldr_x_post, 16) }
+            for pair in regs_to_save[1].chunks(2).rev() { save_restore(instrs, pair, &isa::ldp_d_post, &isa::ldr_d_post, stack, 16) }
+            for pair in regs_to_save[0].chunks(2).rev() { save_restore(instrs, pair, &isa::ldp_x_post, &isa::ldr_x_post, stack, 16) }
         }
 
         if ai.code.save_link_reg() {
@@ -164,10 +165,11 @@ fn save_restore(
     pair:                           &[MachineReg],
     pair_op:                        &'static isa::Code,
     single_op:                      &'static isa::Code,
+    offset_reg:                     MachineReg,
     offset:                         i32) {
     match *pair {
-        [a, b]  => assemble_expr!(instrs, pair_op, a, b, REGS.stack_reg, Offset(offset)),
-        [a]     => assemble_expr!(instrs, single_op, a, REGS.stack_reg, Offset(offset)),
+        [a, b]  => assemble_expr!(instrs, pair_op, a, b, offset_reg, Offset(offset)),
+        [a]     => assemble_expr!(instrs, single_op, a, offset_reg, Offset(offset)),
         _       => unreachable!()
     }
 }
@@ -175,7 +177,7 @@ fn save_restore(
 
 //-------------------------------------------------------------------------------------------------
 
-fn emit_glue(argument_count: u8, return_count: u8, instrs: &mut Vec<Instr>) {
+fn emit_glue(argument_count: u8, return_types: &[Type], instrs: &mut Vec<Instr>) {
     // Move the input buffer pointer to x16 so it doesn't get clobbered by arguments to our function.
     // In fact, at the moment, we only have floating-point arguments, so it *won't* get clobbered,
     // but if I ever get to types and integers, then I don't want to have a mystery bug strike me
@@ -199,8 +201,21 @@ fn emit_glue(argument_count: u8, return_count: u8, instrs: &mut Vec<Instr>) {
     // Load the output buffer in to x16 and the return address to the appropriate spot
     assemble!(instrs, ldp_x_post, REGS.scratch_reg, REGS.link_reg, REGS.stack_reg, Offset(16));
 
-    for i in 0..return_count {
-        assemble!(instrs, str_d_offset, Reg(i), REGS.scratch_reg, Offset(i32::from(i) * 8));
+    let (mut x_reg, mut d_reg) = (0u8, 0u8);
+    for (i, &ty) in return_types.iter().enumerate() {
+        let offset = Offset(8 * i32::try_from(i)
+            .expect("internal compiler errro; too many return values"));
+        match bank_for(ty) {
+            Some(X_BANK) => {
+                assemble!(instrs, str_x_offset, Reg(x_reg), REGS.scratch_reg, offset);
+                x_reg += 1;
+            }
+            Some(D_BANK) => {
+                assemble!(instrs, str_d_offset, Reg(d_reg), REGS.scratch_reg, offset);
+                d_reg += 1;
+            }
+            _ => panic!("internal compiler error: no bank for return value")
+        }
     }
 
     assemble!(instrs, ret);

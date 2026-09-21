@@ -113,9 +113,9 @@ pub(super) struct Constant {
 
 pub(super) struct Block<'arena> {
     pub(super) value_count:                 usize,
-    pub(super) return_count:                u8,
     pub(super) arguments:                   Vec<&'arena Value<'arena>>,
     pub(super) instrs:                      Vec<&'arena Value<'arena>>,
+    pub(super) return_types :               Vec<Type>,
     pub(super) constants:                   Vec<Constant>,
     pub(super) functions:                   Vec<String>,
 }
@@ -126,13 +126,11 @@ pub(super) struct Block<'arena> {
 pub(super) fn run<'arena>(arena: &'arena Arena<Value<'arena>>, input: &vir::Block) -> Block<'arena> {
     let mut builder = Builder::new(arena);
     builder.lower_vir(input);
-    let return_count = u8::try_from(input.return_values.len())
-        .expect("internal compiler error: too many return values");
-
     let instrs = schedule(&builder.values);
 
-    Block { return_count, instrs,
+    Block { instrs,
         arguments: builder.arguments,
+        return_types: builder.return_types,
         value_count: builder.values.len(),
         constants: builder.constants,
         functions: builder.function_map.keys().cloned().collect()
@@ -188,6 +186,7 @@ struct Builder<'arena> {
     arena:                                  &'arena Arena<Value<'arena>>,
     arguments:                              Vec<&'arena Value<'arena>>,
     values:                                 Vec<&'arena Value<'arena>>,
+    return_types:                           Vec<Type>,
     constants:                              Vec<Constant>,
     operand_map:                            HashMap<usize, Operand<'arena>>,
     function_map:                           HashMap<String, &'arena Value<'arena>>,
@@ -195,8 +194,8 @@ struct Builder<'arena> {
 
 impl<'arena> Builder<'arena> {
     fn new(arena: &'arena Arena<Value<'arena>>) -> Self {
-        Self { arena, arguments: vec![], values: vec![], constants: vec![],
-            operand_map: HashMap::new(), function_map: HashMap::new() }
+        Self { arena, arguments: vec![], values: vec![], return_types: vec![],
+            constants: vec![], operand_map: HashMap::new(), function_map: HashMap::new() }
     }
 
 
@@ -266,11 +265,13 @@ impl<'arena> Builder<'arena> {
             }
         }
 
-        let fixed_inputs = self.exprs_to_fixed_inputs(&input.return_values);
-        self.make_value(Type::None, &isa::ret, vec![], fixed_inputs, None,
+        let return_values = self.exprs_to_fixed_inputs(&input.return_values);
+        self.return_types = return_values.iter().map(|(v, _)| v.ty).collect();
+        self.make_value(Type::None, &isa::ret, vec![], return_values, None,
             #[cfg(feature = "dogfood")]
             input.return_span
         );
+
     }
 
 

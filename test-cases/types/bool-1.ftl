@@ -28,7 +28,11 @@ return true
   0x100c: stp x1, x30, [sp, #-0x10]!
   0x1010: bl #0x1000
   0x1014: ldp x16, x30, [sp], #0x10
-  0x1018: str d0, [x16]
+  0x1018: str x0, [x16]
   0x101c: ret
 
+#)
+
+#( expected results
+    -> true
 #)

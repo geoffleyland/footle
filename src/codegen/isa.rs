@@ -59,7 +59,7 @@ impl RegRank {
 //-------------------------------------------------------------------------------------------------
 // Register details
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Bank(pub(super) usize);
 pub(super) const X_BANK: Bank = Bank(0);
 pub(super) const D_BANK: Bank = Bank(1);
@@ -393,8 +393,9 @@ code!(ldr dt, [xn], #imm9           => 10, [LS8 | L9 | L10],            0b11_111
 code!(ldp xt1, xt2, [xn], #imm7     => 10, [LS8 | L9 | L10],            0b10_101_0_001_1_0000000_00000_00000_00000);
 code!(ldp dt1, dt2, [xn], #imm7     => 10, [LS8 | L9 | L10],            0b01_101_1_001_1_0000000_00000_00000_00000);
 
-code!(str dt, [xn, #imm12]          => 10, [LS8 | L9 | L10],            0b11_111_1_01_00_000000000000_00000_00000);
+code!(str xt, [xn, #imm12]          => 10, [LS8 | L9 | L10],            0b11_111_0_01_00_000000000000_00000_00000);
 code!(str xt, [xn, #imm9]!          => 10, [LS8 | L9 | L10],            0b11_111_0_00_00_0_000000000_11_00000_00000);
+code!(str dt, [xn, #imm12]          => 10, [LS8 | L9 | L10],            0b11_111_1_01_00_000000000000_00000_00000);
 code!(str dt, [xn, #imm9]!          => 10, [LS8 | L9 | L10],            0b11_111_1_00_00_0_000000000_11_00000_00000);
 
 code!(stp xt1, xt2, [xn, #imm7]!    => 10, [LS8 | L9 | L10],            0b10_101_0_011_0_0000000_00000_00000_00000);
