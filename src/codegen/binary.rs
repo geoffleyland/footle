@@ -1,4 +1,3 @@
-use std::fmt;
 use std::mem;
 
 use anyhow::{bail, Result};
@@ -6,23 +5,7 @@ use anyhow::{bail, Result};
 use super::scheduler::{Constant, Type};
 use super::assembler;
 use super::sys;
-
-
-//-------------------------------------------------------------------------------------------------
-
-pub enum Value {
-    Bool(bool),
-    F64(f64),
-}
-
-impl fmt::Display for Value {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::Bool(b)           => write!(f, "{b}"),
-            Self::F64(v)            => write!(f, "{v}"),
-        }
-    }
-}
+use crate::runtime::Value;
 
 
 //-------------------------------------------------------------------------------------------------

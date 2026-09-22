@@ -83,6 +83,7 @@ impl Source for &str {
 ///
 /// I've kept this separate from Chars in an attempt to make it available to users after the parse
 /// has finished, so that error reporting is less weird.  Haven't got there yet.
+#[derive(Debug)]
 pub struct LineMap {
     starts:         Vec<usize>,
     ends:           Vec<usize>
@@ -120,8 +121,9 @@ impl LineMap {
 
 //-------------------------------------------------------------------------------------------------
 
+#[derive(Debug)]
 pub struct SourceMap<S: Source> {
-    file_name:          String,
+    pub file_name:      String,
     source:             S,
     map:                LineMap,
 }

@@ -9,11 +9,10 @@ mod core;
 mod lex;
 mod vir;
 mod codegen;
+mod runtime;
 
 #[cfg(feature = "dogfood")]
 mod dogfood;
-
-use env::Env;
 
 #[cfg(feature = "dogfood")]
 const FOOTLE_FILE_EXTENSION: &str = "ftl";
@@ -28,7 +27,11 @@ fn main() {
     std::process::exit(match run(&mut args) {
         Ok(()) => 0,
         Err(err) => {
-            eprintln!("error: {err:#}");
+            if let Some(diags) = err.downcast_ref::<runtime::Diagnostics>() {
+                eprint!("{diags}");          // already has its own styled "error" labels
+            } else {
+                eprintln!("\x1b[1;31merror\x1b[0m\x1b[1m: {err:#}\x1b[0m");
+            }
             1
         }
     });
@@ -44,7 +47,7 @@ fn run(args: &mut pico_args::Arguments) -> Result<()> {
 
     let Some(file_or_dir): Option<PathBuf> = args.opt_free_from_str()? else { return Ok(()); };
     if !file_or_dir.try_exists()? {
-        bail!("no such file or directory: {}", file_or_dir.display());
+        bail!("couldn't read {}: No such file or directory", file_or_dir.display());
     }
 
     let remaining = args.clone().finish();
@@ -139,30 +142,11 @@ fn run_file(file_path: &PathBuf, arguments: &[f64]) -> Result<()> {
         fs::read_to_string(file_path)
             .with_context(|| format!("couldn't read '{file_name}'"))?;
 
-    let (stmts, errors, source_map) = ast::parse(&file_name, source.as_str());
-    report_errors(&errors, &file_name, &source_map)?;
+    let block = runtime::load(&file_name, source)?;
+    let results = block.call(arguments)?;
 
-    let env = Env::new();
-    let (vir_block, vir_errors) = vir::run(&env, &stmts);
-    report_errors(&vir_errors, &file_name, &source_map)?;
-
-    let func = codegen::run(&vir_block);
-    let results = func.call(arguments)?;
     println!("{}", results.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(" "));
 
-    Ok(())
-}
-
-
-fn report_errors(errors: &[core::ParseError], file_name: &str, source_map: &core::SourceMap<&str>
-    ) -> Result<()> {
-    if !errors.is_empty() {
-        eprintln!("\nErrors from '{file_name}':");
-        for e in errors {
-            eprint!("{}", e.show_in_source(source_map));
-        }
-        bail!("Syntax errors")
-    }
     Ok(())
 }
 

@@ -4,6 +4,7 @@ use super::source::{Source, SourceMap, Span};
 
 //-------------------------------------------------------------------------------------------------
 
+#[derive(Debug)]
 pub enum ErrorPart {
     Message(String),
     Span(Span),
@@ -16,6 +17,7 @@ impl From<(usize, usize)> for ErrorPart { fn from(item: (usize, usize)) -> Self 
 impl From<Span> for ErrorPart           { fn from(item: Span) -> Self           { Self::Span(item) }}
 
 
+#[derive(Debug)]
 pub struct ParseError {
     pub parts:                          Vec<ErrorPart>,
 }
@@ -74,12 +76,13 @@ impl<'a, S: Source> ShowParseError<'a, S> {
 
 impl<S: Source> fmt::Display for ShowParseError<'_, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "\x1b[1;31merror\x1b[0m: ")?;
+        write!(f, "\x1b[1;31merror\x1b[0m\x1b[1m: ")?;
         for m_or_l in &self.error.parts {
             match m_or_l {
                 ErrorPart::Message(msg) => { writeln!(f, "{msg}")?; }
                 ErrorPart::Span(span)   => { self.map.show_span(*span, true).fmt(f)?; }
             }
+            write!(f, "\x1b[0m")?;
         }
         writeln!(f)
     }
