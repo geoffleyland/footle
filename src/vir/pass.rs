@@ -25,6 +25,7 @@ pub fn run(env: &Env, stmts: &[ast::Stmt]) -> Result<Block, Vec<ParseError>> {
 
      Ok(Block {
         exprs:              p.exprs.iter().cloned().collect(),
+        arguments:          p.arguments,
         instrs:             flattened.instrs,
         return_values:      flattened.return_values,
         reassignments:      p.reassignments,
@@ -38,6 +39,7 @@ pub fn run(env: &Env, stmts: &[ast::Stmt]) -> Result<Block, Vec<ParseError>> {
 
 pub struct Block {
     pub exprs:              Vec<vir::Expr>,
+    pub arguments:          Vec<vir::Expr>,
     pub instrs:             Vec<vir::Expr>,
     pub return_values:      Vec<vir::Expr>,
     pub reassignments:      Vec<(String, vir::Expr, vir::Expr, Span)>,

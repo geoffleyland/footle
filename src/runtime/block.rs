@@ -27,7 +27,7 @@ pub fn load(file_name: &str, source: String) -> Result<Block, Diagnostics> {
         }
     };
 
-    let types = match vir::infer_types(&vir_block.exprs, &vir_block.reassignments) {
+    let types = match vir::infer_types(&vir_block.exprs, &vir_block.arguments, &vir_block.reassignments) {
         Ok(types) => types,
         Err(errors) => {
             #[allow(clippy::redundant_clone)]

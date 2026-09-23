@@ -17,10 +17,17 @@ impl TypeErrors {
 
 pub fn infer_types(
     exprs:              &[vir::Expr],
+    arguments:          &[vir::Expr],
     reassignments:      &[(String, vir::Expr, vir::Expr, Span)],
 ) -> Result<Vec<TypeInfo>, Vec<ParseError>> {
     let mut errors = TypeErrors(vec![]);
     let mut typer = Typer::new(exprs.len());
+
+    for argument in arguments {
+        assert!(typer.set_type(argument.pool_index(), TypeInfo::Unknown, argument.span()).is_ok(),
+            "internal compiler error: type conflict setting argument type");
+    }
+
     for expr in exprs {
         if let Err(TypeConflict{expected, expected_span, found, found_span}) =
             typer.type_instr(expr) {
