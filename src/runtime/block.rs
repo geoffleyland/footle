@@ -1,8 +1,6 @@
 use std::fmt;
 use std::sync::Arc;
 
-use anyhow::Result;
-
 use crate::core::{ParseError, SourceMap};
 use crate::ast;
 use crate::env;
@@ -12,20 +10,28 @@ use crate::codegen;
 
 //-------------------------------------------------------------------------------------------------
 
-pub fn load(file_name: &str, source: String) -> Result<Block> {
+pub fn load(file_name: &str, source: String) -> Result<Block, Diagnostics> {
     let (stmts, errors, source_map) = ast::parse(file_name, source);
     let source_map = Arc::new(source_map);
     if !errors.is_empty() {
-        Err(Diagnostics { errors, source: source_map.clone() })?;
+        #[allow(clippy::redundant_clone)]
+        return Err(Diagnostics { errors, source: source_map.clone() });
     }
 
     let env = env::Env::new();
     let (vir_block, errors) = vir::run(&env, &stmts);
     if !errors.is_empty() {
-        Err(Diagnostics { errors, source: source_map.clone() })?;
+        #[allow(clippy::redundant_clone)]
+        return Err(Diagnostics { errors, source: source_map.clone() });
     }
 
-    Ok(Block{ _source: source_map, vir: vir_block })
+    Ok(Block{
+        vir:                vir_block,
+        #[cfg(feature = "dogfood")]
+        stmts,
+        #[cfg(feature = "dogfood")]
+        source:             source_map,
+    })
 }
 
 
@@ -50,13 +56,17 @@ impl fmt::Display for Value {
 //-------------------------------------------------------------------------------------------------
 
 pub struct Block {
-    _source:             Arc<SourceMap<String>>,
-    vir:                vir::Block,
+    pub vir:            vir::Block,
+
+    #[cfg(feature = "dogfood")]
+    pub stmts:          Vec<ast::Stmt>,
+    #[cfg(feature = "dogfood")]
+    pub source:         Arc<SourceMap<String>>,
 }
 
 
 impl Block {
-    pub fn call(&self, arguments: &[f64]) -> Result<Vec<Value>> {
+    pub fn call(&self, arguments: &[f64]) -> anyhow::Result<Vec<Value>> {
         let func = codegen::run(&self.vir);
         let results = func.call(arguments)?;
         Ok(results)
@@ -68,7 +78,7 @@ impl Block {
 
 #[derive(Debug)]
 pub struct Diagnostics {
-    errors:             Vec<ParseError>,
+    pub errors:         Vec<ParseError>,
     source:             Arc<SourceMap<String>>,
 }
 

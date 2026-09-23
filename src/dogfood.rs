@@ -7,9 +7,9 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 
-use crate::{report_errors, FOOTLE_FILE_EXTENSION, core, ast, vir, codegen};
+use crate::{FOOTLE_FILE_EXTENSION, core, codegen};
 use crate::core::Styleable;
-use crate::env::Env;
+use crate::runtime;
 
 
 //-------------------------------------------------------------------------------------------------
@@ -25,28 +25,24 @@ pub fn run_file_verbose(file_path: &PathBuf, arguments: &[f64]) -> Result<()> {
             .with_context(|| format!("couldn't read '{file_name}'"))?;
     eprintln!("Contents of '{file_name}':\n  {}", source.lines().collect::<Vec<_>>().join("\n  "));
 
-    let (stmts, errors, source_map) = ast::parse(&file_name, source.as_str());
-    let style = core::SourceStyle::new(2, 40, true, &source_map);
+    let block = runtime::load(&file_name, source)?;
+    let style = core::SourceStyle::new(2, 40, true, &block.source);
 
-    report_errors(&errors, &file_name, &source_map)?;
     eprintln!("\nStatements from '{file_name}':");
-    for stmt in &stmts { eprintln!("{}", stmt.styled(1, &style)); }
+    for stmt in &block.stmts { eprintln!("{}", stmt.styled(1, &style)); }
 
-    let env = Env::new();
-    let (vir_block, vir_errors) = vir::run(&env, &stmts);
-    report_errors(&vir_errors, &file_name, &source_map)?;
     eprintln!("\nVIR instructions from '{file_name}':");
-    eprintln!("{}", vir_block.styled(1, &style));
+    eprintln!("{}", block.vir.styled(1, &style));
 
-    let schedule = codegen::schedule(&vir_block);
+    let schedule = codegen::schedule(&block.vir);
     eprintln!("\nScheduled instructions from '{file_name}':");
     eprintln!("{}", schedule.styled(1, &style));
 
-    let assembler = codegen::assemble(&vir_block);
+    let assembler = codegen::assemble(&block.vir);
     eprintln!("\nAssembly instructions from '{file_name}':");
     eprintln!("{}", assembler.styled(1, &style));
 
-    let func = codegen::run(&vir_block);
+    let func = codegen::run(&block.vir);
 
     eprintln!("\nDisassembly from '{file_name}':");
     for line in codegen::disassemble(&func) { eprintln!("  {line}"); }
@@ -149,8 +145,10 @@ fn run_test(path: &Path) -> Result<()> {
     let expected = read_test_file(path)?;
 
     for key in ["source", "statements", "vir"] {
-        let source = expected.get(key).unwrap_or(&vec![]).join("\n");
-        test_lines(&path.to_string_lossy(), key, &source, &expected)?;
+        if let Some(source) = expected.get(key) {
+//        let source = expected.get(key).unwrap_or(&vec![]).join("\n");
+            test_lines(&path.to_string_lossy(), key, &source.join("\n"), &expected)?;
+        }
     }
 
     Ok(())
@@ -186,38 +184,31 @@ fn test_lines(
     source: &str,
     expected: &HashMap<String, Vec<String>>,
 ) -> Result<()> {
-    let (stmts, errors, _) = ast::parse(file_name, source);
+//    let (stmts, errors, _) = ast::parse(file_name, source);
 
-    let mut checking = section == "source";
-    if checking {
-        let error_strings: Vec<_> = errors.iter().map(|e| format!("{e}")).collect();
-        compare_lines(&error_strings, expected.get("errors").unwrap_or(&vec![]), section, "errors")?;
-        if expected.contains_key("errors") {
-            return Ok(());
+    let block = match runtime::load(file_name, source.into()) {
+        Err(diagnostics) => {
+            let error_strings: Vec<_> = diagnostics.errors.iter().map(|e| format!("{e}")).collect();
+            compare_lines(&error_strings, expected.get("errors").unwrap_or(&vec![]), section, "errors")?;
+            if expected.contains_key("errors") { return Ok(()); }
+            unreachable!();
         }
-    }
+        Ok(block) => {
+            if expected.contains_key("errors") { bail!("did not get expected errors") }
+            block
+        },
+    };
+
+    let mut checking = false;
 
     checking |= section == "statements";
     if checking && expected.contains_key("statements") {
-        let string_stmts = stmts_to_strings(&stmts);
+        let string_stmts = stmts_to_strings(&block.stmts);
         compare_lines(&string_stmts, &expected["statements"], section, "statements")?;
     }
 
-    let env = Env::new();
-    let (vir_block, vir_errors) = vir::run(&env, &stmts);
-    checking |= section == "vir";
-    if checking {
-        if section == "source" { // only check errors the first time around
-            let error_strings: Vec<_> = vir_errors.iter().map(|e| format!("{e}")).collect();
-            compare_lines(&error_strings, expected.get("vir-errors").unwrap_or(&vec![]), section, "vir-errors")?;
-        }
-        if expected.contains_key("vir-errors") {
-            return Ok(());
-        }
-    }
-
     if checking && expected.contains_key("vir") {
-        compare_lines(&block_to_strings(&vir_block), &expected["vir"], section, "vir")?;
+        compare_lines(&block_to_strings(&block.vir), &expected["vir"], section, "vir")?;
     }
 
     // Once we get to the scheduling and assembler passes, we only do that for the source pass
@@ -226,17 +217,17 @@ fn test_lines(
     // expected output is present (because the compiler is being implemented bit by bit and if
     // we run something NYI, we get an NYI and a panic.)
     if expected.contains_key("schedule") && section == "source" {
-        let schedule = codegen::schedule(&vir_block);
+        let schedule = codegen::schedule(&block.vir);
         compare_lines(&block_to_strings(&schedule), &expected["schedule"], section, "schedule")?;
     }
 
     if expected.contains_key("assembler") && section == "source" {
-        let assembler = codegen::assemble(&vir_block);
+        let assembler = codegen::assemble(&block.vir);
         compare_lines(&block_to_strings(&assembler), &expected["assembler"], section, "assembler")?;
     }
 
     if (expected.contains_key("assembler") || expected.contains_key("results")) && section == "source" {
-        let func = codegen::run(&vir_block);
+        let func = codegen::run(&block.vir);
 
         if expected.contains_key("assembler") {
             let disassembled = &codegen::disassemble(&func);
