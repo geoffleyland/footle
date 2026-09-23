@@ -9,7 +9,6 @@ use super::expr::ExprKind;
 use super::operators::fold_constants;
 use crate::parse_error;
 use crate::core::Span;
-use super::typer;
 
 
 //-------------------------------------------------------------------------------------------------
@@ -24,13 +23,11 @@ pub fn run(env: &Env, stmts: &[ast::Stmt]) -> Result<Block, Vec<ParseError>> {
 
     if !p.errors.is_empty() { return Err(p.errors) }
 
-    let types = typer::infer_types(&p.exprs.iter().cloned().collect::<Vec<_>>(), &p.reassignments)?;
-    //let types = if p.errors.is_empty() { p.types() } else { vec![] };
-
-    Ok(Block {
-        types,
+     Ok(Block {
+        exprs:              p.exprs.iter().cloned().collect(),
         instrs:             flattened.instrs,
         return_values:      flattened.return_values,
+        reassignments:      p.reassignments,
         #[cfg(any(feature = "dogfood", test))]
         return_span:        flattened.return_span
     })
@@ -40,9 +37,11 @@ pub fn run(env: &Env, stmts: &[ast::Stmt]) -> Result<Block, Vec<ParseError>> {
 //-------------------------------------------------------------------------------------------------
 
 pub struct Block {
+    pub exprs:              Vec<vir::Expr>,
     pub instrs:             Vec<vir::Expr>,
     pub return_values:      Vec<vir::Expr>,
-    pub types:              Vec<typer::TypeInfo>,
+    pub reassignments:      Vec<(String, vir::Expr, vir::Expr, Span)>,
+
     #[cfg(any(feature = "dogfood", test))]
     pub return_span:        Span,
 }

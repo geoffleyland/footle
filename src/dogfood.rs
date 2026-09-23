@@ -34,15 +34,15 @@ pub fn run_file_verbose(file_path: &PathBuf, arguments: &[f64]) -> Result<()> {
     eprintln!("\nVIR instructions from '{file_name}':");
     eprintln!("{}", block.vir.styled(1, &style));
 
-    let schedule = codegen::schedule(&block.vir);
+    let schedule = codegen::schedule(&block.vir, &block.types);
     eprintln!("\nScheduled instructions from '{file_name}':");
     eprintln!("{}", schedule.styled(1, &style));
 
-    let assembler = codegen::assemble(&block.vir);
+    let assembler = codegen::assemble(&block.vir, &block.types);
     eprintln!("\nAssembly instructions from '{file_name}':");
     eprintln!("{}", assembler.styled(1, &style));
 
-    let func = codegen::run(&block.vir);
+    let func = codegen::run(&block.vir, &block.types);
 
     eprintln!("\nDisassembly from '{file_name}':");
     for line in codegen::disassemble(&func) { eprintln!("  {line}"); }
@@ -217,17 +217,17 @@ fn test_lines(
     // expected output is present (because the compiler is being implemented bit by bit and if
     // we run something NYI, we get an NYI and a panic.)
     if expected.contains_key("schedule") && section == "source" {
-        let schedule = codegen::schedule(&block.vir);
+        let schedule = codegen::schedule(&block.vir, &block.types);
         compare_lines(&block_to_strings(&schedule), &expected["schedule"], section, "schedule")?;
     }
 
     if expected.contains_key("assembler") && section == "source" {
-        let assembler = codegen::assemble(&block.vir);
+        let assembler = codegen::assemble(&block.vir, &block.types);
         compare_lines(&block_to_strings(&assembler), &expected["assembler"], section, "assembler")?;
     }
 
     if (expected.contains_key("assembler") || expected.contains_key("results")) && section == "source" {
-        let func = codegen::run(&block.vir);
+        let func = codegen::run(&block.vir, &block.types);
 
         if expected.contains_key("assembler") {
             let disassembled = &codegen::disassemble(&func);

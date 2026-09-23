@@ -10,4 +10,4 @@ mod typer;
 pub use expr::{Expr, ExprKind};
 pub use stmt::{Stmt, StmtKind};
 pub use pass::{Block, run};
-pub use typer::{TypeInfo};
+pub use typer::{TypeInfo, infer_types};

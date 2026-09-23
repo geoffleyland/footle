@@ -6,9 +6,9 @@ use super::{scheduler, allocator, assembler, binary};
 
 //-------------------------------------------------------------------------------------------------
 
-pub fn run(vir_block: &vir::Block) -> binary::CompiledFn {
+pub fn run(vir_block: &vir::Block, types: &[vir::TypeInfo]) -> binary::CompiledFn {
     let arena = Arena::<scheduler::Value>::new();
-    let scheduled_block = scheduler::run(&arena, vir_block);
+    let scheduled_block = scheduler::run(&arena, vir_block, types);
     let argument_count = u8::try_from(scheduled_block.arguments.len())
         .expect("internal compiler error: too many arguments");
 
@@ -76,9 +76,9 @@ mod display {
     }
 
 
-    pub fn schedule(vir_block: &vir::Block) -> Schedule {
+    pub fn schedule(vir_block: &vir::Block, types: &[vir::TypeInfo]) -> Schedule {
         let arena = Arena::<scheduler::Value>::new();
-        let scheduled_block = scheduler::run(&arena, vir_block);
+        let scheduled_block = scheduler::run(&arena, vir_block, types);
 
         let arguments = vir_block.instrs.iter()
             .filter(|e| matches!(e.kind(), vir::ExprKind::Argument(..)))
@@ -102,9 +102,9 @@ mod display {
     //-------------------------------------------------------------------------------------------------
     // Text output for assembler
 
-    pub fn assemble(vir_block: &vir::Block) -> assembler::Block {
+    pub fn assemble(vir_block: &vir::Block, types: &[vir::TypeInfo]) -> assembler::Block {
         let arena = Arena::<scheduler::Value>::new();
-        let scheduled_block = scheduler::run(&arena, vir_block);
+        let scheduled_block = scheduler::run(&arena, vir_block, types);
         let argument_count = u8::try_from(scheduled_block.arguments.len())
             .expect("internal compiler error: too many arguments");
 

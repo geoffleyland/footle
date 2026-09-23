@@ -123,9 +123,13 @@ pub(super) struct Block<'arena> {
 
 //-------------------------------------------------------------------------------------------------
 
-pub(super) fn run<'arena>(arena: &'arena Arena<Value<'arena>>, input: &vir::Block) -> Block<'arena> {
+pub(super) fn run<'arena>(
+    arena:          &'arena Arena<Value<'arena>>,
+    input:          &vir::Block,
+    types:          &[vir::TypeInfo],
+) -> Block<'arena> {
     let mut builder = Builder::new(arena);
-    builder.lower_vir(input);
+    builder.lower_vir(input, types);
     let instrs = schedule(&builder.values);
 
     Block { instrs,
@@ -199,9 +203,9 @@ impl<'arena> Builder<'arena> {
     }
 
 
-    fn lower_vir(&mut self, input: &vir::Block) {
+    fn lower_vir(&mut self, input: &vir::Block, types: &[vir::TypeInfo]) {
         for expr in &input.instrs {
-            let ty = type_for(input.types[expr.pool_index()]);
+            let ty = type_for(types[expr.pool_index()]);
             match expr.kind() {
                 #[cfg(any(feature = "dogfood", test))]
                 vir::ExprKind::Argument(index, name) => {

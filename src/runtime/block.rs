@@ -27,7 +27,16 @@ pub fn load(file_name: &str, source: String) -> Result<Block, Diagnostics> {
         }
     };
 
+    let types = match vir::infer_types(&vir_block.exprs, &vir_block.reassignments) {
+        Ok(types) => types,
+        Err(errors) => {
+            #[allow(clippy::redundant_clone)]
+            return Err(Diagnostics { errors, source: source_map.clone() });
+        }
+    };
+
     Ok(Block{
+        types,
         vir:                vir_block,
         #[cfg(feature = "dogfood")]
         stmts,
@@ -59,6 +68,7 @@ impl fmt::Display for Value {
 
 pub struct Block {
     pub vir:            vir::Block,
+    pub types:          Vec<vir::TypeInfo>,
 
     #[cfg(feature = "dogfood")]
     pub stmts:          Vec<ast::Stmt>,
@@ -69,7 +79,7 @@ pub struct Block {
 
 impl Block {
     pub fn call(&self, arguments: &[f64]) -> anyhow::Result<Vec<Value>> {
-        let func = codegen::run(&self.vir);
+        let func = codegen::run(&self.vir, &self.types);
         let results = func.call(arguments)?;
         Ok(results)
     }
