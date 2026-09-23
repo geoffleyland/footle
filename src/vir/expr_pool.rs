@@ -21,7 +21,6 @@ impl ExprPool {
         }
     }
 
-    pub(super) fn len(&self) -> usize   { self.exprs.len() }
     pub(super) fn iter(&self) -> std::slice::Iter<'_, Expr>
         { self.ordered.iter() }
 

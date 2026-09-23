@@ -19,11 +19,13 @@ pub fn load(file_name: &str, source: String) -> Result<Block, Diagnostics> {
     }
 
     let env = env::Env::new();
-    let (vir_block, errors) = vir::run(&env, &stmts);
-    if !errors.is_empty() {
-        #[allow(clippy::redundant_clone)]
-        return Err(Diagnostics { errors, source: source_map.clone() });
-    }
+    let vir_block = match vir::run(&env, &stmts) {
+        Ok(block) => block,
+        Err(errors) => {
+            #[allow(clippy::redundant_clone)]
+            return Err(Diagnostics { errors, source: source_map.clone() });
+        }
+    };
 
     Ok(Block{
         vir:                vir_block,
