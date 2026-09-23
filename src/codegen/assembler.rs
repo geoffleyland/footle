@@ -81,7 +81,7 @@ pub struct Block {
     pub(super) glue_start_words:    usize,
     pub(super) constants:           Vec<Constant>,
     pub(super) functions:           Vec<String>,
-    pub(super) argument_count:      u8,
+    pub(super) argument_types:      Vec<Type>,
     pub(super) return_types:        Vec<Type>,
 }
 
@@ -92,16 +92,16 @@ pub(super) fn run(
     allocated:                      Vec<allocator::Instr>,
     constants:                      &[Constant],
     functions:                      &[String],
-    argument_count:                 u8,
+    argument_types:                 Vec<Type>,
     return_types:                   Vec<Type>,
     regs_to_save:                   &[Vec<MachineReg>; REGS.num_banks]) -> Block{
     let mut instrs = Vec::new();
     emit_function(allocated, &mut instrs, functions, regs_to_save);
     let glue_start_words = instrs.len();
-    emit_glue(argument_count, &return_types, &mut instrs);
+    emit_glue(&argument_types, &return_types, &mut instrs);
 
     Block{ instrs, glue_start_words, constants: constants.into(), functions: functions.to_vec(),
-        argument_count, return_types }
+        argument_types, return_types }
 }
 
 
@@ -177,7 +177,7 @@ fn save_restore(
 
 //-------------------------------------------------------------------------------------------------
 
-fn emit_glue(argument_count: u8, return_types: &[Type], instrs: &mut Vec<Instr>) {
+fn emit_glue(argument_types: &[Type], return_types: &[Type], instrs: &mut Vec<Instr>) {
     // Move the input buffer pointer to x16 so it doesn't get clobbered by arguments to our function.
     // In fact, at the moment, we only have floating-point arguments, so it *won't* get clobbered,
     // but if I ever get to types and integers, then I don't want to have a mystery bug strike me
@@ -189,8 +189,23 @@ fn emit_glue(argument_count: u8, return_types: &[Type], instrs: &mut Vec<Instr>)
     assemble!(instrs, stp_x_pre, x1, REGS.link_reg, REGS.stack_reg, Offset(-16));
 
     // Move the arguments from the input buffer into the argument registers.
-    for i in 0..argument_count {
-        assemble!(instrs, ldr_d_offset, Reg(i), REGS.scratch_reg, Offset(i32::from(i) * 8));
+    let (mut x_reg, mut d_reg) = (0u8, 0u8);
+    for (i, &ty) in argument_types.iter().enumerate() {
+        let offset = Offset(8 * i32::try_from(i)
+            .expect("internal compiler error; too many return values"));
+        match bank_for(ty) {
+            Some(X_BANK) => {
+                assert!(x_reg < 8, "internal compiler error; too many return values");
+                assemble!(instrs, ldr_x_offset, Reg(x_reg), REGS.scratch_reg, offset);
+                x_reg += 1;
+            }
+            Some(D_BANK) => {
+                assert!(d_reg < 8, "internal compiler error; too many return values");
+                assemble!(instrs, ldr_d_offset, Reg(d_reg), REGS.scratch_reg, offset);
+                d_reg += 1;
+            }
+            _ => panic!("internal compiler error: no bank for return value")
+        }
     }
 
     // Call our function
@@ -204,13 +219,15 @@ fn emit_glue(argument_count: u8, return_types: &[Type], instrs: &mut Vec<Instr>)
     let (mut x_reg, mut d_reg) = (0u8, 0u8);
     for (i, &ty) in return_types.iter().enumerate() {
         let offset = Offset(8 * i32::try_from(i)
-            .expect("internal compiler errro; too many return values"));
+            .expect("internal compiler error; too many return values"));
         match bank_for(ty) {
             Some(X_BANK) => {
+                assert!(x_reg < 8, "internal compiler error; too many return values");
                 assemble!(instrs, str_x_offset, Reg(x_reg), REGS.scratch_reg, offset);
                 x_reg += 1;
             }
             Some(D_BANK) => {
+                assert!(d_reg < 8, "internal compiler error; too many return values");
                 assemble!(instrs, str_d_offset, Reg(d_reg), REGS.scratch_reg, offset);
                 d_reg += 1;
             }

@@ -47,7 +47,8 @@ pub fn run_file_verbose(file_path: &PathBuf, arguments: &[f64]) -> Result<()> {
     eprintln!("\nDisassembly from '{file_name}':");
     for line in codegen::disassemble(&func) { eprintln!("  {line}"); }
 
-    let results = func.call(arguments)?;
+    let arguments = arguments.iter().map(|v| runtime::Value::F64(*v)).collect::<Vec<_>>();
+    let results = func.call(&arguments)?;
     println!("\nResult from '{file_name}':");
     println!("  f({}) = ({})",
         arguments.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(", "),
@@ -146,7 +147,6 @@ fn run_test(path: &Path) -> Result<()> {
 
     for key in ["source", "statements", "vir"] {
         if let Some(source) = expected.get(key) {
-//        let source = expected.get(key).unwrap_or(&vec![]).join("\n");
             test_lines(&path.to_string_lossy(), key, &source.join("\n"), &expected)?;
         }
     }
@@ -251,7 +251,7 @@ fn test_results(func: &codegen::CompiledFn, expected: &[String], section: &str) 
             bail!("    invalid result line: {line:?}");
         };
         let inputs = inputs_str.split_whitespace()
-            .map(str::parse::<f64>)
+            .map(|s| s.parse::<f64>().map(runtime::Value::F64))
             .collect::<Result<Vec<_>, _>>()
             .with_context(|| format!("    invalid input in {line:?}"))?;
 

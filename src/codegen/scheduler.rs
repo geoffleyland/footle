@@ -1,3 +1,4 @@
+use std::fmt;
 use std::collections::HashMap;
 
 use typed_arena::Arena;
@@ -38,13 +39,30 @@ pub(super) enum Type {
 fn type_for(ty: vir::TypeInfo) -> Type {
     match ty {
         vir::TypeInfo::F64 |
-            vir::TypeInfo::Unknown  => Type::F64,
+        vir::TypeInfo::Unknown  => Type::F64,
         vir::TypeInfo::Bool         => Type::I64,
-        // TODO!  This should be a panic, but we have some work to do
+        // TODO!  This should be a panic, but we don't know the types of function arguments or
+        // return values
         // vir::TypeInfo::Unknown  => panic!("internal compile error: incomplete type information")
     }
 }
 
+
+impl fmt::Display for Type {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use Type::*;
+        let str = match self {
+            None                            => "None",
+            I64                             => "i64",
+            F64                             => "f64",
+            FunctionPointer                 => "FunctionPointer",
+        };
+        write!(f, "{str}")
+    }
+}
+
+
+//-------------------------------------------------------------------------------------------------
 
 pub(super) type Operand<'arena> = super::operand::Operand<&'arena Value<'arena>>;
 impl<'arena> Operand<'arena> {
@@ -497,7 +515,6 @@ fn schedule<'arena>(values: &[&'arena Value<'arena>]) -> Vec<&'arena Value<'aren
 
 #[cfg(any(feature = "dogfood", test))]
 mod display {
-    use std::fmt;
     use super::*;
 
     impl super::super::operand::display::OperandDisplay for &'_ Value<'_> {
@@ -528,21 +545,6 @@ mod display {
                     .join(" "))
         }
     }
-
-
-    impl fmt::Display for Type {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            use Type::*;
-            let str = match self {
-                None                            => "None",
-                I64                             => "i64",
-                F64                             => "f64",
-                FunctionPointer                 => "FunctionPointer",
-            };
-            write!(f, "{str}")
-        }
-    }
-
 }
 
 

@@ -13,9 +13,9 @@ use crate::runtime::Value;
 pub struct CompiledFn {
     ptr:                            *mut u32,
     size:                           usize,
-    argument_count:                 u8,
+    argument_types:                 Vec<Type>,
     return_types:                   Vec<Type>,
-    func:                           fn(*const f64, *mut u64),
+    func:                           fn(*const u64, *mut u64),
 
     #[cfg(feature = "dogfood")]
     pub(super) instruction_count:   usize,
@@ -27,27 +27,41 @@ impl CompiledFn {
         ptr:                        *mut u32,
         size:                       usize,
         glue_start_words:           usize,
-        argument_count:             u8,
+        argument_types:             &[Type],
         return_types:               &[Type],
         #[cfg(feature = "dogfood")]
         instruction_count:          usize,
     ) -> Self {
-        let func = unsafe { mem::transmute::<*mut u32, fn(*const f64, *mut u64)>(ptr.add(glue_start_words)) };
+        let func = unsafe { mem::transmute::<*mut u32, fn(*const u64, *mut u64)>(ptr.add(glue_start_words)) };
 
-        Self { ptr, size, argument_count, func,
+        Self { ptr, size, func,
+            argument_types: argument_types.to_vec(),
             return_types: return_types.to_vec(),
         #[cfg(feature = "dogfood")]
             instruction_count
         }
     }
 
-    pub fn call(&self, input: &[f64]) -> Result<Vec<Value>> {
-        if usize::from(self.argument_count) != input.len() {
+    pub fn call(&self, input: &[Value]) -> Result<Vec<Value>> {
+        if self.argument_types.len() != input.len() {
             bail!("wrong number of arguments: expected {}, got {}",
-                self.argument_count, input.len());
+                self.argument_types.len(), input.len());
         }
+        let mut lowered_input = vec![];
+        for (e, i) in self.argument_types.iter().zip(input) {
+            let bits = match (e, i) {
+                (Type::F64, Value::F64(v))  => { v.to_bits() },
+                (Type::I64, Value::Bool(v)) => { (*v).into() },
+                _ => {
+                    bail!("wrong type for argument #{}.  Expected `{e}`, got `{i}`",
+                        lowered_input.len() + 1);
+                }
+            };
+            lowered_input.push(bits);
+        }
+
         let mut output = vec![0u64; self.return_types.len()];
-        (self.func)(input.as_ptr(), output.as_mut_ptr());
+        (self.func)(lowered_input.as_ptr(), output.as_mut_ptr());
         let result = output.iter().zip(&self.return_types).map(|(&bits, &ty)| match ty {
             Type::F64 => Value::F64(f64::from_bits(bits)),
             Type::I64 => Value::Bool(bits != 0),
@@ -87,7 +101,7 @@ pub fn emit(block: &assembler::Block) -> CompiledFn {
 
     sys::finish_jit_compile(ptr, total_code_size_bytes);
 
-    CompiledFn::new(ptr, total_code_size_bytes, block.glue_start_words, block.argument_count, &block.return_types,
+    CompiledFn::new(ptr, total_code_size_bytes, block.glue_start_words, &block.argument_types, &block.return_types,
         #[cfg(feature = "dogfood")]
         instr_words
         )
