@@ -57,7 +57,7 @@ mod display {
     use std::cmp::{max, min};
     use std::fmt;
     use super::*;
-    use crate::core::source::{Source, SourceMap};
+    use crate::core::SourceMap;
 
 
     pub struct Styled<'a, S: Styleable + ?Sized, LS: LineStyle> {
@@ -73,22 +73,22 @@ mod display {
     }
 
 
-    pub struct SourceStyle<'a, S: Source> {
+    pub struct SourceStyle<'a> {
         tab:                    u16,
         width:                  u16,
         highlight:              bool,
-        map:                    &'a SourceMap<S>,
+        map:                    &'a SourceMap,
     }
 
 
-    impl <'a, S: Source> SourceStyle<'a, S> {
-        pub fn new(tab: u16, width: u16, highlight: bool, map: &'a SourceMap<S>) -> Self {
+    impl <'a> SourceStyle<'a> {
+        pub fn new(tab: u16, width: u16, highlight: bool, map: &'a SourceMap) -> Self {
             Self{tab, width, highlight, map}
         }
     }
 
 
-    impl<S: Source> LineStyle for SourceStyle<'_, S> {
+    impl LineStyle for SourceStyle<'_> {
         fn write(&self, f: &mut Formatter, indent: u16, span: Option<Span>, line: &str) -> Result {
             let (yellow, stop) = ("\x1b[1;33m", "\x1b[0m");
 

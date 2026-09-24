@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use crate::core::{Span, Source, LineMap};
+use crate::core::{Span, LineMap};
 use super::token::{Token, match_reserved_word};
 use super::scanner::{Scanner};
 
@@ -62,14 +62,14 @@ pub type LexerResult = (Result<Token, String>, Span);
 
 //-------------------------------------------------------------------------------------------------
 
-pub struct Lexer<S: Source> {
-    scanner:                    Scanner<S>,
+pub struct Lexer {
+    scanner:                    Scanner,
     lookahead_buffer:           VecDeque<(char, usize)>,
 }
 
 
-impl<S: Source> Lexer<S> {
-    pub fn new(s: S) -> Self {
+impl Lexer {
+    pub fn new<S: Into<String>>(s: S) -> Self {
         Self {
             scanner:            Scanner::new(s),
             lookahead_buffer:   VecDeque::new(),
@@ -77,7 +77,7 @@ impl<S: Source> Lexer<S> {
     }
 
 
-    pub fn close(self) -> (S, LineMap) { self.scanner.close() }
+    pub fn close(self) -> (String, LineMap) { self.scanner.close() }
 
 
     fn lookahead(&mut self, n: usize) -> Option<(char, usize)> {
@@ -326,7 +326,7 @@ mod test {
     }
 
 
-    impl<S: Source> Iterator for Lexer<S> {
+    impl Iterator for Lexer {
         type Item = LexerResult;
 
         fn next(&mut self) -> Option<LexerResult> {
@@ -350,7 +350,7 @@ mod test {
     }
 
 
-    fn span_to_string<S: Source, T: Into<Span>>(lex: Lexer<S>, span: T) -> String {
+    fn span_to_string<T: Into<Span>>(lex: Lexer, span: T) -> String {
         let (source, map) = lex.close();
         format!("{}", SourceMap::new("(string)", source, map).show_span(span, false))
     }

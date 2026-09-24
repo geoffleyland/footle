@@ -108,7 +108,7 @@ pub struct Block {
     #[cfg(feature = "dogfood")]
     pub stmts:          Vec<ast::Stmt>,
     #[cfg(feature = "dogfood")]
-    pub source:         Arc<SourceMap<String>>,
+    pub source:         Arc<SourceMap>,
 }
 
 
@@ -126,7 +126,7 @@ impl Block {
 #[derive(Debug)]
 pub struct Diagnostics {
     pub errors:         Vec<ParseError>,
-    source:             Arc<SourceMap<String>>,
+    source:             Arc<SourceMap>,
 }
 
 impl std::error::Error for Diagnostics {}
@@ -134,7 +134,7 @@ impl std::error::Error for Diagnostics {}
 impl fmt::Display for Diagnostics {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for e in &self.errors {
-            write!(f, "{}", e.show_in_source(&*self.source))?;
+            write!(f, "{}", e.show_in_source(&self.source))?;
         }
         Ok(())
     }

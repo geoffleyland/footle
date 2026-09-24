@@ -69,14 +69,6 @@ impl Source for String {
 }
 
 
-impl Source for &str {
-    fn slice(&self, start: usize, end: usize) -> &str { &self[start..end] }
-    fn at(&self, offset: usize) -> Option<char> { self[offset..].chars().next() }
-    fn next(&self, offset: usize) -> Option<usize> {
-        self[offset..].chars().next().map(|ch| offset + ch.len_utf8())
-    }
-}
-
 //-------------------------------------------------------------------------------------------------
 
 /// A map of where lines start and end in a file.
@@ -122,19 +114,19 @@ impl LineMap {
 //-------------------------------------------------------------------------------------------------
 
 #[derive(Debug)]
-pub struct SourceMap<S: Source> {
+pub struct SourceMap {
     pub file_name:      String,
-    source:             S,
+    source:             String,
     map:                LineMap,
 }
 
 
-impl<S: Source> SourceMap<S> {
-    pub fn new<Str: Into<String>>(file_name: Str, source: S, map: LineMap) -> Self {
+impl SourceMap {
+    pub fn new<Str: Into<String>>(file_name: Str, source: String, map: LineMap) -> Self {
         Self { file_name: file_name.into(), map, source }
     }
 
-    pub fn show_span<T: Into<Span>>(&self, span: T, colour: bool) -> SpanToShow<'_, S> {
+    pub fn show_span<T: Into<Span>>(&self, span: T, colour: bool) -> SpanToShow<'_> {
         SpanToShow { map: self, span: span.into(), colour }
     }
 
@@ -155,14 +147,14 @@ impl<S: Source> SourceMap<S> {
 /// A temporary object (constructed with `show_span`) for showing source location.
 ///
 /// To use it, try `format!("{}", scanner.show_span((start, end)))`.
-pub struct SpanToShow<'a, S: Source> {
+pub struct SpanToShow<'a> {
     span:               Span,
     colour:             bool,
-    map:                &'a SourceMap<S>,
+    map:                &'a SourceMap,
 }
 
 /// Display a token in context in the source file or string.
-impl<S: Source> std::fmt::Display for SpanToShow<'_, S> {
+impl std::fmt::Display for SpanToShow<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let (blue, yellow, stop) =
             if self.colour { ("\x1b[1;34m", "\x1b[1;33m", "\x1b[0m") } else { ("", "", "") };
@@ -188,7 +180,7 @@ mod test {
 
     #[test]
     fn test_source() {
-        let source = "12345";
+        let source = "12345".to_string();
         assert_eq!(source.at(0), Some('1'));
         assert_eq!(source.at(5), None);
         assert_eq!(source.slice(1, 3), "23");

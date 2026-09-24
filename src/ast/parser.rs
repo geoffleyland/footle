@@ -3,7 +3,7 @@ use std::{collections::VecDeque, convert::From};
 use super::expr::{Expr, ExprKind};
 use super::stmt::{Stmt, StmtKind};
 
-use crate::core::{BinaryOperator, Declaration, LineMap, Nev, ParseError, Source, SourceMap, Span, parse_error};
+use crate::core::{BinaryOperator, Declaration, LineMap, Nev, ParseError, SourceMap, Span, parse_error};
 use crate::lex::{Lexer, LexerResult, Token};
 
 
@@ -43,10 +43,10 @@ macro_rules! expect {
 
 //-------------------------------------------------------------------------------------------------
 
-pub fn parse<S, T>(file_name: T, s: S) -> (Vec<Stmt>, Vec<ParseError>, SourceMap<S>)
+pub fn parse<S1, S2>(file_name: S1, s: S2) -> (Vec<Stmt>, Vec<ParseError>, SourceMap)
 where
-    S: Source,
-    T: Into<String>,
+    S1: Into<String>,
+    S2: Into<String>,
 {
     let mut p = Parser::new(s);
     let stmts = p.parse_stmts();
@@ -56,15 +56,15 @@ where
 
 //-------------------------------------------------------------------------------------------------
 
-struct Parser<S: Source> {
-    lexer:                                  Lexer<S>,
+struct Parser {
+    lexer:                                  Lexer,
     lookahead_buffer:                       VecDeque<LexerResult>,
     errors:                                 Vec<ParseError>,
 }
 
 
-impl<S: Source> Parser<S> {
-    fn new(s: S) -> Self {
+impl Parser {
+    fn new<S: Into<String>>(s: S) -> Self {
         Self {
             lexer:                          Lexer::new(s),
             lookahead_buffer:               VecDeque::new(),
@@ -73,7 +73,7 @@ impl<S: Source> Parser<S> {
     }
 
 
-    fn close(self) -> (Vec<ParseError>, S, LineMap) {
+    fn close(self) -> (Vec<ParseError>, String, LineMap) {
         let (source, map) = self.lexer.close();
         (self.errors, source, map)
     }
@@ -513,7 +513,7 @@ mod test {
     fn test_parse<R, F>(f: F, input: &str, expected: &str)
     where
         R: fmt::Display,
-        F: FnOnce(Parser<&str>) -> R,
+        F: FnOnce(Parser) -> R,
     {
         let p = Parser::new(input);
         let result = format!("{}", f(p));
@@ -523,7 +523,7 @@ mod test {
     fn test_fallible_parse<R, F>(f: F, input: &str, expected: &str)
     where
         R: fmt::Display,
-        F: FnOnce(Parser<&str>) -> Option<R>,
+        F: FnOnce(Parser) -> Option<R>,
     {
         let p = Parser::new(input);
         if let Some(n) = f(p) {
@@ -534,7 +534,7 @@ mod test {
         }
     }
 
-    fn display_parse_result(p: Parser<&str>, stmts: &[Stmt]) -> String {
+    fn display_parse_result(p: Parser, stmts: &[Stmt]) -> String {
         let (errors, ..) = p.close();
         if errors.is_empty() {
             stmts.iter().map(|s| format!("{s}")).collect::<Vec<_>>().join("\n")
@@ -545,19 +545,19 @@ mod test {
 
 
     fn test_stmts(input: &str, expected: &str) {
-        test_parse(|mut p: Parser<&str>| {
+        test_parse(|mut p: Parser| {
             let r = p.parse_stmts();
             display_parse_result(p, &r)
         }, input, expected);
     }
 
     fn test_stmt(input: &str, expected: &str) {
-        test_fallible_parse(|mut p: Parser<&str>| p.parse_stmt(), input, expected);
+        test_fallible_parse(|mut p: Parser| p.parse_stmt(), input, expected);
         test_stmts(input, expected);
     }
 
     fn test_expr(input: &str, expected: &str) {
-        test_parse(|mut p: Parser<&str>| p.parse_priority_expr(0).unwrap(), input, expected);
+        test_parse(|mut p: Parser| p.parse_priority_expr(0).unwrap(), input, expected);
         test_stmt(input, expected);
         test_stmts(input, expected);
     }

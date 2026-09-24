@@ -7,24 +7,24 @@ use crate::core::{Source, LineMap};
 ///
 /// We need a current position, and since we're going to want to display things nicely later, we
 /// keep track of the starts and ends of lines as we go.
-pub struct Scanner<S: Source> {
-    source:         S,
+pub struct Scanner {
+    source:         String,
     pos:            usize,
     map:            LineMap
 }
 
 
-impl <S: Source> Scanner<S> {
-    pub fn new(s: S) -> Self {
+impl Scanner {
+    pub fn new<S: Into<String>>(s: S) -> Self {
         Self {
-            source: s,
+            source: s.into(),
             pos:    0,
             map:    LineMap::new()
         }
     }
 
     /// Close a Scanner, returning the `LineMap` it created.
-    pub fn close(self) -> (S, LineMap) { (self.source, self.map) }
+    pub fn close(self) -> (String, LineMap) { (self.source, self.map) }
 
 
     /// Return the position in the file.
@@ -39,7 +39,7 @@ impl <S: Source> Scanner<S> {
 }
 
 
-impl<S:Source> Iterator for Scanner<S> {
+impl Iterator for Scanner  {
     type Item = (char, usize);
 
     /// Produce the next character.

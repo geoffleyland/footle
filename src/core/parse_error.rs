@@ -1,6 +1,6 @@
 use std::{convert::From, fmt};
 
-use super::source::{Source, SourceMap, Span};
+use super::source::{SourceMap, Span};
 
 //-------------------------------------------------------------------------------------------------
 
@@ -44,7 +44,7 @@ impl fmt::Display for ParseError {
 
 
 impl ParseError {
-    pub fn show_in_source<'a, S: Source>(&'a self, map: &'a SourceMap<S>) -> ShowParseError<'a, S> {
+    pub fn show_in_source<'a>(&'a self, map: &'a SourceMap) -> ShowParseError<'a> {
         ShowParseError::new(self, map)
     }
 }
@@ -63,18 +63,18 @@ impl ParseError {
 
 //-------------------------------------------------------------------------------------------------
 
-pub struct ShowParseError<'a, S: Source> {
+pub struct ShowParseError<'a> {
     error:                              &'a ParseError,
-    map:                                &'a SourceMap<S>,
+    map:                                &'a SourceMap,
 }
 
 
-impl<'a, S: Source> ShowParseError<'a, S> {
-    pub fn new(error: &'a ParseError, map: &'a SourceMap<S>) -> Self { Self { error, map } }
+impl<'a> ShowParseError<'a> {
+    pub fn new(error: &'a ParseError, map: &'a SourceMap) -> Self { Self { error, map } }
 }
 
 
-impl<S: Source> fmt::Display for ShowParseError<'_, S> {
+impl fmt::Display for ShowParseError<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "\x1b[1;31merror\x1b[0m\x1b[1m: ")?;
         for m_or_l in &self.error.parts {

@@ -16,11 +16,11 @@ use crate::runtime;
 
 struct Printer<'a> {
     file_name:              &'a str,
-    style:                  &'a core::SourceStyle<'a, String>
+    style:                  &'a core::SourceStyle<'a>
 }
 
 impl<'a> Printer<'a> {
-    fn new(file_name: &'a str, style: &'a core::SourceStyle<'a, String>) -> Self {
+    fn new(file_name: &'a str, style: &'a core::SourceStyle<'a>) -> Self {
         Self{file_name, style}
     }
 }
