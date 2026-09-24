@@ -53,7 +53,7 @@ fn run(args: &mut pico_args::Arguments) -> Result<()> {
     let remaining = args.clone().finish();
     let arguments: Vec<runtime::Value> = remaining.iter()
         .map(|s| s.to_str().and_then(|s| s.parse().ok())
-            .ok_or_else(|| anyhow::anyhow!("invalid numeric argument '{}'", s.display())))
+            .ok_or_else(|| anyhow::anyhow!("invalid argument '{}'", s.display())))
         .collect::<Result<Vec<runtime::Value>>>()?;
 
     run_file(&file_or_dir, &arguments)?;
@@ -92,7 +92,7 @@ fn run(args: &mut pico_args::Arguments) -> Result<()> {
         let remaining = args.clone().finish();
         let arguments: Vec<runtime::Value> = remaining.iter()
             .map(|s| s.to_str().and_then(|s| s.parse().ok())
-                .ok_or_else(|| anyhow::anyhow!("invalid numeric argument '{}'", s.display())))
+                .ok_or_else(|| anyhow::anyhow!("invalid argument '{}'", s.display())))
             .collect::<Result<Vec<runtime::Value>>>()?;
 
         if verbose {

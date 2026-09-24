@@ -104,7 +104,6 @@ pub struct Block {
 impl Block {
     pub fn call(&self, arguments: &[Value]) -> anyhow::Result<Vec<Value>> {
         let func = codegen::run(&self.vir, &self.types);
-//        let arguments = arguments.iter().map(|v| Value::F64(*v)).collect::<Vec<_>>();
         let results = func.call(arguments)?;
         Ok(results)
     }

@@ -183,8 +183,6 @@ fn test_lines(
     source: &str,
     expected: &HashMap<String, Vec<String>>,
 ) -> Result<()> {
-//    let (stmts, errors, _) = ast::parse(file_name, source);
-
     let block = match runtime::load(file_name, source.into()) {
         Err(diagnostics) => {
             let error_strings: Vec<_> = diagnostics.errors.iter().map(|e| format!("{e}")).collect();
