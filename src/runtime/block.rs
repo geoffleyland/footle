@@ -64,6 +64,30 @@ impl fmt::Display for Value {
 }
 
 
+impl std::str::FromStr for Value {
+    type Err = ParseValueError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "true"  => Ok(Self::Bool(true)),
+            "false" => Ok(Self::Bool(false)),
+            _       => s.parse::<f64>().map(Self::F64).map_err(|_| ParseValueError(s.to_string())),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ParseValueError(String);
+
+impl fmt::Display for ParseValueError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "'{}' is not a valid value (expected a number or a bool)", self.0)
+    }
+}
+
+impl std::error::Error for ParseValueError {}
+
+
 //-------------------------------------------------------------------------------------------------
 
 pub struct Block {
@@ -78,10 +102,10 @@ pub struct Block {
 
 
 impl Block {
-    pub fn call(&self, arguments: &[f64]) -> anyhow::Result<Vec<Value>> {
+    pub fn call(&self, arguments: &[Value]) -> anyhow::Result<Vec<Value>> {
         let func = codegen::run(&self.vir, &self.types);
-        let arguments = arguments.iter().map(|v| Value::F64(*v)).collect::<Vec<_>>();
-        let results = func.call(&arguments)?;
+//        let arguments = arguments.iter().map(|v| Value::F64(*v)).collect::<Vec<_>>();
+        let results = func.call(arguments)?;
         Ok(results)
     }
 }

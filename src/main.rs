@@ -51,10 +51,10 @@ fn run(args: &mut pico_args::Arguments) -> Result<()> {
     }
 
     let remaining = args.clone().finish();
-    let arguments: Vec<f64> = remaining.iter()
+    let arguments: Vec<runtime::Value> = remaining.iter()
         .map(|s| s.to_str().and_then(|s| s.parse().ok())
             .ok_or_else(|| anyhow::anyhow!("invalid numeric argument '{}'", s.display())))
-        .collect::<Result<Vec<f64>>>()?;
+        .collect::<Result<Vec<runtime::Value>>>()?;
 
     run_file(&file_or_dir, &arguments)?;
     Ok(())
@@ -90,10 +90,10 @@ fn run(args: &mut pico_args::Arguments) -> Result<()> {
         dogfood::run_tests(&file_or_dir)?;
     } else {
         let remaining = args.clone().finish();
-        let arguments: Vec<f64> = remaining.iter()
+        let arguments: Vec<runtime::Value> = remaining.iter()
             .map(|s| s.to_str().and_then(|s| s.parse().ok())
                 .ok_or_else(|| anyhow::anyhow!("invalid numeric argument '{}'", s.display())))
-            .collect::<Result<Vec<f64>>>()?;
+            .collect::<Result<Vec<runtime::Value>>>()?;
 
         if verbose {
             dogfood::run_file_verbose(&file_or_dir, &arguments)?;
@@ -136,7 +136,7 @@ fn show_version() {
 /// Compile and run a single file.
 ///
 /// Read in the file specified, process it and show any output.
-fn run_file(file_path: &PathBuf, arguments: &[f64]) -> Result<()> {
+fn run_file(file_path: &PathBuf, arguments: &[runtime::Value]) -> Result<()> {
     let file_name = file_path.display().to_string();
     let source =
         fs::read_to_string(file_path)

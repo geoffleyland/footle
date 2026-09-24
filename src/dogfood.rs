@@ -17,7 +17,7 @@ use crate::runtime;
 /// Compile and run a single file noisily
 ///
 /// Read in the file specified, process it, and tell everyone about it.
-pub fn run_file_verbose(file_path: &PathBuf, arguments: &[f64]) -> Result<()> {
+pub fn run_file_verbose(file_path: &PathBuf, arguments: &[runtime::Value]) -> Result<()> {
     let file_name = file_path.display().to_string();
     eprintln!("Opening '{file_name}'");
     let source =
@@ -47,8 +47,7 @@ pub fn run_file_verbose(file_path: &PathBuf, arguments: &[f64]) -> Result<()> {
     eprintln!("\nDisassembly from '{file_name}':");
     for line in codegen::disassemble(&func) { eprintln!("  {line}"); }
 
-    let arguments = arguments.iter().map(|v| runtime::Value::F64(*v)).collect::<Vec<_>>();
-    let results = func.call(&arguments)?;
+    let results = func.call(arguments)?;
     println!("\nResult from '{file_name}':");
     println!("  f({}) = ({})",
         arguments.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(", "),
@@ -251,7 +250,7 @@ fn test_results(func: &codegen::CompiledFn, expected: &[String], section: &str) 
             bail!("    invalid result line: {line:?}");
         };
         let inputs = inputs_str.split_whitespace()
-            .map(|s| s.parse::<f64>().map(runtime::Value::F64))
+            .map(str::parse::<runtime::Value>)
             .collect::<Result<Vec<_>, _>>()
             .with_context(|| format!("    invalid input in {line:?}"))?;
 
