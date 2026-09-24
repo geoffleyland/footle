@@ -1,3 +1,3 @@
 mod block;
 
-pub use block::{load, Diagnostics, Value};
+pub use block::{load, Diagnostics, Value, Observer, Silent};

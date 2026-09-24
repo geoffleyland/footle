@@ -1,19 +1,11 @@
 use typed_arena::Arena;
 
 use crate::vir;
+use crate::runtime::{Observer, Silent};
 use super::{scheduler, allocator, assembler, binary};
 
 
 //-------------------------------------------------------------------------------------------------
-
-pub trait Observer {
-    fn schedule(&mut self, _block: &scheduler::Block) {}
-    fn assembler(&mut self, _block: &assembler::Block) {}
-}
-
-pub struct Silent;
-impl Observer for Silent {}
-
 
 pub fn run(
     vir_block:          &vir::Block,

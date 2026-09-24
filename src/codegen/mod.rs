@@ -15,6 +15,6 @@ pub use pass::run;
 #[cfg(feature = "dogfood")]
 pub use binary::CompiledFn;
 #[cfg(feature = "dogfood")]
-pub use pass::{Observer, run_observed};
+pub use pass::run_observed;
 #[cfg(feature = "dogfood")]
 pub use disassembler::disassemble;

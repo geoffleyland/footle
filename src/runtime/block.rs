@@ -10,6 +10,17 @@ use crate::codegen;
 
 //-------------------------------------------------------------------------------------------------
 
+pub trait Observer {
+    fn schedule(&mut self, _block: &codegen::scheduler::Block) {}
+    fn assembler(&mut self, _block: &codegen::assembler::Block) {}
+}
+
+pub struct Silent;
+impl Observer for Silent {}
+
+//-------------------------------------------------------------------------------------------------
+
+
 pub fn load(file_name: &str, source: String) -> Result<Block, Diagnostics> {
     let (stmts, errors, source_map) = ast::parse(file_name, source);
     let source_map = Arc::new(source_map);

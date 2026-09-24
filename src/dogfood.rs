@@ -25,7 +25,7 @@ impl<'a> Printer<'a> {
     }
 }
 
-impl codegen::Observer for Printer<'_> {
+impl runtime::Observer for Printer<'_> {
     fn schedule(&mut self, block: &codegen::scheduler::Block) {
         eprintln!("\nScheduled instructions from '{}':", self.file_name);
         eprintln!("{}", block.styled(1, self.style));
@@ -195,14 +195,14 @@ fn read_test_file(path: &Path) -> Result<HashMap<String, Vec<String>>> {
 
 struct Recorder {
     schedule:               Vec<String>,
-    assembler:              Vec<String>
+    assembler:              Vec<String>,
 }
 
 impl Recorder {
     fn new() -> Self { Self{schedule: vec![], assembler: vec![] }}
 }
 
-impl codegen::Observer for Recorder {
+impl runtime::Observer for Recorder {
     fn schedule(&mut self, block: &codegen::scheduler::Block) {
         self.schedule = block_to_strings(block);
     }
