@@ -14,25 +14,16 @@ use crate::runtime;
 
 //-------------------------------------------------------------------------------------------------
 
-struct Printer<'a> {
-    file_name:              &'a str,
-    style:                  &'a core::SourceStyle<'a>
-}
+struct Printer { style: core::SourceStyle }
 
-impl<'a> Printer<'a> {
-    fn new(file_name: &'a str, style: &'a core::SourceStyle<'a>) -> Self {
-        Self{file_name, style}
-    }
-}
-
-impl runtime::Observer for Printer<'_> {
+impl runtime::Observer for Printer {
     fn schedule(&mut self, block: &codegen::scheduler::Block) {
-        eprintln!("\nScheduled instructions from '{}':", self.file_name);
-        eprintln!("{}", block.styled(1, self.style));
+        eprintln!("\nScheduled instructions from '{}':", self.style.file_name());
+        eprintln!("{}", block.styled(1, &self.style));
     }
     fn assembler(&mut self, block: &codegen::assembler::Block) {
-        eprintln!("\nAssembly instructions from '{}':", self.file_name);
-        eprintln!("{}", block.styled(1, self.style));
+        eprintln!("\nAssembly instructions from '{}':", self.style.file_name());
+        eprintln!("{}", block.styled(1, &self.style));
     }
 }
 
@@ -49,7 +40,7 @@ pub fn run_file_verbose(file_path: &PathBuf, arguments: &[runtime::Value]) -> Re
     eprintln!("Contents of '{file_name}':\n  {}", source.lines().collect::<Vec<_>>().join("\n  "));
 
     let block = runtime::load(&file_name, source)?;
-    let style = core::SourceStyle::new(2, 40, true, &block.source);
+    let style = core::SourceStyle::new(2, 40, true, block.source);
 
     eprintln!("\nStatements from '{file_name}':");
     for stmt in &block.stmts { eprintln!("{}", stmt.styled(1, &style)); }
@@ -57,7 +48,7 @@ pub fn run_file_verbose(file_path: &PathBuf, arguments: &[runtime::Value]) -> Re
     eprintln!("\nVIR instructions from '{file_name}':");
     eprintln!("{}", block.vir.styled(1, &style));
 
-    let mut printer = Printer::new(&file_name, &style);
+    let mut printer = Printer{style};
     let func = codegen::run_observed(&block.vir, &block.types, &mut printer);
 
     eprintln!("\nDisassembly from '{file_name}':");
