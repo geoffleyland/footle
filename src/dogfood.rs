@@ -14,6 +14,29 @@ use crate::runtime;
 
 //-------------------------------------------------------------------------------------------------
 
+struct Printer<'a> {
+    file_name:              &'a str,
+    style:                  &'a core::SourceStyle<'a, String>
+}
+
+impl<'a> Printer<'a> {
+    fn new(file_name: &'a str, style: &'a core::SourceStyle<'a, String>) -> Self {
+        Self{file_name, style}
+    }
+}
+
+impl codegen::Observer for Printer<'_> {
+    fn schedule(&mut self, block: &codegen::scheduler::Block) {
+        eprintln!("\nScheduled instructions from '{}':", self.file_name);
+        eprintln!("{}", block.styled(1, self.style));
+    }
+    fn assembler(&mut self, block: &codegen::assembler::Block) {
+        eprintln!("\nAssembly instructions from '{}':", self.file_name);
+        eprintln!("{}", block.styled(1, self.style));
+    }
+}
+
+
 /// Compile and run a single file noisily
 ///
 /// Read in the file specified, process it, and tell everyone about it.
@@ -34,15 +57,8 @@ pub fn run_file_verbose(file_path: &PathBuf, arguments: &[runtime::Value]) -> Re
     eprintln!("\nVIR instructions from '{file_name}':");
     eprintln!("{}", block.vir.styled(1, &style));
 
-    let schedule = codegen::schedule(&block.vir, &block.types);
-    eprintln!("\nScheduled instructions from '{file_name}':");
-    eprintln!("{}", schedule.styled(1, &style));
-
-    let assembler = codegen::assemble(&block.vir, &block.types);
-    eprintln!("\nAssembly instructions from '{file_name}':");
-    eprintln!("{}", assembler.styled(1, &style));
-
-    let func = codegen::run(&block.vir, &block.types);
+    let mut printer = Printer::new(&file_name, &style);
+    let func = codegen::run_observed(&block.vir, &block.types, &mut printer);
 
     eprintln!("\nDisassembly from '{file_name}':");
     for line in codegen::disassemble(&func) { eprintln!("  {line}"); }
@@ -177,11 +193,30 @@ fn read_test_file(path: &Path) -> Result<HashMap<String, Vec<String>>> {
 }
 
 
+struct Recorder {
+    schedule:               Vec<String>,
+    assembler:              Vec<String>
+}
+
+impl Recorder {
+    fn new() -> Self { Self{schedule: vec![], assembler: vec![] }}
+}
+
+impl codegen::Observer for Recorder {
+    fn schedule(&mut self, block: &codegen::scheduler::Block) {
+        self.schedule = block_to_strings(block);
+    }
+    fn assembler(&mut self, block: &codegen::assembler::Block) {
+        self.assembler = block_to_strings(block);
+    }
+}
+
+
 fn test_lines(
-    file_name: &str,
-    section: &str,
-    source: &str,
-    expected: &HashMap<String, Vec<String>>,
+    file_name:              &str,
+    section:                &str,
+    source:                 &str,
+    expected:               &HashMap<String, Vec<String>>,
 ) -> Result<()> {
     let block = match runtime::load(file_name, source.into()) {
         Err(diagnostics) => {
@@ -213,20 +248,19 @@ fn test_lines(
     // we can't feed the output of these passes back into the compiler), and we only do it if the
     // expected output is present (because the compiler is being implemented bit by bit and if
     // we run something NYI, we get an NYI and a panic.)
-    if expected.contains_key("schedule") && section == "source" {
-        let schedule = codegen::schedule(&block.vir, &block.types);
-        compare_lines(&block_to_strings(&schedule), &expected["schedule"], section, "schedule")?;
-    }
+    if section == "source" &&
+        (expected.contains_key("schedule") ||
+            expected.contains_key("assembler") ||
+            expected.contains_key("results")) {
+        let mut recorder = Recorder::new();
+        let func = codegen::run_observed(&block.vir, &block.types, &mut recorder);
 
-    if expected.contains_key("assembler") && section == "source" {
-        let assembler = codegen::assemble(&block.vir, &block.types);
-        compare_lines(&block_to_strings(&assembler), &expected["assembler"], section, "assembler")?;
-    }
-
-    if (expected.contains_key("assembler") || expected.contains_key("results")) && section == "source" {
-        let func = codegen::run(&block.vir, &block.types);
+        if expected.contains_key("schedule") {
+            compare_lines(&recorder.schedule, &expected["schedule"], section, "schedule")?;
+        }
 
         if expected.contains_key("assembler") {
+            compare_lines(&recorder.assembler, &expected["assembler"], section, "assembler")?;
             let disassembled = &codegen::disassemble(&func);
             let expected_disassembled = &expected["assembler"][0..disassembled.len()];
             compare_lines(disassembled, expected_disassembled, section, "disassembler")?;

@@ -129,7 +129,7 @@ pub(super) struct Constant {
 }
 
 
-pub(super) struct Block<'arena> {
+pub struct Block<'arena> {
     pub(super) value_count:                 usize,
     pub(super) arguments:                   Vec<&'arena Value<'arena>>,
     pub(super) instrs:                      Vec<&'arena Value<'arena>>,
@@ -519,7 +519,7 @@ mod display {
 
     impl super::super::operand::display::OperandDisplay for &'_ Value<'_> {
         fn fmt_operand(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "{}", self.slot)
+            write!(f, "I{}", self.slot)
         }
     }
 
@@ -545,6 +545,33 @@ mod display {
                     .join(" "))
         }
     }
+
+
+    #[cfg(feature = "dogfood")]
+    use crate::core::{Styleable, LineStyle};
+    #[cfg(feature = "dogfood")]
+    impl Styleable for Block<'_> {
+        fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
+            for a in &self.arguments {
+                writer.writeln(f, indent, Some(a.span), &format!("I{}: argument", a.slot))?;
+            }
+            for instr in &self.instrs {
+                let operands = instr.operands.iter().map(|o| format!("{o}")).collect::<Vec<_>>();
+                writer.writeln(f, indent, Some(instr.span), &format!("I{}: {}{}{}{}{}",
+                    instr.slot,
+                    instr.code().expect("internal compiler error: instruction without opcode")
+                        .mnemonic(),
+                    if operands.is_empty() { "" } else { " " }, operands.join(" "),
+                    if instr.fixed_inputs.is_empty() { "" } else { " " },
+                    instr.fixed_inputs.iter().map(|(v, _)| format!("I{}", v.slot)).collect::<Vec<_>>().join(" ")))?;
+            }
+            for (i, c) in self.constants.iter().enumerate() {
+                writer.writeln(f, indent, Some(c.span), &format!("K{i}: {:?}", c.value))?;
+            }
+            Ok(())
+        }
+    }
+
 }
 
 

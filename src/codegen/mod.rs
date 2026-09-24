@@ -1,8 +1,8 @@
 mod operand;
 mod pass;
-mod scheduler;
+pub mod scheduler;
 mod allocator;
-mod assembler;
+pub mod assembler;
 mod binary;
 mod isa;
 mod sys;
@@ -15,6 +15,6 @@ pub use pass::run;
 #[cfg(feature = "dogfood")]
 pub use binary::CompiledFn;
 #[cfg(feature = "dogfood")]
-pub use pass::{schedule, assemble};
+pub use pass::{Observer, run_observed};
 #[cfg(feature = "dogfood")]
 pub use disassembler::disassemble;
