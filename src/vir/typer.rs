@@ -72,7 +72,7 @@ impl fmt::Display for TypeInfo {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         let s = match self {
             Self::Unknown           => "unknown",
-            Self::F64               => "float",
+            Self::F64               => "f64",
             Self::Bool              => "bool"
         };
         write!(fmt, "{s}")

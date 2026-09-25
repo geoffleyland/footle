@@ -6,6 +6,6 @@ return a
 
 #( expected errors
 
-  Reassignment of `a` from `float` to `bool` (51, 52) `a` was `float` here: (32, 33) The rhs is `bool` here: (44, 50)
+  Reassignment of `a` from `f64` to `bool` (51, 52) `a` was `f64` here: (32, 33) The rhs is `bool` here: (44, 50)
 
 #)
