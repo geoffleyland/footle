@@ -27,7 +27,7 @@ return a + 1
 
 #)
 
-#( expected assembly
+#( expected assembly f64
 
   0x1000: ldr d16, #0x102c
   0x1004: fadd d0, d0, d16

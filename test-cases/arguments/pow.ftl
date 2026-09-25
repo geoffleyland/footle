@@ -27,7 +27,7 @@ return b ^ a
 
 #)
 
-#( expected assembly
+#( expected assembly f64 f64
 
   0x1000: ldr x9, #0x1044
   0x1004: fmov d16, d1

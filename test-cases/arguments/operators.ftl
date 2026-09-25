@@ -40,7 +40,7 @@ return c, d, e, f
 
 #)
 
-#( expected assembly
+#( expected assembly f64 f64
 
   0x1000: fdiv d3, d0, d1
   0x1004: fmul d2, d0, d1

@@ -31,7 +31,7 @@ return sin(a * 1.57079632679)
 
 #)
 
-#( expected assembly
+#( expected assembly f64
 
   0x1000: ldr d16, #0x103c
   0x1004: ldr x9, #0x1044

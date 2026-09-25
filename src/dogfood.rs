@@ -156,11 +156,12 @@ struct DogfoodEater {
     expected:               HashMap<String, Vec<String>>,
     section:                String,
     mismatches:             Vec<String>,
+    signature:              String,
 }
 
 impl DogfoodEater {
     fn new(expected: HashMap<String, Vec<String>>) -> Self {
-        Self{expected, section: String::new(), mismatches: vec![] }
+        Self{expected, section: String::new(), mismatches: vec![], signature: String::new() }
     }
 
     fn test(&mut self, key: &str, extra_passes: &[&str], required: bool, lines: &[String]) {
@@ -182,6 +183,11 @@ impl DogfoodEater {
             bail!(self.mismatches.join("\n"));
         }
     }
+
+    fn codegen_key(&self, stage: &str) -> String {
+        if self.signature.is_empty() { stage.to_string() }
+        else { format!("{stage} {}", self.signature) }
+    }
 }
 
 impl runtime::Observer for DogfoodEater {
@@ -191,17 +197,20 @@ impl runtime::Observer for DogfoodEater {
     fn vir(&mut self, vir: &vir::Block) {
         self.test("vir", &["statements", "vir"], false, &block_to_strings(vir));
     }
+    fn signature(&mut self, signature: &[vir::TypeInfo]) {
+        self.signature = signature.iter().map(|ty| format!("{ty}")).collect::<Vec<_>>().join(" ");
+    }
     fn schedule(&mut self, block: &codegen::scheduler::Block) {
         self.test("schedule", &[], true, &block_to_strings(block));
     }
     fn assembly(&mut self, block: &codegen::assembler::Block) {
         let assembly = block_to_strings(block);
-        self.test("assembly", &[], true, &assembly);
-        self.expected.insert("disassembly".into(), assembly);
+        self.test(&self.codegen_key("assembly"), &[], true, &assembly);
+        self.expected.insert(self.codegen_key("disassembly"), assembly);
     }
     fn func(&mut self, func: &codegen::CompiledFn) {
         let disassembly = codegen::disassemble(func);
-        let expected_disassembly = &self.expected["disassembly"][0..disassembly.len()];
+        let expected_disassembly = &self.expected[&self.codegen_key("disassembly")][0..disassembly.len()];
         if let Err(e) = compare_lines(&disassembly, expected_disassembly, &self.section, "disassembly") {
             self.mismatches.push(format!("{e:#}"));
         }

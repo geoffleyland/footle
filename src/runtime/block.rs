@@ -15,6 +15,7 @@ pub trait Observer {
     fn source_map(&mut self, _map: Arc<SourceMap>) {}
     fn stmts(&mut self, _stmts: &[ast::Stmt]) {}
     fn vir(&mut self, _vir: &vir::Block) {}
+    fn signature(&mut self, _sig: &[vir::TypeInfo]) {}
     fn schedule(&mut self, _block: &codegen::scheduler::Block) {}
     fn assembly(&mut self, _block: &codegen::assembler::Block) {}
     fn func(&mut self, _func: &codegen::CompiledFn) {}
@@ -138,6 +139,7 @@ impl Block {
         let func = match self.funcs.entry(signature.clone()) {
             Entry::Occupied(entry)  => entry.into_mut(),
             Entry::Vacant(entry) => {
+                observer.signature(&signature);
                 let types = match vir::infer_types(&self.vir.exprs,
                         &self.vir.arguments, &signature,
                         &self.vir.reassignments) {

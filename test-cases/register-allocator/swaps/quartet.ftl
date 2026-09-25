@@ -11,7 +11,7 @@ return d, c, a, b
 
 #)
 
-#( expected assembly
+#( expected assembly f64 f64 f64 f64
 
   0x1000: fmov d16, d3
   0x1004: fmov d3, d1

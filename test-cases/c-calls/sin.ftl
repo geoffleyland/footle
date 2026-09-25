@@ -25,7 +25,7 @@ return sin(a)
 
 #)
 
-#( expected assembly
+#( expected assembly f64
 
   0x1000: ldr x9, #0x1034
   0x1004: str x30, [sp, #-0x10]!

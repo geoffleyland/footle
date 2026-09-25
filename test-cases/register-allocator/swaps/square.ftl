@@ -9,7 +9,7 @@ return a * a, a
 
 #)
 
-#( expected assembly
+#( expected assembly f64
 
   0x1000: fmul d16, d0, d0
   0x1004: fmov d1, d0

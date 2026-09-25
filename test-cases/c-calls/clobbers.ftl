@@ -31,7 +31,7 @@ return a, b, c
 
 #)
 
-#( expected assembly
+#( expected assembly f64 f64
 
   0x1000: stp d8, d9, [sp, #-0x10]!
   0x1004: ldr x9, #0x105c
