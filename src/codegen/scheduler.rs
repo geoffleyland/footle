@@ -252,7 +252,7 @@ impl<'arena> Builder<'arena> {
                 },
                 vir::ExprKind::Binary(op, lhs, rhs) => {
                     if *op == BinaryOperator::Power {
-                        self.lower_call("pow", ty, &[lhs.clone(), rhs.clone()], MachineReg::new(0), expr);
+                        self.lower_call("pow", ty, &[lhs.clone(), rhs.clone()], types, MachineReg::new(0), expr);
 
                     } else if *op == BinaryOperator::Modulo {
                         // AArch64 has no fmod; compute a - trunc(a / b) * b instead.
@@ -282,12 +282,12 @@ impl<'arena> Builder<'arena> {
                     }
                 }
                 vir::ExprKind::Call(name, exprs) => {
-                    self.lower_call(name, ty, exprs, MachineReg::new(0), expr);
+                    self.lower_call(name, ty, exprs, types, MachineReg::new(0), expr);
                 }
             }
         }
 
-        let return_values = self.exprs_to_fixed_inputs(&input.return_values);
+        let return_values = self.exprs_to_fixed_inputs(&input.return_values, types);
         self.return_types = return_values.iter().map(|(v, _)| v.ty).collect();
         self.make_value(Type::None, &isa::ret, vec![], return_values, None,
             #[cfg(feature = "dogfood")]
@@ -312,10 +312,11 @@ impl<'arena> Builder<'arena> {
         name:                                   &str,
         ty:                                     Type,
         operands:                               &[vir::Expr],
+        types:                                  &[vir::TypeInfo],
         fixed_output:                           MachineReg,
         expr:                                   &vir::Expr,
     ) -> &'arena Value<'arena> {
-        let fixed_inputs = self.exprs_to_fixed_inputs(operands);
+        let fixed_inputs = self.exprs_to_fixed_inputs(operands, types);
 
         let function_value = if let Some(&v) = self.function_map.get(name) {
             v
@@ -387,18 +388,32 @@ impl<'arena> Builder<'arena> {
 
     fn exprs_to_fixed_inputs(
         &self,
-        exprs:                                  &[vir::Expr]
+        exprs:                                  &[vir::Expr],
+        types:                                  &[vir::TypeInfo],
     ) -> Vec<(&'arena Value<'arena>, MachineReg)> {
         assert!(exprs.len() < 8, "internal compiler error: too many values");
-        exprs.iter().enumerate()
-            .map(|(reg, expr)|
+        let (mut x_reg, mut d_reg) = (0u8, 0u8);
+        exprs.iter()
+            .map(|expr|
                 (
                     if let Operand::Reg(v) = self.operand_map[&expr.pool_index()] {
                         v
                     } else {
                         panic!("internal compiler error: constant as a fixed input")
                     },
-                    MachineReg::try_from(reg).expect("internal compiler error: too many values")
+                    MachineReg::try_from(match isa::bank_for(type_for(types[expr.pool_index()])) {
+                        Some(isa::X_BANK) => {
+                            assert!(x_reg < 8, "internal compiler error; too many return values");
+                            x_reg += 1;
+                            x_reg - 1
+                        }
+                        Some(isa::D_BANK) => {
+                            assert!(d_reg < 8, "internal compiler error; too many return values");
+                            d_reg += 1;
+                            d_reg - 1
+                        }
+                        _ => panic!("internal compiler error: no register bank for value")
+                    }).expect("internal compiler error: too many values")
                 )
             )
             .collect::<Vec<_>>()
