@@ -46,3 +46,11 @@ return a, b
   2 1 -> 2 1
 
 #)
+
+#( disabled results
+
+  true 1 -> true 1
+  1 true -> 1 true
+  true false -> true false
+
+#)

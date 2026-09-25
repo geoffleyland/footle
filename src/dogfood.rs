@@ -76,7 +76,7 @@ pub fn run_file_verbose(file_path: &PathBuf, arguments: &[runtime::Value]) -> Re
 
     let mut printer = Printer::new(2, 40, true);
 
-    let block = runtime::load_observed(&file_name, source, &mut printer)?;
+    let mut block = runtime::load_observed(&file_name, source, &mut printer)?;
     let results = block.call_observed(arguments, &mut printer)?;
 
     println!("\nResult from '{file_name}':");
@@ -269,7 +269,7 @@ fn test_lines(
     source:                 &str,
     eater:                  &mut DogfoodEater,
 ) -> Result<bool> {
-    let block = match runtime::load_observed(file_name, source.into(), eater) {
+    let mut block = match runtime::load_observed(file_name, source.into(), eater) {
         Err(diagnostics) => {
             let error_strings: Vec<_> = diagnostics.errors.iter().map(|e| format!("{e}")).collect();
             compare_lines(&error_strings, eater.expected.get("errors").unwrap_or(&vec![]), section, "errors")?;
@@ -293,7 +293,7 @@ fn test_lines(
         for arguments in all_arguments {
             let results = block.call_observed(&arguments, eater)?;
 
-         obtained_lines.push(format!("{} -> {}",
+            obtained_lines.push(format!("{} -> {}",
                 arguments.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(" "),
                 results.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(" ")));
         }

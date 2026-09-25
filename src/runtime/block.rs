@@ -1,3 +1,4 @@
+use std::collections::{HashMap, hash_map::Entry};
 use std::fmt;
 use std::sync::Arc;
 
@@ -54,17 +55,20 @@ pub fn load_observed<O: Observer>(
     };
     observer.vir(&vir_block);
 
-    let types = match vir::infer_types(&vir_block.exprs, &vir_block.arguments, &vir_block.reassignments) {
-        Ok(types) => types,
+    let argument_types = vec![vir::TypeInfo::Unknown; vir_block.arguments.len()];
+    match vir::infer_types(&vir_block.exprs,
+        &vir_block.arguments, &argument_types, &vir_block.reassignments) {
+        Ok(..) => {},
         Err(errors) => {
             #[allow(clippy::redundant_clone)]
             return Err(Diagnostics { errors, source: source_map.clone() });
         }
-    };
+    }
 
     Ok(Block{
-        types,
         vir:                vir_block,
+        source:             source_map,
+        funcs:              HashMap::new(),
     })
 }
 
@@ -115,21 +119,38 @@ impl std::error::Error for ParseValueError {}
 
 pub struct Block {
     pub vir:            vir::Block,
-    pub types:          Vec<vir::TypeInfo>,
+    source:             Arc<SourceMap>,
+    funcs:              HashMap<Vec<vir::TypeInfo>, codegen::CompiledFn>,
 }
 
 
 impl Block {
-    pub fn call(&self, arguments: &[Value]) -> anyhow::Result<Vec<Value>> {
+    pub fn call(&mut self, arguments: &[Value]) -> anyhow::Result<Vec<Value>> {
         self.call_observed(arguments, &mut Silent{})
     }
 
     pub fn call_observed<O: Observer>(
-    &self,
-    arguments:          &[Value],
-    observer:           &mut O,
-) -> anyhow::Result<Vec<Value>> {
-        let func = codegen::run(&self.vir, &self.types, observer);
+        &mut self,
+        arguments:          &[Value],
+        observer:           &mut O,
+    ) -> anyhow::Result<Vec<Value>> {
+        let signature: Vec<vir::TypeInfo> = arguments.iter().map(Into::into).collect();
+        let func = match self.funcs.entry(signature.clone()) {
+            Entry::Occupied(entry)  => entry.into_mut(),
+            Entry::Vacant(entry) => {
+                let types = match vir::infer_types(&self.vir.exprs,
+                        &self.vir.arguments, &signature,
+                        &self.vir.reassignments) {
+                    Ok(types) => types,
+                    Err(errors) => {
+                        #[allow(clippy::redundant_clone)]
+                        return Err(Diagnostics { errors, source: self.source.clone() }.into());
+                    }
+                };
+                let func = codegen::run(&self.vir, &types, observer);
+                entry.insert(func)
+            }
+        };
         let results = func.call(arguments)?;
         Ok(results)
     }

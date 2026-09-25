@@ -142,7 +142,7 @@ fn run_file(file_path: &PathBuf, arguments: &[runtime::Value]) -> Result<()> {
         fs::read_to_string(file_path)
             .with_context(|| format!("couldn't read '{file_name}'"))?;
 
-    let block = runtime::load(&file_name, source)?;
+    let mut block = runtime::load(&file_name, source)?;
     let results = block.call(arguments)?;
 
     println!("{}", results.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(" "));
