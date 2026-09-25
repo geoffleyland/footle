@@ -11,8 +11,12 @@ use crate::codegen;
 //-------------------------------------------------------------------------------------------------
 
 pub trait Observer {
+    fn source_map(&mut self, _map: Arc<SourceMap>) {}
+    fn stmts(&mut self, _stmts: &[ast::Stmt]) {}
+    fn vir(&mut self, _vir: &vir::Block) {}
     fn schedule(&mut self, _block: &codegen::scheduler::Block) {}
     fn assembler(&mut self, _block: &codegen::assembler::Block) {}
+    fn func(&mut self, _func: &codegen::CompiledFn) {}
 }
 
 pub struct Silent;
@@ -20,14 +24,25 @@ impl Observer for Silent {}
 
 //-------------------------------------------------------------------------------------------------
 
-
 pub fn load(file_name: &str, source: String) -> Result<Block, Diagnostics> {
+    load_observed(file_name, source, &mut Silent{})
+}
+
+
+pub fn load_observed<O: Observer>(
+    file_name:              &str,
+    source:                 String,
+    observer:               &mut O,
+) -> Result<Block, Diagnostics> {
     let (stmts, errors, source_map) = ast::parse(file_name, source);
     let source_map = Arc::new(source_map);
     if !errors.is_empty() {
         #[allow(clippy::redundant_clone)]
         return Err(Diagnostics { errors, source: source_map.clone() });
     }
+
+    observer.source_map(source_map.clone());
+    observer.stmts(&stmts);
 
     let env = env::Env::new();
     let vir_block = match vir::run(&env, &stmts) {
@@ -37,6 +52,7 @@ pub fn load(file_name: &str, source: String) -> Result<Block, Diagnostics> {
             return Err(Diagnostics { errors, source: source_map.clone() });
         }
     };
+    observer.vir(&vir_block);
 
     let types = match vir::infer_types(&vir_block.exprs, &vir_block.arguments, &vir_block.reassignments) {
         Ok(types) => types,
@@ -49,10 +65,6 @@ pub fn load(file_name: &str, source: String) -> Result<Block, Diagnostics> {
     Ok(Block{
         types,
         vir:                vir_block,
-        #[cfg(feature = "dogfood")]
-        stmts,
-        #[cfg(feature = "dogfood")]
-        source:             source_map,
     })
 }
 
@@ -104,17 +116,21 @@ impl std::error::Error for ParseValueError {}
 pub struct Block {
     pub vir:            vir::Block,
     pub types:          Vec<vir::TypeInfo>,
-
-    #[cfg(feature = "dogfood")]
-    pub stmts:          Vec<ast::Stmt>,
-    #[cfg(feature = "dogfood")]
-    pub source:         Arc<SourceMap>,
 }
 
 
 impl Block {
     pub fn call(&self, arguments: &[Value]) -> anyhow::Result<Vec<Value>> {
-        let func = codegen::run(&self.vir, &self.types);
+        self.call_observed(arguments, &mut Silent{})
+    }
+
+    pub fn call_observed<O: Observer>(
+    &self,
+    arguments:          &[Value],
+    observer:           &mut O,
+) -> anyhow::Result<Vec<Value>> {
+        let func = codegen::run(&self.vir, &self.types, observer);
+        observer.func(&func);
         let results = func.call(arguments)?;
         Ok(results)
     }

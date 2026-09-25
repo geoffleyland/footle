@@ -1,21 +1,13 @@
 use typed_arena::Arena;
 
 use crate::vir;
-use crate::runtime::{Observer, Silent};
+use crate::runtime::Observer;
 use super::{scheduler, allocator, assembler, binary};
 
 
 //-------------------------------------------------------------------------------------------------
 
-pub fn run(
-    vir_block:          &vir::Block,
-    types:              &[vir::TypeInfo]
-) -> binary::CompiledFn {
-    run_observed(vir_block, types, &mut Silent{})
-}
-
-
-pub fn run_observed<O:Observer>(
+pub fn run<O:Observer>(
     vir_block:          &vir::Block,
     types:              &[vir::TypeInfo],
     observer:           &mut O,

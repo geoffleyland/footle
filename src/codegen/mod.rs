@@ -7,14 +7,10 @@ mod binary;
 mod isa;
 mod sys;
 
+pub use pass::run;
+pub use binary::CompiledFn;
+
 #[cfg(feature = "dogfood")]
 mod disassembler;
-
-pub use pass::run;
-
-#[cfg(feature = "dogfood")]
-pub use binary::CompiledFn;
-#[cfg(feature = "dogfood")]
-pub use pass::run_observed;
 #[cfg(feature = "dogfood")]
 pub use disassembler::disassemble;

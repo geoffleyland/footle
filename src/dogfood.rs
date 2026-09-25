@@ -3,27 +3,60 @@ use std::{
     fs,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use anyhow::{bail, Context, Result};
 
 use crate::{FOOTLE_FILE_EXTENSION, core, codegen};
 use crate::core::Styleable;
+use crate::ast;
+use crate::vir;
 use crate::runtime;
 
 
 //-------------------------------------------------------------------------------------------------
 
-struct Printer { style: core::SourceStyle }
+struct Printer {
+    tab:                    u16,
+    width:                  u16,
+    highlight:              bool,
+    style:                  Option<core::SourceStyle>
+}
+
+impl Printer {
+    fn new(tab: u16, width: u16, highlight: bool) -> Self {
+        Self{tab, width, highlight, style: None}
+    }
+
+    fn file_name(&self) -> &str { self.style.as_ref().unwrap().file_name() }
+    fn style(&self) -> &core::SourceStyle { self.style.as_ref().unwrap() }
+}
+
 
 impl runtime::Observer for Printer {
+    fn source_map(&mut self, map: Arc<core::SourceMap>) {
+        self.style = Some(core::SourceStyle::new(self.tab, self.width, self.highlight, map));
+    }
+    fn stmts(&mut self, stmts: &[ast::Stmt]) {
+        eprintln!("\nStatements from '{}':", self.file_name());
+        for stmt in stmts { eprintln!("{}", stmt.styled(1, self.style())); }
+    }
+    fn vir(&mut self, vir: &vir::Block) {
+        eprintln!("\nValue IR from '{}':", self.file_name());
+        eprintln!("{}", vir.styled(1, self.style()));
+    }
     fn schedule(&mut self, block: &codegen::scheduler::Block) {
-        eprintln!("\nScheduled instructions from '{}':", self.style.file_name());
-        eprintln!("{}", block.styled(1, &self.style));
+        eprintln!("\nScheduled instructions from '{}':", self.file_name());
+        eprintln!("{}", block.styled(1, self.style()));
     }
     fn assembler(&mut self, block: &codegen::assembler::Block) {
-        eprintln!("\nAssembly instructions from '{}':", self.style.file_name());
-        eprintln!("{}", block.styled(1, &self.style));
+        eprintln!("\nAssembly instructions from '{}':", self.file_name());
+        eprintln!("{}", block.styled(1, self.style()));
+    }
+    fn func(&mut self, func: &codegen::CompiledFn) {
+        eprintln!("\nDisassembly from '{}':", self.file_name());
+        for line in codegen::disassemble(func) { eprintln!("  {line}"); }
     }
 }
 
@@ -39,22 +72,11 @@ pub fn run_file_verbose(file_path: &PathBuf, arguments: &[runtime::Value]) -> Re
             .with_context(|| format!("couldn't read '{file_name}'"))?;
     eprintln!("Contents of '{file_name}':\n  {}", source.lines().collect::<Vec<_>>().join("\n  "));
 
-    let block = runtime::load(&file_name, source)?;
-    let style = core::SourceStyle::new(2, 40, true, block.source);
+    let mut printer = Printer::new(2, 40, true);
 
-    eprintln!("\nStatements from '{file_name}':");
-    for stmt in &block.stmts { eprintln!("{}", stmt.styled(1, &style)); }
+    let block = runtime::load_observed(&file_name, source, &mut printer)?;
+    let results = block.call_observed(arguments, &mut printer)?;
 
-    eprintln!("\nVIR instructions from '{file_name}':");
-    eprintln!("{}", block.vir.styled(1, &style));
-
-    let mut printer = Printer{style};
-    let func = codegen::run_observed(&block.vir, &block.types, &mut printer);
-
-    eprintln!("\nDisassembly from '{file_name}':");
-    for line in codegen::disassemble(&func) { eprintln!("  {line}"); }
-
-    let results = func.call(arguments)?;
     println!("\nResult from '{file_name}':");
     println!("  f({}) = ({})",
         arguments.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(", "),
@@ -185,20 +207,32 @@ fn read_test_file(path: &Path) -> Result<HashMap<String, Vec<String>>> {
 
 
 struct Recorder {
+    stmts:                  Vec<String>,
+    vir:                    Vec<String>,
     schedule:               Vec<String>,
     assembler:              Vec<String>,
+    disassembly:            Vec<String>
 }
 
 impl Recorder {
-    fn new() -> Self { Self{schedule: vec![], assembler: vec![] }}
+    fn new() -> Self { Self{stmts: vec![], vir: vec![], schedule: vec![], assembler: vec![], disassembly: vec![] }}
 }
 
 impl runtime::Observer for Recorder {
+    fn stmts(&mut self, stmts: &[ast::Stmt]) {
+        self.stmts = stmts_to_strings(stmts);
+    }
+    fn vir(&mut self, vir: &vir::Block) {
+        self.vir = block_to_strings(vir);
+    }
     fn schedule(&mut self, block: &codegen::scheduler::Block) {
         self.schedule = block_to_strings(block);
     }
     fn assembler(&mut self, block: &codegen::assembler::Block) {
         self.assembler = block_to_strings(block);
+    }
+    fn func(&mut self, func: &codegen::CompiledFn) {
+        self.disassembly = codegen::disassemble(func);
     }
 }
 
@@ -209,7 +243,9 @@ fn test_lines(
     source:                 &str,
     expected:               &HashMap<String, Vec<String>>,
 ) -> Result<()> {
-    let block = match runtime::load(file_name, source.into()) {
+    let mut recorder = Recorder::new();
+
+    let block = match runtime::load_observed(file_name, source.into(), &mut recorder) {
         Err(diagnostics) => {
             let error_strings: Vec<_> = diagnostics.errors.iter().map(|e| format!("{e}")).collect();
             compare_lines(&error_strings, expected.get("errors").unwrap_or(&vec![]), section, "errors")?;
@@ -226,12 +262,11 @@ fn test_lines(
 
     checking |= section == "statements";
     if checking && expected.contains_key("statements") {
-        let string_stmts = stmts_to_strings(&block.stmts);
-        compare_lines(&string_stmts, &expected["statements"], section, "statements")?;
+        compare_lines(&recorder.stmts, &expected["statements"], section, "statements")?;
     }
 
     if checking && expected.contains_key("vir") {
-        compare_lines(&block_to_strings(&block.vir), &expected["vir"], section, "vir")?;
+        compare_lines(&recorder.vir, &expected["vir"], section, "vir")?;
     }
 
     // Once we get to the scheduling and assembler passes, we only do that for the source pass
@@ -243,8 +278,7 @@ fn test_lines(
         (expected.contains_key("schedule") ||
             expected.contains_key("assembler") ||
             expected.contains_key("results")) {
-        let mut recorder = Recorder::new();
-        let func = codegen::run_observed(&block.vir, &block.types, &mut recorder);
+        let func = codegen::run(&block.vir, &block.types, &mut recorder);
 
         if expected.contains_key("schedule") {
             compare_lines(&recorder.schedule, &expected["schedule"], section, "schedule")?;
@@ -252,9 +286,8 @@ fn test_lines(
 
         if expected.contains_key("assembler") {
             compare_lines(&recorder.assembler, &expected["assembler"], section, "assembler")?;
-            let disassembled = &codegen::disassemble(&func);
-            let expected_disassembled = &expected["assembler"][0..disassembled.len()];
-            compare_lines(disassembled, expected_disassembled, section, "disassembler")?;
+            let expected_disassembly = &expected["assembler"][0..recorder.disassembly.len()];
+            compare_lines(&recorder.disassembly, expected_disassembly, section, "disassembler")?;
         }
 
         if expected.contains_key("results") {
