@@ -24,7 +24,7 @@ return b, a, b
 
 #)
 
-#( expected assembler
+#( expected assembly
 
   0x1000: fmov d2, d1
   0x1004: fmov d1, d0

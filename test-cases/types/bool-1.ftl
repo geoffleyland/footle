@@ -20,7 +20,7 @@ return true
 
 #)
 
-#( expected assembler
+#( expected assembly
 
   0x1000: mov x0, #1
   0x1004: ret

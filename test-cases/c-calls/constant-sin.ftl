@@ -21,7 +21,7 @@ return sin(1.57079632679)
 
 #)
 
-#( expected assembler
+#( expected assembly
 
   0x1000: ldr d0, #0x1024
   0x1004: ret

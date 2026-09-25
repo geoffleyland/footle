@@ -54,8 +54,8 @@ impl runtime::Observer for Printer {
         eprintln!("\nScheduled instructions from '{}':", self.file_name());
         eprintln!("{}", block.styled(1, self.style()));
     }
-    fn assembler(&mut self, block: &codegen::assembler::Block) {
-        eprintln!("\nAssembly instructions from '{}':", self.file_name());
+    fn assembly(&mut self, block: &codegen::assembler::Block) {
+        eprintln!("\nAssembly from '{}':", self.file_name());
         eprintln!("{}", block.styled(1, self.style()));
     }
     fn func(&mut self, func: &codegen::CompiledFn) {
@@ -189,15 +189,15 @@ impl runtime::Observer for DogfoodEater {
     fn schedule(&mut self, block: &codegen::scheduler::Block) {
         self.test("schedule", &[], &block_to_strings(block));
     }
-    fn assembler(&mut self, block: &codegen::assembler::Block) {
-        let assembler = block_to_strings(block);
-        self.test("assembler", &[], &assembler);
-        self.expected.insert("disassembler".into(), assembler);
+    fn assembly(&mut self, block: &codegen::assembler::Block) {
+        let assembly = block_to_strings(block);
+        self.test("assembly", &[], &assembly);
+        self.expected.insert("disassembly".into(), assembly);
     }
     fn func(&mut self, func: &codegen::CompiledFn) {
         let disassembly = codegen::disassemble(func);
-        let expected_disassembly = &self.expected["disassembler"][0..disassembly.len()];
-        if let Err(e) = compare_lines(&disassembly, expected_disassembly, &self.section, "disassembler") {
+        let expected_disassembly = &self.expected["disassembly"][0..disassembly.len()];
+        if let Err(e) = compare_lines(&disassembly, expected_disassembly, &self.section, "disassembly") {
             self.mismatches.push(format!("{e:#}"));
         }
     }
@@ -213,7 +213,7 @@ impl runtime::Observer for DogfoodEater {
 ///  * statements - inside #( expected statements ... #) - expected pretty-printed statements
 ///  * schedule - inside #( expected schedule ... #) - expected scheduler output - no longer
 ///    written as machine-readable code, though.
-///  * assembler - inside #( expected assembler ... #) - assembler output - maybe one day readable
+///  * assembly- inside #( expected assembly ... #) - assembler output - maybe one day readable
 ///    by a proper assembler?
 ///  * result - inside #( expected result ... #) - if the code is a single-argument function with
 ///    one result, the result of calling f(42.0)

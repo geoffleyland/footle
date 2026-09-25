@@ -1,6 +1,6 @@
 return false, 1.3
 
-#( expected assembler
+#( expected assembly
 
   0x1000: ldr d0, #0x102c
   0x1004: mov x0, #0

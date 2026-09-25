@@ -29,7 +29,7 @@ return sin(b), sin(a)
 
 #)
 
-#( expected assembler
+#( expected assembly
 
   0x1000: str x19, [sp, #-0x10]!
   0x1004: stp d8, d9, [sp, #-0x10]!

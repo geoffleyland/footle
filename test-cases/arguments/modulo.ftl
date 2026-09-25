@@ -28,7 +28,7 @@ return b % a
 
 #)
 
-#( expected assembler
+#( expected assembly
 
   0x1000: fdiv d16, d1, d0
   0x1004: frintz d16, d16

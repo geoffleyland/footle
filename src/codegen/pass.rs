@@ -20,11 +20,11 @@ pub fn run<O:Observer>(
     let (allocated, registers_to_save) =
         allocator::run(scheduled_block.value_count, &scheduled_block.arguments,
             &scheduled_block.instrs);
-    let assembler =
+    let assembly =
         assembler::run(allocated, &scheduled_block.constants, &scheduled_block.functions,
             argument_types, scheduled_block.return_types, &registers_to_save);
-    observer.assembler(&assembler);
-    let func = binary::emit(&assembler);
+    observer.assembly(&assembly);
+    let func = binary::emit(&assembly);
     observer.func(&func);
     func
 }

@@ -16,7 +16,7 @@ pub trait Observer {
     fn stmts(&mut self, _stmts: &[ast::Stmt]) {}
     fn vir(&mut self, _vir: &vir::Block) {}
     fn schedule(&mut self, _block: &codegen::scheduler::Block) {}
-    fn assembler(&mut self, _block: &codegen::assembler::Block) {}
+    fn assembly(&mut self, _block: &codegen::assembler::Block) {}
     fn func(&mut self, _func: &codegen::CompiledFn) {}
 }
 
