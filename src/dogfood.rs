@@ -297,7 +297,10 @@ fn test_lines(
                 arguments.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(" "),
                 results.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(" ")));
         }
-        compare_lines(&obtained_lines, &eater.expected["results"], section, "results")?;
+        if let Err(e) = compare_lines(&obtained_lines, &eater.expected["results"], section, "results") {
+            eater.mismatches.push(format!("{e:#}"));
+        }
+        eater.close()?;
     }
     Ok(false)
 }
