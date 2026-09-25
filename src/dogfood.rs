@@ -30,6 +30,7 @@ impl Printer {
     }
 
     fn file_name(&self) -> &str { self.style.as_ref().unwrap().file_name() }
+    fn source(&self) -> &str { self.style.as_ref().unwrap().source() }
     fn style(&self) -> &core::SourceStyle { self.style.as_ref().unwrap() }
 }
 
@@ -37,6 +38,9 @@ impl Printer {
 impl runtime::Observer for Printer {
     fn source_map(&mut self, map: Arc<core::SourceMap>) {
         self.style = Some(core::SourceStyle::new(self.tab, self.width, self.highlight, map));
+
+        eprintln!("\nContents of '{}':", self.file_name());
+        eprintln!("  {}", self.source().lines().collect::<Vec<_>>().join("\n  "));
     }
     fn stmts(&mut self, stmts: &[ast::Stmt]) {
         eprintln!("\nStatements from '{}':", self.file_name());
@@ -66,11 +70,9 @@ impl runtime::Observer for Printer {
 /// Read in the file specified, process it, and tell everyone about it.
 pub fn run_file_verbose(file_path: &PathBuf, arguments: &[runtime::Value]) -> Result<()> {
     let file_name = file_path.display().to_string();
-    eprintln!("Opening '{file_name}'");
     let source =
         fs::read_to_string(file_path)
             .with_context(|| format!("couldn't read '{file_name}'"))?;
-    eprintln!("Contents of '{file_name}':\n  {}", source.lines().collect::<Vec<_>>().join("\n  "));
 
     let mut printer = Printer::new(2, 40, true);
 
@@ -258,7 +260,7 @@ fn test_lines(
         },
     };
 
-    let mut checking = false;
+    let mut checking = section == "source";
 
     checking |= section == "statements";
     if checking && expected.contains_key("statements") {

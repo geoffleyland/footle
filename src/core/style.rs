@@ -87,7 +87,8 @@ mod display {
             Self{tab, width, highlight, map }
         }
 
-        pub fn file_name(&self) -> &str { &self.map.file_name }
+        pub fn file_name(&self) -> &str { self.map.file_name() }
+        pub fn source(&self) -> &str { self.map.source() }
     }
 
 

@@ -115,7 +115,7 @@ impl LineMap {
 
 #[derive(Debug)]
 pub struct SourceMap {
-    pub file_name:      String,
+    file_name:          String,
     source:             String,
     map:                LineMap,
 }
@@ -129,6 +129,11 @@ impl SourceMap {
     pub fn show_span<T: Into<Span>>(&self, span: T, colour: bool) -> SpanToShow<'_> {
         SpanToShow { map: self, span: span.into(), colour }
     }
+
+    #[cfg(feature = "dogfood")]
+    pub fn file_name(&self) -> &str { &self.file_name }
+    #[cfg(feature = "dogfood")]
+    pub fn source(&self) -> &str { &self.source }
 
     #[cfg(feature = "dogfood")]
     pub fn line_span_from_span(&self, span: Span) -> (usize, Span) {
