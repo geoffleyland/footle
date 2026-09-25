@@ -1,5 +1,14 @@
 return false, 1.3
 
+#( expected schedule
+
+  I1: ldr K0
+  I0: mov #0
+  I2: ret I0 I1
+  K0: 1.3
+
+#)
+
 #( expected assembly
 
   0x1000: ldr d0, #0x102c

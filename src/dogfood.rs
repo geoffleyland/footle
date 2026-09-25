@@ -163,10 +163,15 @@ impl DogfoodEater {
         Self{expected, section: String::new(), mismatches: vec![] }
     }
 
-    fn test(&mut self, key: &str, extra_passes: &[&str], lines: &[String]) {
+    fn test(&mut self, key: &str, extra_passes: &[&str], required: bool, lines: &[String]) {
+        let expected = match self.expected.get(key) {
+            Some(expected) => Some(expected.as_slice()),
+            None if required => Some(&[][..]),
+            None => None,
+        };
         if (self.section == "source" || (extra_passes.contains(&self.section.as_str()))) &&
-            self.expected.contains_key(key) &&
-            let Err(e) = compare_lines(lines, &self.expected[key], &self.section, key) {
+            let Some(expected) = expected &&
+            let Err(e) = compare_lines(lines, expected, &self.section, key) {
             self.mismatches.push(format!("{e:#}"));
         }
         self.expected.insert(key.into(), lines.to_vec());
@@ -181,17 +186,17 @@ impl DogfoodEater {
 
 impl runtime::Observer for DogfoodEater {
     fn stmts(&mut self, stmts: &[ast::Stmt]) {
-        self.test("statements", &["statements"], &stmts_to_strings(stmts));
+        self.test("statements", &["statements"], false, &stmts_to_strings(stmts));
     }
     fn vir(&mut self, vir: &vir::Block) {
-        self.test("vir", &["statements", "vir"], &block_to_strings(vir));
+        self.test("vir", &["statements", "vir"], false, &block_to_strings(vir));
     }
     fn schedule(&mut self, block: &codegen::scheduler::Block) {
-        self.test("schedule", &[], &block_to_strings(block));
+        self.test("schedule", &[], true, &block_to_strings(block));
     }
     fn assembly(&mut self, block: &codegen::assembler::Block) {
         let assembly = block_to_strings(block);
-        self.test("assembly", &[], &assembly);
+        self.test("assembly", &[], true, &assembly);
         self.expected.insert("disassembly".into(), assembly);
     }
     fn func(&mut self, func: &codegen::CompiledFn) {
