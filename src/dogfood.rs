@@ -287,41 +287,35 @@ fn test_lines(
     // we can't feed the output of these passes back into the compiler), and we only do it if the
     // expected output is present (because the compiler is being implemented bit by bit and if
     // we run something NYI, we get an NYI and a panic.)
-    if section == "source" &&
-        (eater.expected.contains_key("schedule") ||
-            eater.expected.contains_key("assembler") ||
-            eater.expected.contains_key("results")) {
-        let func = codegen::run(&block.vir, &block.types, eater);
+    if section == "source" && eater.expected.contains_key("results") {
+        let all_arguments = parse_expected_results(&eater.expected["results"])?;
+        let mut obtained_lines = vec![];
+        for arguments in all_arguments {
+            let results = block.call_observed(&arguments, eater)?;
 
-        if eater.expected.contains_key("results") {
-            test_results(&func, &eater.expected["results"], section)?;
+         obtained_lines.push(format!("{} -> {}",
+                arguments.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(" "),
+                results.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(" ")));
         }
+        compare_lines(&obtained_lines, &eater.expected["results"], section, "results")?;
     }
     Ok(false)
 }
 
 
-fn test_results(func: &codegen::CompiledFn, expected: &[String], section: &str) -> Result<()> {
-    let mut actual_strings = vec![];
+fn parse_expected_results(expected: &[String]) -> Result<Vec<Vec<runtime::Value>>> {
+    let mut all_arguments = vec![];
     for line in expected {
-        let Some((inputs_str, _)) = line.split_once("->") else {
+        let Some((arguments_str, _)) = line.split_once("->") else {
             bail!("    invalid result line: {line:?}");
         };
-        let inputs = inputs_str.split_whitespace()
+        let arguments = arguments_str.split_whitespace()
             .map(str::parse::<runtime::Value>)
             .collect::<Result<Vec<_>, _>>()
-            .with_context(|| format!("    invalid input in {line:?}"))?;
-
-        let actual_outputs = func.call(&inputs)
-            .with_context(|| format!("    invalid input in {line:?}"))?;
-
-        actual_strings.push(format!("{} -> {}",
-            inputs.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(" "),
-            actual_outputs.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(" ")));
+            .with_context(|| format!("    invalid argument in {line:?}"))?;
+        all_arguments.push(arguments);
     }
-    compare_lines(&actual_strings, expected, section, "results")?;
-
-    Ok(())
+    Ok(all_arguments)
 }
 
 
