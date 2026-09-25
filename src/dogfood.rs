@@ -152,6 +152,58 @@ fn find_tests(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
 }
 
 
+struct DogfoodEater {
+    expected:               HashMap<String, Vec<String>>,
+    section:                String,
+    mismatches:             Vec<String>,
+}
+
+impl DogfoodEater {
+    fn new(expected: HashMap<String, Vec<String>>) -> Self {
+        Self{expected, section: String::new(), mismatches: vec![] }
+    }
+
+    fn test(&mut self, key: &str, extra_passes: &[&str], lines: &[String]) {
+        if (self.section == "source" || (extra_passes.contains(&self.section.as_str()))) &&
+            self.expected.contains_key(key) &&
+            let Err(e) = compare_lines(lines, &self.expected[key], &self.section, key) {
+            self.mismatches.push(format!("{e:#}"));
+        }
+        self.expected.insert(key.into(), lines.to_vec());
+    }
+
+    fn close(&self) -> Result<()> {
+        if self.mismatches.is_empty() { Ok(()) } else {
+            bail!(self.mismatches.join("\n"));
+        }
+    }
+}
+
+impl runtime::Observer for DogfoodEater {
+    fn stmts(&mut self, stmts: &[ast::Stmt]) {
+        self.test("statements", &["statements"], &stmts_to_strings(stmts));
+    }
+    fn vir(&mut self, vir: &vir::Block) {
+        self.test("vir", &["statements", "vir"], &block_to_strings(vir));
+    }
+    fn schedule(&mut self, block: &codegen::scheduler::Block) {
+        self.test("schedule", &[], &block_to_strings(block));
+    }
+    fn assembler(&mut self, block: &codegen::assembler::Block) {
+        let assembler = block_to_strings(block);
+        self.test("assembler", &[], &assembler);
+        self.expected.insert("disassembler".into(), assembler);
+    }
+    fn func(&mut self, func: &codegen::CompiledFn) {
+        let disassembly = codegen::disassemble(func);
+        let expected_disassembly = &self.expected["disassembler"][0..disassembly.len()];
+        if let Err(e) = compare_lines(&disassembly, expected_disassembly, &self.section, "disassembler") {
+            self.mismatches.push(format!("{e:#}"));
+        }
+    }
+}
+
+
 /// Run a test file.
 ///
 /// A magical, own-dogfood eating tester.
@@ -174,13 +226,16 @@ fn find_tests(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
 /// the same), and run it back through the parser, checking that we get the same result as before.
 fn run_test(path: &Path) -> Result<()> {
     let expected = read_test_file(path)?;
+    let mut eater = DogfoodEater::new(expected);
 
     for key in ["source", "statements", "vir"] {
-        if let Some(source) = expected.get(key) {
-            test_lines(&path.to_string_lossy(), key, &source.join("\n"), &expected)?;
-        }
+        eater.section = key.into();
+        let stop = if let Some(source) = eater.expected.get(key) {
+            test_lines(&path.to_string_lossy(), key, &source.join("\n"), &mut eater)?
+        } else { false };
+        eater.close()?;
+        if stop { break }
     }
-
     Ok(())
 }
 
@@ -208,68 +263,24 @@ fn read_test_file(path: &Path) -> Result<HashMap<String, Vec<String>>> {
 }
 
 
-struct Recorder {
-    stmts:                  Vec<String>,
-    vir:                    Vec<String>,
-    schedule:               Vec<String>,
-    assembler:              Vec<String>,
-    disassembly:            Vec<String>
-}
-
-impl Recorder {
-    fn new() -> Self { Self{stmts: vec![], vir: vec![], schedule: vec![], assembler: vec![], disassembly: vec![] }}
-}
-
-impl runtime::Observer for Recorder {
-    fn stmts(&mut self, stmts: &[ast::Stmt]) {
-        self.stmts = stmts_to_strings(stmts);
-    }
-    fn vir(&mut self, vir: &vir::Block) {
-        self.vir = block_to_strings(vir);
-    }
-    fn schedule(&mut self, block: &codegen::scheduler::Block) {
-        self.schedule = block_to_strings(block);
-    }
-    fn assembler(&mut self, block: &codegen::assembler::Block) {
-        self.assembler = block_to_strings(block);
-    }
-    fn func(&mut self, func: &codegen::CompiledFn) {
-        self.disassembly = codegen::disassemble(func);
-    }
-}
-
-
 fn test_lines(
     file_name:              &str,
     section:                &str,
     source:                 &str,
-    expected:               &HashMap<String, Vec<String>>,
-) -> Result<()> {
-    let mut recorder = Recorder::new();
-
-    let block = match runtime::load_observed(file_name, source.into(), &mut recorder) {
+    eater:                  &mut DogfoodEater,
+) -> Result<bool> {
+    let block = match runtime::load_observed(file_name, source.into(), eater) {
         Err(diagnostics) => {
             let error_strings: Vec<_> = diagnostics.errors.iter().map(|e| format!("{e}")).collect();
-            compare_lines(&error_strings, expected.get("errors").unwrap_or(&vec![]), section, "errors")?;
-            if expected.contains_key("errors") { return Ok(()); }
+            compare_lines(&error_strings, eater.expected.get("errors").unwrap_or(&vec![]), section, "errors")?;
+            if eater.expected.contains_key("errors") { return Ok(true); }
             unreachable!();
         }
         Ok(block) => {
-            if expected.contains_key("errors") { bail!("did not get expected errors") }
+            if eater.expected.contains_key("errors") { bail!("did not get expected errors") }
             block
         },
     };
-
-    let mut checking = section == "source";
-
-    checking |= section == "statements";
-    if checking && expected.contains_key("statements") {
-        compare_lines(&recorder.stmts, &expected["statements"], section, "statements")?;
-    }
-
-    if checking && expected.contains_key("vir") {
-        compare_lines(&recorder.vir, &expected["vir"], section, "vir")?;
-    }
 
     // Once we get to the scheduling and assembler passes, we only do that for the source pass
     // (since we're already proving that the other passes all give the same output, and because
@@ -277,27 +288,16 @@ fn test_lines(
     // expected output is present (because the compiler is being implemented bit by bit and if
     // we run something NYI, we get an NYI and a panic.)
     if section == "source" &&
-        (expected.contains_key("schedule") ||
-            expected.contains_key("assembler") ||
-            expected.contains_key("results")) {
-        let func = codegen::run(&block.vir, &block.types, &mut recorder);
+        (eater.expected.contains_key("schedule") ||
+            eater.expected.contains_key("assembler") ||
+            eater.expected.contains_key("results")) {
+        let func = codegen::run(&block.vir, &block.types, eater);
 
-        if expected.contains_key("schedule") {
-            compare_lines(&recorder.schedule, &expected["schedule"], section, "schedule")?;
-        }
-
-        if expected.contains_key("assembler") {
-            compare_lines(&recorder.assembler, &expected["assembler"], section, "assembler")?;
-            let expected_disassembly = &expected["assembler"][0..recorder.disassembly.len()];
-            compare_lines(&recorder.disassembly, expected_disassembly, section, "disassembler")?;
-        }
-
-        if expected.contains_key("results") {
-            test_results(&func, &expected["results"], section)?;
+        if eater.expected.contains_key("results") {
+            test_results(&func, &eater.expected["results"], section)?;
         }
     }
-
-    Ok(())
+    Ok(false)
 }
 
 

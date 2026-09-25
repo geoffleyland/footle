@@ -24,7 +24,9 @@ pub fn run<O:Observer>(
         assembler::run(allocated, &scheduled_block.constants, &scheduled_block.functions,
             argument_types, scheduled_block.return_types, &registers_to_save);
     observer.assembler(&assembler);
-    binary::emit(&assembler)
+    let func = binary::emit(&assembler);
+    observer.func(&func);
+    func
 }
 
 

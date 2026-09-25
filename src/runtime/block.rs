@@ -130,7 +130,6 @@ impl Block {
     observer:           &mut O,
 ) -> anyhow::Result<Vec<Value>> {
         let func = codegen::run(&self.vir, &self.types, observer);
-        observer.func(&func);
         let results = func.call(arguments)?;
         Ok(results)
     }
