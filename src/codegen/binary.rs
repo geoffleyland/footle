@@ -48,13 +48,12 @@ impl CompiledFn {
                 self.argument_types.len(), input.len());
         }
         let mut lowered_input = vec![];
-        for (e, i) in self.argument_types.iter().zip(input) {
+        for (index, (e, i)) in self.argument_types.iter().zip(input).enumerate() {
             let bits = match (e, i) {
                 (Type::F64, Value::F64(v))  => { v.to_bits() },
                 (Type::I64, Value::Bool(v)) => { (*v).into() },
                 _ => {
-                    bail!("wrong type for argument #{}.  Expected `{e}`, got `{i}`",
-                        lowered_input.len() + 1);
+                    bail!("wrong type for argument #{}.  Expected `{e}`, got `{i}`", index+1);
                 }
             };
             lowered_input.push(bits);

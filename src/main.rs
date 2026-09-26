@@ -121,8 +121,11 @@ fn show_version() {
 
 fn parse_arguments(args: pico_args::Arguments) -> Result<Vec<runtime::Value>> {
     args.finish().iter()
-        .map(|s| s.to_str().and_then(|s| s.parse().ok())
-            .ok_or_else(|| anyhow::anyhow!("invalid argument '{}'", s.display())))
+        .map(|s| {
+            let s = s.to_str()
+                .with_context(|| format!("argument '{}' isn't valid UTF-8", s.display()))?;
+            Ok(s.parse::<runtime::Value>()?)
+        })
         .collect()
 }
 

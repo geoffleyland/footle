@@ -199,23 +199,30 @@ impl runtime::Observer for DogfoodEater {
 /// Run a test file.
 ///
 /// A magical, own-dogfood eating tester.
-/// Read the code, which is broken into sections:
-///  * source - whatever comes at the start - the program
-///  * errors - inside an #( expected errors .... #) block comment - expected errors, if any
-///  * statements - inside #( expected statements ... #) - expected pretty-printed statements
-///  * schedule - inside #( expected schedule ... #) - expected scheduler output - no longer
-///    written as machine-readable code, though.
-///  * assembly- inside #( expected assembly ... #) - assembler output - maybe one day readable
-///    by a proper assembler?
-///  * result - inside #( expected results ... #) - call the code with the provided arguments and
-///    check the results match the expected output
+/// Read the code, which is structured as the source of the program followed by expected
+/// pretty-printed output from each compiler pass, each inside #( expected <section> ... #) block
+/// comments.  The output of each pass is checked against the corresponding expectation.
+/// The sections are:
+///  * errors - if there's any errors we expect, otherwise:
+///  * statements - expected pretty-printed statements, which should be re-readable as footle source;
+///  * vir - "value intermediate representation", an SSA form, readable as footle source;
+///  * schedule - expected scheduler output - no longer written as footle source, though;
+///  * assembly - assembler output - in the same format as the disassembler, so we check the
+///    generated assembly against what we expect AND what we get from disassembling the final
+///    binary;
+///  * results - we call the code with the provided arguments and check the results match the
+///    expected output
 ///
 /// The clever thing is that all the excess stuff is block comments, so the files are still
-/// legitimate programs.
-/// First, parse the code.  If there are errors, check they match the expected errors. If there are
-/// no errors (and that's what we wanted), check the statements match expectations. If that worked,
-/// take the output from the parser (actually, the expected output, but we already checked they're
-/// the same), and run it back through the parser, checking that we get the same result as before.
+/// legitimate footle programs.
+///
+/// The first two passes (statements and vir) pretty-print to valid footle, so output from these
+/// passes is fed back into the front of the compiler, and we check that we get the same output
+/// the second (and third!) time around.
+///
+/// The remaining codegen passes are only checked once, though, on the first pass - if running the
+/// compiler with the source, statements and vir as inputs all produce the same vir, then what
+/// follows should be the same in all cases.
 fn run_test(path: &Path) -> Result<()> {
     let expected = read_test_file(path)?;
     let mut eater = DogfoodEater::new(expected);
@@ -273,11 +280,11 @@ fn test_lines(
         },
     };
 
-    // Once we get to the scheduling and assembler passes, we only run for the original input
-    // (since we're already proving that the other passes all give the same output, and because
-    // we can't feed the output of these passes back into the compiler), and we only do it if the
-    // expected output is present (because the compiler is being implemented bit by bit and if
-    // we run something NYI, we get an NYI and a panic.)
+    // Once we get to codegen and calling (with block.call), we only run for the original source
+    // (since we've already proven that the other passes all give the same output, and because we
+    // can't feed the output of the codegen passes back into the compiler), and we only do it if
+    // the expected results are present (because the compiler is being implemented bit by bit and
+    // if we run something NYI, we get an NYI and a panic.)
     if section == "source" && eater.expected.contains_key("results") {
         let all_arguments = parse_expected_results(&eater.expected["results"])?;
         let mut obtained_lines = vec![];
