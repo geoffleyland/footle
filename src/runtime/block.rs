@@ -52,7 +52,7 @@ pub fn load<O: Observer>(
     // Run type inference without any argument types.  It just gets us any type errors we can find
     // early, nice and early.
     let argument_types = vec![vir::TypeInfo::Unknown; vir_block.arguments.len()];
-    match vir::infer_types(&vir_block, &argument_types) {
+    match vir::infer_types(&vir_block, &argument_types, &env) {
         Ok(..) => {},
         Err(errors) => {
             return Err(Diagnostics { errors, source: source_map });
@@ -60,6 +60,7 @@ pub fn load<O: Observer>(
     }
 
     Ok(Block{
+        env,
         vir:                vir_block,
         source:             source_map,
         funcs:              HashMap::new(),
@@ -122,6 +123,7 @@ impl std::error::Error for ParseValueError {}
 //-------------------------------------------------------------------------------------------------
 
 pub struct Block {
+    env:                crate::env::Env,
     pub vir:            vir::Block,
     source:             Arc<SourceMap>,
     funcs:              HashMap<Vec<vir::TypeInfo>, codegen::CompiledFn>,
@@ -141,7 +143,7 @@ impl Block {
                 // Observers only get called when we actually have to compile something, not every
                 // time it's called.
                 observer.signature(entry.key());
-                let types = match vir::infer_types(&self.vir, entry.key()) {
+                let types = match vir::infer_types(&self.vir, entry.key(), &self.env) {
                     Ok(types) => types,
                     Err(errors) => {
                         return Err(Diagnostics { errors, source: self.source.clone() }.into());

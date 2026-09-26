@@ -1,6 +1,7 @@
 use std::fmt;
 
 use crate::core::{BinaryOperator, ParseError};
+use crate::env::Env;
 use crate::vir;
 use super::expr::ExprKind;
 use crate::parse_error;
@@ -18,6 +19,7 @@ impl TypeErrors {
 pub fn infer_types(
     block:              &vir::Block,
     argument_types:     &[TypeInfo],
+    env:                &Env,
 ) -> Result<Vec<TypeInfo>, Vec<ParseError>> {
     let mut errors = TypeErrors(vec![]);
     let mut typer = Typer::new(block.exprs.len());
@@ -29,7 +31,7 @@ pub fn infer_types(
 
     for expr in &block.exprs {
         if let Err(TypeConflict{expected, expected_span, found, found_span}) =
-            typer.type_instr(expr) {
+            typer.type_instr(expr, env) {
             parse_error!(errors,
                 format!("Expected `{expected}`, got `{found}`"),
                 *expr.span(),
@@ -126,14 +128,26 @@ impl Typer {
         }).collect()
     }
 
-    fn type_instr(&mut self,  instr: &vir::Expr) -> Result<(), TypeConflict> {
+    fn type_instr(&mut self,  instr: &vir::Expr, env: &Env) -> Result<(), TypeConflict> {
         let pool_index = instr.pool_index();
         let span = instr.span();
         match instr.kind() {
             ExprKind::Number(..)            => self.set_type(pool_index, TypeInfo::F64, span)?,
             ExprKind::Bool(..)              => self.set_type(pool_index, TypeInfo::Bool, span)?,
-            ExprKind::Argument(..) |
-            ExprKind::Call(..)              => {},
+            ExprKind::Argument(..)          => {}
+            ExprKind::Call(name, exprs)=> {
+                // vir already checked the function exists and the arguments list is the right
+                // length
+                let Some(def) = env.module.functions.get(name) else {
+                    panic!("internal compiler error: unknown function `{name}`")
+                };
+                for (e, ty) in exprs.iter().zip(&def.argument_types) {
+                    self.set_type(e.pool_index(), *ty, e.span())?;
+                }
+                // We only cope with one result at the moment.
+                assert_eq!(def.result_types.len(), 1);
+                self.set_type(pool_index, def.result_types[0], span)?;
+            },
             ExprKind::Binary(op, lhs, rhs)  => {
                 match op {
                     BinaryOperator::Add | BinaryOperator::Subtract |

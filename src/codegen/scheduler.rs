@@ -38,12 +38,9 @@ pub(super) enum Type {
 
 fn type_for(ty: vir::TypeInfo) -> Type {
     match ty {
-        vir::TypeInfo::F64 |
-        vir::TypeInfo::Unknown  => Type::F64,
+        vir::TypeInfo::F64          => Type::F64,
         vir::TypeInfo::Bool         => Type::I64,
-        // TODO!  This should be a panic, but we don't know the types of function arguments or
-        // return values
-        // vir::TypeInfo::Unknown  => panic!("internal compile error: incomplete type information")
+        vir::TypeInfo::Unknown      => panic!("internal compile error: incomplete type information")
     }
 }
 

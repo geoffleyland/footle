@@ -189,11 +189,11 @@ impl Pass {
                     parse_error!(self, format!("cannot find function '{name}' in this scope"), *expr.span());
                     return Err(())
                 };
-                if def.arguments as usize != exprs.len() {
+                if def.argument_types.len() != exprs.len() {
                     parse_error!(self,
                         format!("function '{name}' called with {} arguments, expected {}",
                             exprs.len(),
-                            env.module.functions[name].arguments,
+                            def.argument_types.len()
                         ),
                         *expr.span());
                     return Err(())
