@@ -26,12 +26,7 @@ impl Observer for Silent {}
 
 //-------------------------------------------------------------------------------------------------
 
-pub fn load(file_name: &str, source: String) -> Result<Block, Diagnostics> {
-    load_observed(file_name, source, &mut Silent{})
-}
-
-
-pub fn load_observed<O: Observer>(
+pub fn load<O: Observer>(
     file_name:              &str,
     source:                 String,
     observer:               &mut O,
@@ -39,8 +34,7 @@ pub fn load_observed<O: Observer>(
     let (stmts, errors, source_map) = ast::parse(file_name, source);
     let source_map = Arc::new(source_map);
     if !errors.is_empty() {
-        #[allow(clippy::redundant_clone)]
-        return Err(Diagnostics { errors, source: source_map.clone() });
+        return Err(Diagnostics { errors, source: source_map });
     }
 
     observer.source_map(source_map.clone());
@@ -50,19 +44,18 @@ pub fn load_observed<O: Observer>(
     let vir_block = match vir::run(&env, &stmts) {
         Ok(block) => block,
         Err(errors) => {
-            #[allow(clippy::redundant_clone)]
-            return Err(Diagnostics { errors, source: source_map.clone() });
+            return Err(Diagnostics { errors, source: source_map });
         }
     };
     observer.vir(&vir_block);
 
     let argument_types = vec![vir::TypeInfo::Unknown; vir_block.arguments.len()];
-    match vir::infer_types(&vir_block.exprs,
-        &vir_block.arguments, &argument_types, &vir_block.reassignments) {
+    // match vir::infer_types(&vir_block.exprs,
+    //     &vir_block.arguments, &argument_types, &vir_block.reassignments) {
+    match vir::infer_types(&vir_block, &argument_types) {
         Ok(..) => {},
         Err(errors) => {
-            #[allow(clippy::redundant_clone)]
-            return Err(Diagnostics { errors, source: source_map.clone() });
+            return Err(Diagnostics { errors, source: source_map });
         }
     }
 
@@ -79,6 +72,16 @@ pub fn load_observed<O: Observer>(
 pub enum Value {
     Bool(bool),
     F64(f64),
+}
+
+
+impl From<&Value> for vir::TypeInfo {
+    fn from(v: &Value) -> Self {
+        match v {
+            Value::Bool(..)     => Self::Bool,
+            Value::F64(..)      => Self::F64,
+        }
+    }
 }
 
 
@@ -126,26 +129,19 @@ pub struct Block {
 
 
 impl Block {
-    pub fn call(&mut self, arguments: &[Value]) -> anyhow::Result<Vec<Value>> {
-        self.call_observed(arguments, &mut Silent{})
-    }
-
-    pub fn call_observed<O: Observer>(
+    pub fn call<O: Observer>(
         &mut self,
         arguments:          &[Value],
         observer:           &mut O,
     ) -> anyhow::Result<Vec<Value>> {
         let signature: Vec<vir::TypeInfo> = arguments.iter().map(Into::into).collect();
-        let func = match self.funcs.entry(signature.clone()) {
+        let func = match self.funcs.entry(signature) {
             Entry::Occupied(entry)  => entry.into_mut(),
             Entry::Vacant(entry) => {
-                observer.signature(&signature);
-                let types = match vir::infer_types(&self.vir.exprs,
-                        &self.vir.arguments, &signature,
-                        &self.vir.reassignments) {
+                observer.signature(entry.key());
+                let types = match vir::infer_types(&self.vir, entry.key()) {
                     Ok(types) => types,
                     Err(errors) => {
-                        #[allow(clippy::redundant_clone)]
                         return Err(Diagnostics { errors, source: self.source.clone() }.into());
                     }
                 };
@@ -153,8 +149,7 @@ impl Block {
                 entry.insert(func)
             }
         };
-        let results = func.call(arguments)?;
-        Ok(results)
+        func.call(arguments)
     }
 }
 

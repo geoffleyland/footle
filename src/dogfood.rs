@@ -9,7 +9,7 @@ use std::{
 use anyhow::{bail, Context, Result};
 
 use crate::{FOOTLE_FILE_EXTENSION, core, codegen};
-use crate::core::Styleable;
+use crate::core::{Styleable, join_format};
 use crate::ast;
 use crate::vir;
 use crate::runtime;
@@ -17,7 +17,7 @@ use crate::runtime;
 
 //-------------------------------------------------------------------------------------------------
 
-struct Printer {
+pub struct Printer {
     tab:                    u16,
     width:                  u16,
     highlight:              bool,
@@ -25,7 +25,7 @@ struct Printer {
 }
 
 impl Printer {
-    fn new(tab: u16, width: u16, highlight: bool) -> Self {
+    pub fn new(tab: u16, width: u16, highlight: bool) -> Self {
         Self{tab, width, highlight, style: None}
     }
 
@@ -62,29 +62,6 @@ impl runtime::Observer for Printer {
         eprintln!("\nDisassembly from '{}':", self.file_name());
         for line in codegen::disassemble(func) { eprintln!("  {line}"); }
     }
-}
-
-
-/// Compile and run a single file noisily
-///
-/// Read in the file specified, process it, and tell everyone about it.
-pub fn run_file_verbose(file_path: &PathBuf, arguments: &[runtime::Value]) -> Result<()> {
-    let file_name = file_path.display().to_string();
-    let source =
-        fs::read_to_string(file_path)
-            .with_context(|| format!("couldn't read '{file_name}'"))?;
-
-    let mut printer = Printer::new(2, 40, true);
-
-    let mut block = runtime::load_observed(&file_name, source, &mut printer)?;
-    let results = block.call_observed(arguments, &mut printer)?;
-
-    println!("\nResult from '{file_name}':");
-    println!("  f({}) = ({})",
-        arguments.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(", "),
-        results.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(", "));
-
-    Ok(())
 }
 
 
@@ -154,14 +131,14 @@ fn find_tests(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
 
 struct DogfoodEater {
     expected:               HashMap<String, Vec<String>>,
-    section:                String,
+    section:                &'static str,
     mismatches:             Vec<String>,
     signature:              String,
 }
 
 impl DogfoodEater {
     fn new(expected: HashMap<String, Vec<String>>) -> Self {
-        Self{expected, section: String::new(), mismatches: vec![], signature: String::new() }
+        Self{expected, section: "", mismatches: vec![], signature: String::new() }
     }
 
     fn test(&mut self, key: &str, extra_passes: &[&str], required: bool, lines: &[String]) {
@@ -170,9 +147,9 @@ impl DogfoodEater {
             None if required => Some(&[][..]),
             None => None,
         };
-        if (self.section == "source" || (extra_passes.contains(&self.section.as_str()))) &&
+        if (self.section == "source" || (extra_passes.contains(&self.section))) &&
             let Some(expected) = expected &&
-            let Err(e) = compare_lines(lines, expected, &self.section, key) {
+            let Err(e) = compare_lines(lines, expected, self.section, key) {
             self.mismatches.push(format!("{e:#}"));
         }
         self.expected.insert(key.into(), lines.to_vec());
@@ -192,13 +169,14 @@ impl DogfoodEater {
 
 impl runtime::Observer for DogfoodEater {
     fn stmts(&mut self, stmts: &[ast::Stmt]) {
-        self.test("statements", &["statements"], false, &stmts_to_strings(stmts));
+        self.test("statements", &["statements"], false,
+            &stmts.iter().flat_map(block_to_strings).collect::<Vec<_>>());
     }
     fn vir(&mut self, vir: &vir::Block) {
         self.test("vir", &["statements", "vir"], false, &block_to_strings(vir));
     }
     fn signature(&mut self, signature: &[vir::TypeInfo]) {
-        self.signature = signature.iter().map(|ty| format!("{ty}")).collect::<Vec<_>>().join(" ");
+        self.signature = join_format(signature, " ");
     }
     fn schedule(&mut self, block: &codegen::scheduler::Block) {
         self.test("schedule", &[], true, &block_to_strings(block));
@@ -211,7 +189,7 @@ impl runtime::Observer for DogfoodEater {
     fn func(&mut self, func: &codegen::CompiledFn) {
         let disassembly = codegen::disassemble(func);
         let expected_disassembly = &self.expected[&self.codegen_key("disassembly")][0..disassembly.len()];
-        if let Err(e) = compare_lines(&disassembly, expected_disassembly, &self.section, "disassembly") {
+        if let Err(e) = compare_lines(&disassembly, expected_disassembly, self.section, "disassembly") {
             self.mismatches.push(format!("{e:#}"));
         }
     }
@@ -243,7 +221,7 @@ fn run_test(path: &Path) -> Result<()> {
     let mut eater = DogfoodEater::new(expected);
 
     for key in ["source", "statements", "vir"] {
-        eater.section = key.into();
+        eater.section = key;
         let stop = if let Some(source) = eater.expected.get(key) {
             test_lines(&path.to_string_lossy(), key, &source.join("\n"), &mut eater)?
         } else { false };
@@ -283,12 +261,11 @@ fn test_lines(
     source:                 &str,
     eater:                  &mut DogfoodEater,
 ) -> Result<bool> {
-    let mut block = match runtime::load_observed(file_name, source.into(), eater) {
+    let mut block = match runtime::load(file_name, source.into(), eater) {
         Err(diagnostics) => {
             let error_strings: Vec<_> = diagnostics.errors.iter().map(|e| format!("{e}")).collect();
             compare_lines(&error_strings, eater.expected.get("errors").unwrap_or(&vec![]), section, "errors")?;
-            if eater.expected.contains_key("errors") { return Ok(true); }
-            unreachable!();
+            return Ok(true);
         }
         Ok(block) => {
             if eater.expected.contains_key("errors") { bail!("did not get expected errors") }
@@ -305,16 +282,14 @@ fn test_lines(
         let all_arguments = parse_expected_results(&eater.expected["results"])?;
         let mut obtained_lines = vec![];
         for arguments in all_arguments {
-            let results = block.call_observed(&arguments, eater)?;
+            let results = block.call(&arguments, eater)?;
 
             obtained_lines.push(format!("{} -> {}",
-                arguments.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(" "),
-                results.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(" ")));
+                join_format(&arguments, " "), join_format(&results, " ")));
         }
         if let Err(e) = compare_lines(&obtained_lines, &eater.expected["results"], section, "results") {
             eater.mismatches.push(format!("{e:#}"));
         }
-        eater.close()?;
     }
     Ok(false)
 }
@@ -353,25 +328,6 @@ fn compare_lines(
 }
 
 
-/// Turn a list of statements into a list of strings
-///
-/// Statements can be multi-line (e.g. block assignments), so we format each one and split on
-/// newlines to get a flat list of non-empty lines for comparison.
-fn stmts_to_strings<S: core::Styleable>(stmts: &[S]) -> Vec<String> {
-    let style = core::IndentedStyle::new(2);
-    stmts
-        .iter()
-        .flat_map(|stmt| {
-            format!("{}", stmt.styled(0, &style))
-                .lines()
-                .filter(|l| !l.is_empty())
-                .map(str::to_string)
-                .collect::<Vec<_>>()
-        })
-        .collect()
-}
-
-
 /// Turn anything Styleable into a list of strings
 ///
 /// The thing can return multiple lines so we format the whole lot and split on
@@ -386,4 +342,4 @@ fn block_to_strings<S: core::Styleable>(block: &S) -> Vec<String> {
 }
 
 
-//-----------------------------------------------fo--------------------------------------------------
+//-------------------------------------------------------------------------------------------------

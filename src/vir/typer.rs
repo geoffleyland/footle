@@ -5,7 +5,6 @@ use crate::vir;
 use super::expr::ExprKind;
 use crate::parse_error;
 use crate::core::Span;
-use crate::runtime;
 
 //-------------------------------------------------------------------------------------------------
 
@@ -17,20 +16,18 @@ impl TypeErrors {
 
 
 pub fn infer_types(
-    exprs:              &[vir::Expr],
-    arguments:          &[vir::Expr],
+    block:              &vir::Block,
     argument_types:     &[TypeInfo],
-    reassignments:      &[(String, vir::Expr, vir::Expr, Span)],
 ) -> Result<Vec<TypeInfo>, Vec<ParseError>> {
     let mut errors = TypeErrors(vec![]);
-    let mut typer = Typer::new(exprs.len());
+    let mut typer = Typer::new(block.exprs.len());
 
-    for (argument, ty) in arguments.iter().zip(argument_types) {
+    for (argument, ty) in block.arguments.iter().zip(argument_types) {
         assert!(typer.set_type(argument.pool_index(), *ty, argument.span()).is_ok(),
             "internal compiler error: type conflict setting argument type");
     }
 
-    for expr in exprs {
+    for expr in &block.exprs {
         if let Err(TypeConflict{expected, expected_span, found, found_span}) =
             typer.type_instr(expr) {
             parse_error!(errors,
@@ -44,7 +41,7 @@ pub fn infer_types(
         }
     }
 
-    for (name, old, new, span) in reassignments {
+    for (name, old, new, span) in &block.reassignments {
         if let Err(TypeConflict{expected, expected_span, found, found_span}) =
             typer.type_union(old.pool_index(), new.pool_index(), span) {
                 parse_error!(errors,
@@ -76,15 +73,6 @@ impl fmt::Display for TypeInfo {
             Self::Bool              => "bool"
         };
         write!(fmt, "{s}")
-    }
-}
-
-impl From<&runtime::Value> for TypeInfo {
-    fn from(v: &runtime::Value) -> Self {
-        match v {
-            runtime::Value::Bool(..)    => Self::Bool,
-            runtime::Value::F64(..)     => Self::F64,
-        }
     }
 }
 

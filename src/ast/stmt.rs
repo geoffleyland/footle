@@ -59,17 +59,8 @@ impl Stmt {
 mod display {
     use std::fmt;
     use super::*;
-    use crate::core::{LineStyle, Styleable};
+    use crate::core::{LineStyle, Styleable, join_format, join_field_format};
     use crate::lex::Token;
-
-
-    pub fn join_format<T: fmt::Display>(v: &[T]) -> String {
-        v.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(", ")
-    }
-
-    pub fn join_field_format<T1, T2: fmt::Display, F: Fn(&T1) -> &T2>(v: &[T1], f: F) -> String {
-        v.iter().map(|e| format!("{}", f(e))).collect::<Vec<_>>().join(", ")
-    }
 
 
     impl Styleable for Stmt {
@@ -78,19 +69,19 @@ mod display {
             let span = self.span;
             match &self.kind {
                 Return(values) => style.write(f, indent, Some(span),
-                    &format!("{} {}", Token::Return, join_format(values))
+                    &format!("{} {}", Token::Return, join_format(values, ", "))
                 ),
-                Exprs(values) => style.write(f, indent, Some(span), &join_format(values)),
+                Exprs(values) => style.write(f, indent, Some(span), &join_format(values, ", ")),
                 Arguments(names) => style.write(f, indent, Some(span),
-                    &format!("{} {}", Token::Argument, join_field_format(names, |(n, _)| n)),
+                    &format!("{} {}", Token::Argument, join_field_format(names, |(n, _)| n, ", ")),
                 ),
                 Assignment(a) => {
                     let (lhs, rhs) = if a.assignments.is_empty() {
                         (String::new(), String::new())
                     } else {
                         (
-                            format!("{}{} = ", a.declaration, join_field_format(&a.assignments, |e| &e.0)),
-                            join_field_format(&a.assignments, |e| &e.2),
+                            format!("{}{} = ", a.declaration, join_field_format(&a.assignments, |e| &e.0, ", ")),
+                            join_field_format(&a.assignments, |e| &e.2, ", "),
                         )
                     };
 
