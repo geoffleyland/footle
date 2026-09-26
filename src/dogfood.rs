@@ -207,8 +207,8 @@ impl runtime::Observer for DogfoodEater {
 ///    written as machine-readable code, though.
 ///  * assembly- inside #( expected assembly ... #) - assembler output - maybe one day readable
 ///    by a proper assembler?
-///  * result - inside #( expected result ... #) - if the code is a single-argument function with
-///    one result, the result of calling f(42.0)
+///  * result - inside #( expected results ... #) - call the code with the provided arguments and
+///    check the results match the expected output
 ///
 /// The clever thing is that all the excess stuff is block comments, so the files are still
 /// legitimate programs.
@@ -273,7 +273,7 @@ fn test_lines(
         },
     };
 
-    // Once we get to the scheduling and assembler passes, we only do that for the source pass
+    // Once we get to the scheduling and assembler passes, we only run for the original input
     // (since we're already proving that the other passes all give the same output, and because
     // we can't feed the output of these passes back into the compiler), and we only do it if the
     // expected output is present (because the compiler is being implemented bit by bit and if

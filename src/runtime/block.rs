@@ -49,9 +49,9 @@ pub fn load<O: Observer>(
     };
     observer.vir(&vir_block);
 
+    // Run type inference without any argument types.  It just gets us any type errors we can find
+    // early, nice and early.
     let argument_types = vec![vir::TypeInfo::Unknown; vir_block.arguments.len()];
-    // match vir::infer_types(&vir_block.exprs,
-    //     &vir_block.arguments, &argument_types, &vir_block.reassignments) {
     match vir::infer_types(&vir_block, &argument_types) {
         Ok(..) => {},
         Err(errors) => {
@@ -138,6 +138,8 @@ impl Block {
         let func = match self.funcs.entry(signature) {
             Entry::Occupied(entry)  => entry.into_mut(),
             Entry::Vacant(entry) => {
+                // Observers only get called when we actually have to compile something, not every
+                // time it's called.
                 observer.signature(entry.key());
                 let types = match vir::infer_types(&self.vir, entry.key()) {
                     Ok(types) => types,

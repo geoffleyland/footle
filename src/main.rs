@@ -84,7 +84,6 @@ fn run(mut args: pico_args::Arguments) -> Result<()> {
     } else {
         let arguments = parse_arguments(args)?;
         if verbose {
-//            dogfood::run_file_verbose(&file_or_dir, &arguments)?;
             run_file(&file_or_dir, &arguments, &mut dogfood::Printer::new(2, 40, true))?;
         } else {
             run_file(&file_or_dir, &arguments, &mut runtime::Silent)?;
