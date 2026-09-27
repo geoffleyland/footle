@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use bit_set::BitSet;
 use typed_index_collections::TiVec;
 
-use super::scheduler::{Value, ValueSlot};
+use super::scheduler::{Value, ValueSlot, SchedulePosition};
 use super::isa;
 use super::isa::{REGS, Bank, MachineReg};
 
@@ -18,7 +18,7 @@ use crate::core::Span;
 pub(super) fn run(
     slot_count:                         usize,
     arguments:                          &[&Value<'_>],
-    scheduled:                          &[&Value<'_>],
+    scheduled:                          &TiVec<SchedulePosition, &Value<'_>>,
 ) -> (Vec<Instr>, [Vec<MachineReg>; REGS.num_banks]) {
     let slot_block = lower_to_slots_and_split(slot_count, arguments, scheduled);
     let (regs, available_ranks) = allocate(&slot_block);
@@ -67,7 +67,7 @@ struct SlotBlock {
 fn lower_to_slots_and_split(
     slot_count:                         usize,
     arguments:                          &[&Value<'_>],
-    scheduled:                          &[&Value<'_>],
+    scheduled:                          &TiVec<SchedulePosition, &Value<'_>>,
 ) -> SlotBlock {
     // Walk backwards through the scheduled instructions finding out when instructions retire
     let mut retirements: TiVec<ValueSlot, _> = vec![None; slot_count].into();

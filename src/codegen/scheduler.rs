@@ -130,10 +130,13 @@ pub(super) struct Constant {
 }
 
 
+#[derive(Debug, Copy, Clone, From, Into, Display)]
+pub(super) struct SchedulePosition(usize);
+
 pub struct Block<'arena> {
     pub(super) value_count:                 usize,
     pub(super) arguments:                   Vec<&'arena Value<'arena>>,
-    pub(super) instrs:                      Vec<&'arena Value<'arena>>,
+    pub(super) instrs:                      TiVec<SchedulePosition, &'arena Value<'arena>>,
     pub(super) return_types :               Vec<Type>,
     pub(super) constants:                   Vec<Constant>,
     pub(super) functions:                   Vec<String>,
@@ -427,7 +430,7 @@ impl<'arena> Builder<'arena> {
 // Instruction Scheduling
 
 fn schedule<'arena>(values: &TiVec<ValueSlot, &'arena Value<'arena>>
-) -> Vec<&'arena Value<'arena>> {
+) -> TiVec<SchedulePosition, &'arena Value<'arena>> {
     // Count how many operands (that need scheduling, arguments are always available) each
     // instruction has so we can figure out when they're ready to go.
     let mut unresolved_operand_count: TiVec<ValueSlot, _> =
@@ -463,7 +466,7 @@ fn schedule<'arena>(values: &TiVec<ValueSlot, &'arena Value<'arena>>
     let mut cycle = 0usize;
     let mut results_by_cycle: Vec<Vec<&Value>>  = vec![vec![]; current_critical_path_depth];
 
-    let mut scheduled = vec![];
+    let mut scheduled: TiVec<SchedulePosition, _> = TiVec::new();
 
     let mut ready_instrs: Vec<&Value> = values.iter()
         .filter(|v| v.code().is_some() && unresolved_operand_count[v.slot] == 0)
