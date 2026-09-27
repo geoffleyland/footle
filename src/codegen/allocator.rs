@@ -19,8 +19,8 @@ pub(super) fn run(
     arguments:                          &[&Value<'_>],
     scheduled:                          &[&Value<'_>],
 ) -> (Vec<Instr>, [Vec<MachineReg>; REGS.num_banks]) {
-    let (lowered, slot_banks) = lower_to_slots_and_split(slot_count, arguments, scheduled);
-    let (regs, available_ranks) = allocate(arguments.len(), &lowered, &slot_banks);
+    let (arguments, lowered, slot_banks) = lower_to_slots_and_split(slot_count, arguments, scheduled);
+    let (regs, available_ranks) = allocate(&arguments, &lowered, &slot_banks);
     lower_to_regs(&lowered, &slot_banks, &regs, &available_ranks)
 }
 
@@ -60,7 +60,7 @@ fn lower_to_slots_and_split(
     slot_count:                         usize,
     arguments:                          &[&Value<'_>],
     scheduled:                          &[&Value<'_>],
-) -> (Vec<SlotInstr>, Vec<Option<Bank>>) {
+) -> (Vec<(usize, MachineReg)>, Vec<SlotInstr>, Vec<Option<Bank>>) {
     // Walk backwards through the scheduled instructions finding out when instructions retire
     let mut retirements = vec![None; slot_count];
     for (i, value) in scheduled.iter().enumerate() {
@@ -75,13 +75,15 @@ fn lower_to_slots_and_split(
     let mut slot_map = (0..slot_count).collect::<Vec<_>>();
     let mut slot_banks = vec![];
 
-    let mut bank_argument_counts = [0; REGS.num_banks];
+    let mut argument_regs = vec![];
+    let mut bank_argument_counts = [0u8; REGS.num_banks];
     for value in arguments {
         let bank = isa::bank_for(value.ty)
             .expect("internal compiler error: no bank for argument");
         let reg = bank_argument_counts[bank.0];
         bank_argument_counts[bank.0] += 1;
-        fixed_reg_slots[bank.0][reg] = Some(value.slot);
+        fixed_reg_slots[bank.0][reg as usize] = Some(value.slot);
+        argument_regs.push((slot_banks.len(), MachineReg(reg)));
         slot_banks.push(Some(bank));
     }
 
@@ -134,7 +136,7 @@ fn lower_to_slots_and_split(
         slot_map[value.slot] = slot_banks.len();
         slot_banks.push(maybe_bank);
     }
-    (new_schedule, slot_banks)
+    (argument_regs, new_schedule, slot_banks)
 }
 
 
@@ -142,7 +144,7 @@ fn lower_to_slots_and_split(
 // Register Allocation
 
 fn allocate(
-    argument_count:                     usize,
+    arguments:                          &[(usize, MachineReg)],
     instrs:                             &[SlotInstr],
     slot_banks:                         &[Option<Bank>],
 ) -> (Vec<Option<MachineReg>>, Vec<u32>) {
@@ -177,15 +179,8 @@ fn allocate(
     for instr in instrs { interfering_slots[instr.slot].remove(instr.slot); }
 
     // Allocate registers for arguments
-    let mut bank_argument_counts = [0u8; REGS.num_banks];
-    for slot in 0..argument_count {
-        let bank = slot_banks[slot]
-            .expect("internal compiler error: no bank for argument");
-        let reg = bank_argument_counts[bank.0];
-        bank_argument_counts[bank.0] += 1;
-        set_reg(slot,
-            MachineReg::try_from(reg).expect("internal compiler error: too many arguments"),
-            &regs, &interfering_slots, slot_banks, &mut available_ranks);
+    for &(slot, reg) in arguments {
+        set_reg(slot, reg, &regs, &interfering_slots, slot_banks, &mut available_ranks);
     }
 
     // Allocate registers for value with constrained output registers.
