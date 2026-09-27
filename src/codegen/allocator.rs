@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 
 use bit_set::BitSet;
 use typed_index_collections::TiVec;
+use derive_more::{From, Into};
 
 use super::scheduler::{Value, ValueSlot, SchedulePosition};
 use super::isa;
@@ -29,16 +30,19 @@ pub(super) fn run(
 //-------------------------------------------------------------------------------------------------
 // Lower Values to SlotInstrs
 
-type SlotOperand = super::operand::Operand<usize>;
+#[derive(Debug, Copy, Clone, From, Into)]
+struct AllocatorSlot(usize);
+
+type SlotOperand = super::operand::Operand<AllocatorSlot>;
 
 #[derive(Debug)]
 struct SlotInstr {
-    slot:                               usize,
+    slot:                               AllocatorSlot,
     code:                               &'static isa::Code,
     operands:                           Vec<SlotOperand>,
-    fixed_inputs:                       Vec<(usize, MachineReg)>,
+    fixed_inputs:                       Vec<(AllocatorSlot, MachineReg)>,
     fixed_output:                       Option<MachineReg>,
-    slot_moves:                         Vec<(usize, usize)>,
+    slot_moves:                         Vec<(AllocatorSlot, AllocatorSlot)>,
 
     #[cfg(feature = "dogfood")]
     span:                               Span,
@@ -46,7 +50,7 @@ struct SlotInstr {
 
 
 impl SlotInstr {
-    pub(super) fn predecessors(&self) -> impl Iterator<Item = usize> {
+    pub(super) fn predecessors(&self) -> impl Iterator<Item = AllocatorSlot> {
         let operands = self.operands.iter().filter_map(|op| {
             if let SlotOperand::Reg(s) = op { Some(*s) } else { None }
         });
@@ -57,9 +61,9 @@ impl SlotInstr {
 
 
 struct SlotBlock {
-    arguments:                          Vec<(usize, MachineReg)>,
+    arguments:                          Vec<(AllocatorSlot, MachineReg)>,
     instrs:                             Vec<SlotInstr>,
-    slot_banks:                         Vec<Option<Bank>>,
+    slot_banks:                         TiVec<AllocatorSlot, Option<Bank>>,
 }
 
 
@@ -80,8 +84,8 @@ fn lower_to_slots_and_split(
     let mut fixed_reg_slots: [[Option<ValueSlot>; 32]; REGS.num_banks] = [[None; 32]; REGS.num_banks];
     // We're creating new slots, so we need to keep track fo the renumbering from "old slots"
     // to new slots.
-    let mut slot_map: TiVec<ValueSlot, _> = (0..slot_count).collect();
-    let mut slot_banks = vec![];
+    let mut slot_map: TiVec<ValueSlot, _> = (0..slot_count).map(AllocatorSlot).collect();
+    let mut slot_banks: TiVec<AllocatorSlot, Option<Bank>> = TiVec::new();
 
     let mut argument_regs = vec![];
     let mut bank_argument_counts = [0u8; REGS.num_banks];
@@ -91,14 +95,15 @@ fn lower_to_slots_and_split(
         let reg = bank_argument_counts[bank.0];
         bank_argument_counts[bank.0] += 1;
         fixed_reg_slots[bank.0][reg as usize] = Some(value.slot);
-        argument_regs.push((slot_banks.len(), MachineReg(reg)));
-        slot_banks.push(Some(bank));
+        let new_slot = slot_banks.push_and_get_key(Some(bank));
+        argument_regs.push((new_slot, MachineReg(reg)));
     }
 
     let mut new_schedule = vec![];
 
     for (i, value) in scheduled.iter().enumerate() {
-        let operands = value.operands.iter().cloned().map(|o| o.map_reg::<usize>(|v| slot_map[v.slot])).collect();
+        let operands = value.operands.iter().cloned()
+            .map(|o| o.map_reg::<AllocatorSlot>(|v| slot_map[v.slot])).collect();
 
         // Renumber any fixed inputs
         let fixed_inputs = value.fixed_inputs.iter()
@@ -108,7 +113,7 @@ fn lower_to_slots_and_split(
         // If this instruction clobbers anything, check it against what we've got sitting in
         // fixed_reg_slots (our arguments or results from functions).  If they're live after this
         // we need to move them.
-        let mut slot_moves: Vec<(usize, usize)> = vec![];
+        let mut slot_moves: Vec<(AllocatorSlot, AllocatorSlot)> = vec![];
         if let Some(c) = value.code() && c.clobbers() {
             for fixed in &mut fixed_reg_slots {
                 for (reg, maybe_slot) in fixed.iter_mut().enumerate() {
@@ -116,9 +121,9 @@ fn lower_to_slots_and_split(
                         let bank = slot_banks[slot_map[slot]] &&
                         (c.clobber_mask(bank) >> reg) & 1 != 0 {
                         if retirements[slot].is_some_and(|r| r > i) {
-                            slot_moves.push((slot_map[slot], slot_banks.len()));
-                            slot_map[slot] = slot_banks.len();
-                            slot_banks.push(bank);
+                            let new_slot = slot_banks.push_and_get_key(bank);
+                            slot_moves.push((slot_map[slot], new_slot));
+                            slot_map[slot] = new_slot;
                         }
                         *maybe_slot = None;
                     }
@@ -134,16 +139,16 @@ fn lower_to_slots_and_split(
         }
 
         let code = value.code().expect("internal compiler error: expected an excutable instruction");
+        let new_slot = slot_banks.push_and_get_key(maybe_bank);
         new_schedule.push(SlotInstr{
             operands, code, slot_moves, fixed_inputs,
-            slot:                           slot_banks.len(),
+            slot:                           new_slot,
             fixed_output:                   value.fixed_output,
 
             #[cfg(feature = "dogfood")]
             span:                           value.span,
         });
-        slot_map[value.slot] = slot_banks.len();
-        slot_banks.push(maybe_bank);
+        slot_map[value.slot] = new_slot;
     }
     SlotBlock{ arguments: argument_regs, instrs: new_schedule, slot_banks }
 }
@@ -152,31 +157,45 @@ fn lower_to_slots_and_split(
 //-------------------------------------------------------------------------------------------------
 // Register Allocation
 
+#[derive(Clone, Default)]
+struct SlotSet(BitSet);
+
+impl SlotSet {
+    fn insert(&mut self, slot: AllocatorSlot) { self.0.insert(slot.into()); }
+    fn remove(&mut self, slot: AllocatorSlot) { self.0.remove(slot.into()); }
+    fn union_with(&mut self, other: &Self)    { self.0.union_with(&other.0); }
+    fn iter(&self) -> impl Iterator<Item = AllocatorSlot> + '_ {
+        self.0.iter().map(AllocatorSlot::from)
+    }
+}
+
+
 fn allocate(
     block:                              &SlotBlock,
-) -> (Vec<Option<MachineReg>>, Vec<u32>) {
-
-    let mut regs: Vec<OnceCell<MachineReg>> = vec![OnceCell::new(); block.slot_banks.len()];
+) -> (TiVec<AllocatorSlot, Option<MachineReg>>, TiVec<AllocatorSlot, u32>) {
+    let mut regs: TiVec<AllocatorSlot, _> =
+        vec![OnceCell::new(); block.slot_banks.len()].into();
 
     // Find which slots interfere with which, and which are live across calls.
     // If they are live, make sure they're not in a clobbered register.
-    let mut live_slots = BitSet::new();
-    let mut interfering_slots = vec![BitSet::new(); block.slot_banks.len()];
-    let mut available_ranks = block.slot_banks.iter()
+    let mut live_slots = SlotSet::default();
+    let mut interfering_slots: TiVec<AllocatorSlot, _> =
+        vec![SlotSet::default(); block.slot_banks.len()].into();
+    let mut available_ranks: TiVec<AllocatorSlot, _> = block.slot_banks.iter()
         .map(|&b| REGS.available_rank_mask(b))
-        .collect::<Vec<_>>();
+        .collect();
 
     for instr in block.instrs.iter().rev() {
         live_slots.remove(instr.slot);
         if instr.code.clobbers() {
-            for slot in &live_slots {
+            for slot in live_slots.iter() {
                 available_ranks[slot] &= !instr.code.ranked_clobber_mask(block.slot_banks[slot]);
             }
         }
         for (_, dest) in &instr.slot_moves { live_slots.remove(*dest); }
         for slot in instr.predecessors() { live_slots.insert(slot); }
         for (source, _) in &instr.slot_moves { live_slots.insert(*source); }
-        for slot in &live_slots {
+        for slot in live_slots.iter() {
             interfering_slots[slot].union_with(&live_slots);
         }
     }
@@ -222,25 +241,26 @@ fn allocate(
         }
     }
 
-    // Collect all the registers from the OnceCells into a Vec<Option<MachineReg>>
-    let regs: Vec<_> = regs.iter_mut().map(OnceCell::take).collect();
+    // Collect all the registers from the OnceCells into Options.
+    let regs: TiVec<_, _> = regs.iter_mut().map(OnceCell::take).collect();
     (regs, available_ranks)
 }
 
 
 fn set_reg(
-    slot:                               usize,
+    slot:                               AllocatorSlot,
     reg:                                MachineReg,
-    regs:                               &[OnceCell<MachineReg>],
-    interfering_slots:                  &[BitSet],
-    slot_banks:                         &[Option<Bank>],
-    available_ranks:                    &mut [u32]) {
+    regs:                               &TiVec<AllocatorSlot, OnceCell<MachineReg>>,
+    interfering_slots:                  &TiVec<AllocatorSlot, SlotSet>,
+    slot_banks:                         &TiVec<AllocatorSlot, Option<Bank>>,
+    available_ranks:                    &mut TiVec<AllocatorSlot, u32>
+) {
     regs[slot].set(reg)
         .expect("internal compiler error: trying to set a register twice");
     let bank = slot_banks[slot]
         .expect("internal compiler error: trying to set a register for an instruction without a register bank");
     let rank_bits = REGS.get_rank_bits(bank, reg);
-    for interfering_slot in &interfering_slots[slot] {
+    for interfering_slot in interfering_slots[slot].iter() {
         if slot_banks[interfering_slot].is_some_and(|b| b.0 == bank.0) {
             available_ranks[interfering_slot] &= !rank_bits;
         }
@@ -267,8 +287,8 @@ pub(super) struct Instr {
 
 fn lower_to_regs(
     block:                              &SlotBlock,
-    regs:                               &[Option<MachineReg>],
-    available_ranks:                    &[u32],
+    regs:                               &TiVec<AllocatorSlot, Option<MachineReg>>,
+    available_ranks:                    &TiVec<AllocatorSlot, u32>,
 ) -> (Vec<Instr>, [Vec<MachineReg>; REGS.num_banks]) {
 
     let mut reg_instrs = vec![];
@@ -354,7 +374,7 @@ fn lower_to_regs(
 ///    of the values in the cycle as part of a chain, you can save yourself the temp register.
 fn move_regs(
     bank:                               Bank,
-    moves:                              &[(usize, MachineReg, MachineReg)],
+    moves:                              &[(AllocatorSlot, MachineReg, MachineReg)],
     temp_reg_pool:                      u32,
 ) -> Vec<(MachineReg, MachineReg)> {
     let mut sources = [None; 32];
