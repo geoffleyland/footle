@@ -62,15 +62,9 @@ fn lower_to_slots_and_split(
     scheduled:                          &[&Value<'_>],
 ) -> (Vec<SlotInstr>, Vec<Option<Bank>>) {
     // Walk backwards through the scheduled instructions finding out when instructions retire
-    let mut retirements = vec![0; slot_count];
-    let mut used_slots = BitSet::new();
-    for (i, value) in scheduled.iter().enumerate().rev() {
-        for predecessor in value.predecessors() {
-            if !used_slots.contains(predecessor.slot) {
-                retirements[predecessor.slot] = i;
-                used_slots.insert(predecessor.slot);
-            }
-        }
+    let mut retirements = vec![None; slot_count];
+    for (i, value) in scheduled.iter().enumerate() {
+        for predecessor in value.predecessors() { retirements[predecessor.slot] = Some(i); }
     }
 
     // We're just keeping track of the slots (like arguments) that are given to us in a fixed
@@ -110,7 +104,7 @@ fn lower_to_slots_and_split(
                 for (reg, maybe_slot) in fixed.iter_mut().enumerate() {
                     if let Some(slot) = *maybe_slot &&
                         (c.clobber_mask(slot_banks[slot]) >> reg) & 1 != 0 {
-                        if  retirements[slot] > i {
+                        if retirements[slot].is_some_and(|r| r > i) {
                             slot_moves.push((slot_map[slot], slot_banks.len()));
                             slot_map[slot] = slot_banks.len();
                             slot_banks.push(slot_banks[slot]);
