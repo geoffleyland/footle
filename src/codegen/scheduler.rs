@@ -3,6 +3,8 @@ use std::collections::HashMap;
 
 use typed_arena::Arena;
 use enumset::EnumSet;
+use derive_more::{From, Into, Display};
+use typed_index_collections::TiVec;
 
 use crate::core::BinaryOperator;
 use crate::vir;
@@ -68,10 +70,12 @@ impl<'arena> Operand<'arena> {
     }
 }
 
+#[derive(Debug, Copy, Clone, From, Into, Display)]
+pub(super) struct ValueSlot(usize);
 
 #[derive(Debug)]
 pub(super) struct Value<'arena> {
-    pub(super) slot:                        usize,
+    pub(super) slot:                        ValueSlot,
     pub(super) ty:                          Type,
     pub(super) def:                         ValueDef,
     pub(super) operands:                    Vec<Operand<'arena>>,
@@ -83,7 +87,7 @@ pub(super) struct Value<'arena> {
 
 impl<'arena> Value<'arena> {
     fn new(
-        slot:                               usize,
+        slot:                               ValueSlot,
         ty:                                 Type,
         def:                                ValueDef,
         operands:                           Vec<Operand<'arena>>,
@@ -204,7 +208,7 @@ impl IntoValueDef for &'static isa::Code {
 struct Builder<'arena> {
     arena:                                  &'arena Arena<Value<'arena>>,
     arguments:                              Vec<&'arena Value<'arena>>,
-    values:                                 Vec<&'arena Value<'arena>>,
+    values:                                 TiVec<ValueSlot, &'arena Value<'arena>>,
     return_types:                           Vec<Type>,
     constants:                              Vec<Constant>,
     operand_map:                            HashMap<usize, Operand<'arena>>,
@@ -213,7 +217,7 @@ struct Builder<'arena> {
 
 impl<'arena> Builder<'arena> {
     fn new(arena: &'arena Arena<Value<'arena>>) -> Self {
-        Self { arena, arguments: vec![], values: vec![], return_types: vec![],
+        Self { arena, arguments: vec![], values: TiVec::new(), return_types: vec![],
             constants: vec![], operand_map: HashMap::new(), function_map: HashMap::new() }
     }
 
@@ -374,7 +378,8 @@ impl<'arena> Builder<'arena> {
         span:                                   Span,
     ) -> &'arena Value<'arena>  {
         let def = def.into_value_def();
-        let value = self.arena.alloc(Value::new(self.arena.len(), ty, def, operands, fixed_inputs, fixed_output,
+        let value = self.arena.alloc(Value::new(self.arena.len().into(), ty, def,
+            operands, fixed_inputs, fixed_output,
             #[cfg(feature = "dogfood")]
             span
         ));
@@ -421,14 +426,17 @@ impl<'arena> Builder<'arena> {
 //-------------------------------------------------------------------------------------------------
 // Instruction Scheduling
 
-fn schedule<'arena>(values: &[&'arena Value<'arena>]) -> Vec<&'arena Value<'arena>> {
+fn schedule<'arena>(values: &TiVec<ValueSlot, &'arena Value<'arena>>
+) -> Vec<&'arena Value<'arena>> {
     // Count how many operands (that need scheduling, arguments are always available) each
     // instruction has so we can figure out when they're ready to go.
-    let mut unresolved_operand_count =
-        values.iter().map(|v| v.predecessors().filter(|v| v.needs_scheduling()).count()).collect::<Vec<_>>();
+    let mut unresolved_operand_count: TiVec<ValueSlot, _> =
+        values.iter()
+            .map(|v| v.predecessors().filter(|v| v.needs_scheduling()).count())
+            .collect();
 
     // Find all the users of each value
-    let mut users: Vec<Vec<usize>> = vec![vec![]; values.len()];
+    let mut users: TiVec<ValueSlot, _> = vec![vec![]; values.len()].into();
     for value in values {
         for predecessor in value.predecessors() {
             users[predecessor.slot].push(value.slot);
@@ -436,16 +444,18 @@ fn schedule<'arena>(values: &[&'arena Value<'arena>]) -> Vec<&'arena Value<'aren
     }
 
     // And count the uses of each value
-    let mut remaining_use_count = values.iter().map(|v| users[v.slot].len() ).collect::<Vec<_>>();
+    let mut remaining_use_count: TiVec<ValueSlot, _> =
+        values.iter().map(|v| users[v.slot].len() ).collect();
 
     // Find the critical path depths of each Value.
     // Because the Values are already topologically ordered, we can do this backwards and always
     // find that the depths of our users that we need are already calculated.
-    let depths = values.iter().rev().fold(vec![0usize; values.len()], |mut d, value| {
-        d[value.slot] = usize::from(value.latency()) +
-            users[value.slot].iter().map(|&s| d[s]).max().unwrap_or(0);
-        d
-    });
+    let depths: TiVec<ValueSlot, _> = values.iter().rev()
+        .fold(vec![0usize; values.len()].into(), |mut d, value| {
+            d[value.slot] = usize::from(value.latency()) +
+                users[value.slot].iter().map(|&s| d[s]).max().unwrap_or(0);
+            d
+        });
     let mut current_critical_path_depth = depths.iter().copied().max().unwrap_or(0);
 
     let expected_length = values.iter().filter(|v| v.code().is_some()).count();

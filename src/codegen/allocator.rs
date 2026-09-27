@@ -2,8 +2,9 @@ use std::cell::OnceCell;
 use std::collections::BTreeSet;
 
 use bit_set::BitSet;
+use typed_index_collections::TiVec;
 
-use super::scheduler::Value;
+use super::scheduler::{Value, ValueSlot};
 use super::isa;
 use super::isa::{REGS, Bank, MachineReg};
 
@@ -19,9 +20,9 @@ pub(super) fn run(
     arguments:                          &[&Value<'_>],
     scheduled:                          &[&Value<'_>],
 ) -> (Vec<Instr>, [Vec<MachineReg>; REGS.num_banks]) {
-    let (arguments, lowered, slot_banks) = lower_to_slots_and_split(slot_count, arguments, scheduled);
-    let (regs, available_ranks) = allocate(&arguments, &lowered, &slot_banks);
-    lower_to_regs(&lowered, &slot_banks, &regs, &available_ranks)
+    let slot_block = lower_to_slots_and_split(slot_count, arguments, scheduled);
+    let (regs, available_ranks) = allocate(&slot_block);
+    lower_to_regs(&slot_block, &regs, &available_ranks)
 }
 
 
@@ -55,24 +56,31 @@ impl SlotInstr {
 }
 
 
+struct SlotBlock {
+    arguments:                          Vec<(usize, MachineReg)>,
+    instrs:                             Vec<SlotInstr>,
+    slot_banks:                         Vec<Option<Bank>>,
+}
+
+
 /// Lower the Scheduler's Values to Instrs, and split any live ranges that cross calls.
 fn lower_to_slots_and_split(
     slot_count:                         usize,
     arguments:                          &[&Value<'_>],
     scheduled:                          &[&Value<'_>],
-) -> (Vec<(usize, MachineReg)>, Vec<SlotInstr>, Vec<Option<Bank>>) {
+) -> SlotBlock {
     // Walk backwards through the scheduled instructions finding out when instructions retire
-    let mut retirements = vec![None; slot_count];
+    let mut retirements: TiVec<ValueSlot, _> = vec![None; slot_count].into();
     for (i, value) in scheduled.iter().enumerate() {
         for predecessor in value.predecessors() { retirements[predecessor.slot] = Some(i); }
     }
 
     // We're just keeping track of the slots (like arguments) that are given to us in a fixed
     // register - our arguments and fixed function outputs
-    let mut fixed_reg_slots: [[Option<usize>; 32]; REGS.num_banks] = [[None; 32]; REGS.num_banks];
+    let mut fixed_reg_slots: [[Option<ValueSlot>; 32]; REGS.num_banks] = [[None; 32]; REGS.num_banks];
     // We're creating new slots, so we need to keep track fo the renumbering from "old slots"
     // to new slots.
-    let mut slot_map = (0..slot_count).collect::<Vec<_>>();
+    let mut slot_map: TiVec<ValueSlot, _> = (0..slot_count).collect();
     let mut slot_banks = vec![];
 
     let mut argument_regs = vec![];
@@ -105,11 +113,12 @@ fn lower_to_slots_and_split(
             for fixed in &mut fixed_reg_slots {
                 for (reg, maybe_slot) in fixed.iter_mut().enumerate() {
                     if let Some(slot) = *maybe_slot &&
-                        (c.clobber_mask(slot_banks[slot]) >> reg) & 1 != 0 {
+                        let bank = slot_banks[slot_map[slot]] &&
+                        (c.clobber_mask(bank) >> reg) & 1 != 0 {
                         if retirements[slot].is_some_and(|r| r > i) {
                             slot_moves.push((slot_map[slot], slot_banks.len()));
                             slot_map[slot] = slot_banks.len();
-                            slot_banks.push(slot_banks[slot]);
+                            slot_banks.push(bank);
                         }
                         *maybe_slot = None;
                     }
@@ -136,7 +145,7 @@ fn lower_to_slots_and_split(
         slot_map[value.slot] = slot_banks.len();
         slot_banks.push(maybe_bank);
     }
-    (argument_regs, new_schedule, slot_banks)
+    SlotBlock{ arguments: argument_regs, instrs: new_schedule, slot_banks }
 }
 
 
@@ -144,26 +153,24 @@ fn lower_to_slots_and_split(
 // Register Allocation
 
 fn allocate(
-    arguments:                          &[(usize, MachineReg)],
-    instrs:                             &[SlotInstr],
-    slot_banks:                         &[Option<Bank>],
+    block:                              &SlotBlock,
 ) -> (Vec<Option<MachineReg>>, Vec<u32>) {
 
-    let mut regs: Vec<OnceCell<MachineReg>> = vec![OnceCell::new(); slot_banks.len()];
+    let mut regs: Vec<OnceCell<MachineReg>> = vec![OnceCell::new(); block.slot_banks.len()];
 
     // Find which slots interfere with which, and which are live across calls.
     // If they are live, make sure they're not in a clobbered register.
     let mut live_slots = BitSet::new();
-    let mut interfering_slots = vec![BitSet::new(); slot_banks.len()];
-    let mut available_ranks = slot_banks.iter()
+    let mut interfering_slots = vec![BitSet::new(); block.slot_banks.len()];
+    let mut available_ranks = block.slot_banks.iter()
         .map(|&b| REGS.available_rank_mask(b))
         .collect::<Vec<_>>();
 
-    for instr in instrs.iter().rev() {
+    for instr in block.instrs.iter().rev() {
         live_slots.remove(instr.slot);
         if instr.code.clobbers() {
             for slot in &live_slots {
-                available_ranks[slot] &= !instr.code.ranked_clobber_mask(slot_banks[slot]);
+                available_ranks[slot] &= !instr.code.ranked_clobber_mask(block.slot_banks[slot]);
             }
         }
         for (_, dest) in &instr.slot_moves { live_slots.remove(*dest); }
@@ -176,42 +183,42 @@ fn allocate(
     // Slots don't interfere with themselves - and this matters because we use available_ranks
     // post-allocation to find a temporary register for every instruction (only used if the
     // instruction needs moves), and available_registers in turn depends on interfering_slots.
-    for instr in instrs { interfering_slots[instr.slot].remove(instr.slot); }
+    for instr in &block.instrs { interfering_slots[instr.slot].remove(instr.slot); }
 
     // Allocate registers for arguments
-    for &(slot, reg) in arguments {
-        set_reg(slot, reg, &regs, &interfering_slots, slot_banks, &mut available_ranks);
+    for &(slot, reg) in &block.arguments {
+        set_reg(slot, reg, &regs, &interfering_slots, &block.slot_banks, &mut available_ranks);
     }
 
     // Allocate registers for value with constrained output registers.
-    for instr in instrs {
+    for instr in &block.instrs {
         if let Some(fixed_output) = instr.fixed_output {
-            set_reg(instr.slot, fixed_output, &regs, &interfering_slots, slot_banks, &mut available_ranks);
+            set_reg(instr.slot, fixed_output, &regs, &interfering_slots, &block.slot_banks, &mut available_ranks);
         }
     }
 
     // Allocate registers for values with constrained operand registers.
-    for instr in instrs {
+    for instr in &block.instrs {
         for (input_slot, preferred_reg) in &instr.fixed_inputs {
             if regs[*input_slot].get().is_some() { continue; }
-            let reg = REGS.best_reg(slot_banks[*input_slot], available_ranks[*input_slot], Some(*preferred_reg));
-            set_reg(*input_slot, reg, &regs, &interfering_slots, slot_banks, &mut available_ranks);
+            let reg = REGS.best_reg(block.slot_banks[*input_slot], available_ranks[*input_slot], Some(*preferred_reg));
+            set_reg(*input_slot, reg, &regs, &interfering_slots, &block.slot_banks, &mut available_ranks);
         }
     }
 
     // Allocate registers for remaining instructions
-    for instr in instrs {
+    for instr in &block.instrs {
         if regs[instr.slot].get().is_some() || !instr.code.has_output() { continue; }
-        let reg = REGS.best_reg(slot_banks[instr.slot], available_ranks[instr.slot], None);
-        set_reg(instr.slot, reg, &regs, &interfering_slots, slot_banks, &mut available_ranks);
+        let reg = REGS.best_reg(block.slot_banks[instr.slot], available_ranks[instr.slot], None);
+        set_reg(instr.slot, reg, &regs, &interfering_slots, &block.slot_banks, &mut available_ranks);
     }
 
     // Allocate registers for any slots that get moved (which don't show up in instructions)
-    for instr in instrs {
+    for instr in &block.instrs {
         for (_, dest) in &instr.slot_moves {
             if regs[*dest].get().is_some() { continue; }
-            let reg = REGS.best_reg(slot_banks[*dest], available_ranks[*dest], None);
-            set_reg(*dest, reg, &regs, &interfering_slots, slot_banks, &mut available_ranks);
+            let reg = REGS.best_reg(block.slot_banks[*dest], available_ranks[*dest], None);
+            set_reg(*dest, reg, &regs, &interfering_slots, &block.slot_banks, &mut available_ranks);
         }
     }
 
@@ -259,8 +266,7 @@ pub(super) struct Instr {
 
 
 fn lower_to_regs(
-    instrs:                             &[SlotInstr],
-    slot_banks:                         &[Option<Bank>],
+    block:                              &SlotBlock,
     regs:                               &[Option<MachineReg>],
     available_ranks:                    &[u32],
 ) -> (Vec<Instr>, [Vec<MachineReg>; REGS.num_banks]) {
@@ -271,7 +277,7 @@ fn lower_to_regs(
         if REGS.is_callee_saved(bank, reg) { regs_to_save[bank.0].insert(reg); }
     };
 
-    for instr in instrs {
+    for instr in &block.instrs {
         let operands: Vec<Operand> = instr.operands.iter().cloned().map(|o| o.map_reg(|s|
             regs[s].expect("internal compiler error: no register assigned for slot"))).collect();
 
@@ -284,10 +290,10 @@ fn lower_to_regs(
             // Unify the fixed_input moves and slot_moves for this bank, lower them to registers,
             // and filter out any that turn out to be between the same register.
             let unordered_moves: Vec<_> = instr.fixed_inputs.iter()
-                .filter(|(slot, _)| slot_banks[*slot].is_some_and(|b| b.0 == bank_index))
+                .filter(|(slot, _)| block.slot_banks[*slot].is_some_and(|b| b.0 == bank_index))
                 .map(|(slot, reg)| (*slot, regs[*slot].unwrap(), *reg))
                 .chain(instr.slot_moves.iter()
-                    .filter(|(src, _)| slot_banks[*src].is_some_and(|b| b.0 == bank_index))
+                    .filter(|(src, _)| block.slot_banks[*src].is_some_and(|b| b.0 == bank_index))
                     .map(|(src, dst)| (*src, regs[*src].unwrap(), regs[*dst].unwrap())))
                 .filter(|(_, source, dest)| source != dest)
                 .collect();
@@ -315,7 +321,7 @@ fn lower_to_regs(
             moves[bank_index] = bank_moves;
         }
 
-        match (regs[instr.slot], slot_banks[instr.slot]) {
+        match (regs[instr.slot], block.slot_banks[instr.slot]) {
             (Some(reg), Some(bank)) => note_if_callee_saved(bank, reg),
             (None, None)            => {}
             _                       => panic!("internal compiler error: expected a register and a bank or neither")
