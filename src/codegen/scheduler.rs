@@ -424,7 +424,7 @@ impl<'arena> Builder<'arena> {
 fn schedule<'arena>(values: &[&'arena Value<'arena>]) -> Vec<&'arena Value<'arena>> {
     // Count how many operands (that need scheduling, arguments are always available) each
     // instruction has so we can figure out when they're ready to go.
-    let mut unresolved_operands =
+    let mut unresolved_operand_count =
         values.iter().map(|v| v.predecessors().filter(|v| v.needs_scheduling()).count()).collect::<Vec<_>>();
 
     // Find all the users of each value
@@ -436,7 +436,7 @@ fn schedule<'arena>(values: &[&'arena Value<'arena>]) -> Vec<&'arena Value<'aren
     }
 
     // And count the uses of each value
-    let mut remaining_uses = values.iter().map(|v| users[v.slot].len() ).collect::<Vec<_>>();
+    let mut remaining_use_count = values.iter().map(|v| users[v.slot].len() ).collect::<Vec<_>>();
 
     // Find the critical path depths of each Value.
     // Because the Values are already topologically ordered, we can do this backwards and always
@@ -456,7 +456,7 @@ fn schedule<'arena>(values: &[&'arena Value<'arena>]) -> Vec<&'arena Value<'aren
     let mut scheduled = vec![];
 
     let mut ready_instrs: Vec<&Value> = values.iter()
-        .filter(|v| v.code().is_some() && unresolved_operands[v.slot] == 0)
+        .filter(|v| v.code().is_some() && unresolved_operand_count[v.slot] == 0)
         .copied()
         .collect();
 
@@ -476,7 +476,7 @@ fn schedule<'arena>(values: &[&'arena Value<'arena>]) -> Vec<&'arena Value<'aren
             .max_by_key(|i| {
                 let critical_path_depth = depths[i.slot];
                 let on_critical_path = critical_path_depth >= current_critical_path_depth;
-                let retiring_count = i.predecessors().filter(|p| remaining_uses[p.slot] == 1).count();
+                let retiring_count = i.predecessors().filter(|p| remaining_use_count[p.slot] == 1).count();
                 (on_critical_path, retiring_count, critical_path_depth)
             }) {
 
@@ -497,7 +497,7 @@ fn schedule<'arena>(values: &[&'arena Value<'arena>]) -> Vec<&'arena Value<'aren
 
             // Update the remaining uses of our operands so we can keep track of which instructions
             // will retire (the most) registers.
-            for p in best_instr.predecessors() { remaining_uses[p.slot] -= 1; }
+            for p in best_instr.predecessors() { remaining_use_count[p.slot] -= 1; }
 
             // Update the critical path depth if this instruction is worse than what we thought.
             current_critical_path_depth = std::cmp::max(
@@ -511,8 +511,8 @@ fn schedule<'arena>(values: &[&'arena Value<'arena>]) -> Vec<&'arena Value<'aren
         // them as having that operand ready
         for completed in &results_by_cycle[cycle] {
             for &user_slot in &users[completed.slot] {
-                unresolved_operands[user_slot] -= 1;
-                if unresolved_operands[user_slot] == 0 {
+                unresolved_operand_count[user_slot] -= 1;
+                if unresolved_operand_count[user_slot] == 0 {
                     ready_instrs.push(values[user_slot]);
                 }
             }
