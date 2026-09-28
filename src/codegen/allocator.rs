@@ -183,7 +183,7 @@ impl SlotSet {
 
 fn allocate(
     block:                              &SlotBlock,
-) -> (TiVec<AllocatorSlot, Option<MachineReg>>, TiVec<AllocatorSlot, u32>) {
+) -> (TiVec<AllocatorSlot, Option<MachineReg>>, TiVec<AllocatorSlot, isa::RankSet>) {
     let mut regs: TiVec<AllocatorSlot, _> =
         vec![OnceCell::new(); block.slot_banks.len()].into();
 
@@ -200,7 +200,7 @@ fn allocate(
         live_slots.remove(instr.slot);
         if instr.code.clobbers() {
             for slot in live_slots.iter() {
-                available_ranks[slot] &= !instr.code.ranked_clobber_mask(block.slot_banks[slot]);
+                available_ranks[slot].remove(instr.code.ranked_clobber_mask(block.slot_banks[slot]));
             }
         }
         for (_, dest) in &instr.slot_moves { live_slots.remove(*dest); }
@@ -264,16 +264,15 @@ fn set_reg(
     regs:                               &TiVec<AllocatorSlot, OnceCell<MachineReg>>,
     interfering_slots:                  &TiVec<AllocatorSlot, SlotSet>,
     slot_banks:                         &TiVec<AllocatorSlot, Option<Bank>>,
-    available_ranks:                    &mut TiVec<AllocatorSlot, u32>
+    available_ranks:                    &mut TiVec<AllocatorSlot, isa::RankSet>
 ) {
     regs[slot].set(reg)
         .expect("internal compiler error: trying to set a register twice");
     let bank = slot_banks[slot]
         .expect("internal compiler error: trying to set a register for an instruction without a register bank");
-    let rank_bits = REGS.get_rank_bits(bank, reg);
     for interfering_slot in interfering_slots[slot].iter() {
         if slot_banks[interfering_slot].is_some_and(|b| b.0 == bank.0) {
-            available_ranks[interfering_slot] &= !rank_bits;
+            available_ranks[interfering_slot].remove_reg(bank, reg);
         }
     }
 }
@@ -299,7 +298,7 @@ pub(super) struct Instr {
 fn lower_to_regs(
     block:                              &SlotBlock,
     regs:                               &TiVec<AllocatorSlot, Option<MachineReg>>,
-    available_ranks:                    &TiVec<AllocatorSlot, u32>,
+    available_ranks:                    &TiVec<AllocatorSlot, isa::RankSet>,
 ) -> (Vec<Instr>, [Vec<MachineReg>; REGS.num_banks]) {
 
     let mut reg_instrs = vec![];
@@ -339,9 +338,11 @@ fn lower_to_regs(
                 // We might need a temporary register.  That can only be picked from registers
                 // available to any of the slots getting moved around minus all the registers we're
                 // using for the moves.
-                let temp_reg_pool = available_ranks[representative_slot_for_bank] &
-                    !unordered_moves.iter().fold(0, |mask, (_, source, dest)|
-                        mask | REGS.get_rank_bits(bank, *source) | REGS.get_rank_bits(bank, *dest));
+                let mut temp_reg_pool = available_ranks[representative_slot_for_bank];
+                for (_, source, dest) in &unordered_moves {
+                    temp_reg_pool.remove_reg(bank, *source);
+                    temp_reg_pool.remove_reg(bank, *dest);
+                }
 
                 move_regs(bank, &unordered_moves, temp_reg_pool)
             } else { vec![] };
@@ -392,7 +393,7 @@ fn lower_to_regs(
 fn move_regs(
     bank:                               Bank,
     moves:                              &[(AllocatorSlot, MachineReg, MachineReg)],
-    temp_reg_pool:                      u32,
+    temp_reg_pool:                      isa::RankSet,
 ) -> Vec<(MachineReg, MachineReg)> {
     let mut sources = [None; 32];
     let mut destination_counts = [0u8; 32];

@@ -45,7 +45,7 @@ impl TryFrom<usize> for MachineReg {
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct RegRank(u8);
+pub(super) struct RegRank(u8);
 
 impl RegRank {
     #[allow(clippy::cast_possible_truncation)]
@@ -58,6 +58,18 @@ impl RegRank {
 
 //-------------------------------------------------------------------------------------------------
 // Register details
+
+#[derive(Debug, Copy, Clone)]
+pub(super) struct RankSet(u32);
+
+impl RankSet {
+    /// Remove every rank in `other` from this set.
+    pub(super) fn remove(&mut self, other: Self)            { self.0 &= !other.0; }
+    pub(super) fn contains(self, rank: RegRank) -> bool     { self.0 >> rank.0 & 1 != 0 }
+    pub(super) fn remove_reg(&mut self, bank: Bank, reg: MachineReg) {
+        self.remove(REGS.get_rank_bits(bank, reg));
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Bank(pub(super) usize);
@@ -97,20 +109,20 @@ impl RegFile {
     pub(super) fn best_reg(
         &self,
         bank:                   Option<Bank>,
-        available:              u32,
+        available:              RankSet,
         preferred:              Option<MachineReg>
     ) -> MachineReg {
         let b = bank.expect("internal compiler error: trying to get a register for an instruction with no register bank");
         self.banks[b.0].best_reg(available, preferred)
     }
-    pub(super) fn get_rank_bits(&self, bank: Bank, reg: MachineReg) -> u32 {
+    fn get_rank_bits(&self, bank: Bank, reg: MachineReg) -> RankSet {
         self.banks[bank.0].get_rank_bits(reg)
     }
     pub(super) fn is_callee_saved(&self, bank: Bank, reg: MachineReg) -> bool {
         self.banks[bank.0].is_callee_saved(reg)
     }
-    pub(super) fn available_rank_mask(&self, bank: Option<Bank>) -> u32 {
-        bank.map_or(0, |b| self.banks[b.0].available_rank_mask())
+    pub(super) fn available_rank_mask(&self, bank: Option<Bank>) -> RankSet {
+        bank.map_or(RankSet(0), |b| self.banks[b.0].available_rank_mask())
     }
 }
 
@@ -123,7 +135,7 @@ pub (super) struct RegBank {
                                                 // never allocate that register.
     callee_saved:       u32,                    // Bitmask of registers we have to save in our
                                                 // prologue and epilogue (if we use them)
-    ranked_clobber_mask:u32,                    // The register ranks a bl[r] will clobber in this
+    ranked_clobber_mask:RankSet,                // The register ranks a bl[r] will clobber in this
                                                 // bank
     reg_count:          usize,                  // The number of registers available
 }
@@ -151,33 +163,34 @@ impl RegBank {
             c &= c - 1;
         }
 
-        Self { order, rank, callee_saved, ranked_clobber_mask, reg_count }
+        Self { order, rank, callee_saved, reg_count,
+            ranked_clobber_mask: RankSet(ranked_clobber_mask) }
     }
 
     /// Pick a register from `available` (a bitmask of ranks).  If `preferred` is available, use it —
     /// this just avoids an extra move later, it's not required for correctness (the move machinery
     /// will fix up the register either way).
-    fn best_reg(&self, available: u32, preferred: Option<MachineReg>) -> MachineReg {
+    fn best_reg(&self, available: RankSet, preferred: Option<MachineReg>) -> MachineReg {
         if let Some(p) = preferred {
             let rank = self.rank[usize::from(p)]
                 .expect("internal compiler error: trying to use system register");
-            if (available >> rank.0) & 1 == 1 { return p; }
+            if available.contains(rank) { return p; }
         }
-        self.order[available.trailing_zeros() as usize]
+        self.order[available.0.trailing_zeros() as usize]
     }
 
-    fn get_rank_bits(&self, reg: MachineReg) -> u32 {
+    fn get_rank_bits(&self, reg: MachineReg) -> RankSet {
         let r = self.rank[usize::from(reg)]
             .expect("internal compiler error: trying to use system register");
-        1 << r.0
+        RankSet(1 << r.0)
     }
 
     fn is_callee_saved(&self, reg: MachineReg) -> bool {
         self.callee_saved & (1 << reg.0) != 0
     }
 
-    fn available_rank_mask(&self) -> u32 {
-         if self.reg_count >= 32 { u32::MAX } else { (1u32 << self.reg_count) - 1 }
+    fn available_rank_mask(&self) -> RankSet {
+         RankSet(if self.reg_count >= 32 { u32::MAX } else { (1u32 << self.reg_count) - 1 })
     }
 }
 
@@ -239,10 +252,10 @@ impl Code {
             !REGS.banks[b.0].callee_saved
         } else { 0 }
     }
-    pub fn ranked_clobber_mask(&self, bank: Option<Bank>) -> u32 {
+    pub fn ranked_clobber_mask(&self, bank: Option<Bank>) -> RankSet {
         if let Some(b) = bank && self.save_link_reg() {
             REGS.banks[b.0].ranked_clobber_mask
-        } else { 0 }
+        } else { RankSet(0) }
     }
 
     pub fn restore_regs(&self) -> bool  { std::ptr::eq(self, &raw const ret) }
