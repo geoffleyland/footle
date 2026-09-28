@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::Entry};
 use std::rc::Rc;
 
 use crate::core::Span;
@@ -29,11 +29,16 @@ impl ExprPool {
         kind:                   ExprKind,
         span:                   Span
     ) -> Expr {
-        let index = self.exprs.len();
-        let entry = ExprEntry::new(kind.clone(), index, span);
-        let expr =Expr::new(self.exprs.entry(kind).or_insert_with(|| Rc::new(entry)).clone());
-        self.ordered.push(expr.clone());
-        expr
+        match self.exprs.entry(kind) {
+            Entry::Occupied(existing) => Expr::new(existing.get().clone()),
+            Entry::Vacant(vacant) => {
+                let entry = Rc::new(ExprEntry::new(vacant.key().clone(), self.ordered.len(), span));
+                vacant.insert(entry.clone());
+                let expr = Expr::new(entry);
+                self.ordered.push(expr.clone());
+                expr
+            }
+        }
     }
 
     pub(super) fn number(
