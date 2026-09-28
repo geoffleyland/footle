@@ -1,7 +1,7 @@
 #!/bin/sh
 
 TEST_DIR=test-cases/
-TEST_FILE=test-cases/arguments/operators.txt
+TEST_FILE=test-cases/arguments/operators.ftl
 
 case $1 in
 
@@ -52,7 +52,9 @@ case $1 in
         ;;
 
     **)
-        cargo run -q -- ${1:-$TEST_FILE}
+        F=$1
+        shift 1
+        cargo run -q -- ${F:-$TEST_FILE} $@
     ;;
 
 esac
