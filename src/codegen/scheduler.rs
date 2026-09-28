@@ -407,7 +407,6 @@ impl<'arena> Builder<'arena> {
         exprs:                                  &[vir::Expr],
         types:                                  &[vir::TypeInfo],
     ) -> Vec<(&'arena Value<'arena>, MachineReg)> {
-        assert!(exprs.len() < 8, "internal compiler error: too many values");
         let (mut x_reg, mut d_reg) = (0u8, 0u8);
         exprs.iter()
             .map(|expr|
