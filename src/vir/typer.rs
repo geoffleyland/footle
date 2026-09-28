@@ -24,6 +24,7 @@ pub fn infer_types(
     let mut errors = TypeErrors(vec![]);
     let mut typer = Typer::new(block.exprs.len());
 
+    assert_eq!(block.arguments.len(), argument_types.len(), "internal compiler error: wrong number of arguments");
     for (argument, ty) in block.arguments.iter().zip(argument_types) {
         assert!(typer.set_type(argument.pool_index(), *ty, argument.span()).is_ok(),
             "internal compiler error: type conflict setting argument type");

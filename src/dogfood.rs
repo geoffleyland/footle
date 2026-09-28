@@ -289,10 +289,17 @@ fn test_lines(
         let all_arguments = parse_expected_results(&eater.expected["results"])?;
         let mut obtained_lines = vec![];
         for arguments in all_arguments {
-            let results = block.call(&arguments, eater)?;
+            let outcome = match block.call(&arguments, eater) {
+                Ok(results)     => join_format(&results, " "),
+                Err(e) => {
+                    let error_text = e.downcast_ref::<runtime::Diagnostics>().map_or_else(
+                        || format!("{e:#}"),
+                        |d| join_format(&d.errors, "; "));
+                    format!("error: {error_text}")
+                }
+            };
 
-            obtained_lines.push(format!("{} -> {}",
-                join_format(&arguments, " "), join_format(&results, " ")));
+            obtained_lines.push(format!("{} -> {outcome}", join_format(&arguments, " ")));
         }
         if let Err(e) = compare_lines(&obtained_lines, &eater.expected["results"], section, "results") {
             eater.mismatches.push(format!("{e:#}"));

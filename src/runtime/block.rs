@@ -2,6 +2,8 @@ use std::collections::{HashMap, hash_map::Entry};
 use std::fmt;
 use std::sync::Arc;
 
+use anyhow::bail;
+
 use crate::core::{ParseError, SourceMap};
 use crate::ast;
 use crate::env;
@@ -136,6 +138,10 @@ impl Block {
         arguments:          &[Value],
         observer:           &mut O,
     ) -> anyhow::Result<Vec<Value>> {
+        if arguments.len() != self.vir.arguments.len() {
+            bail!("wrong number of arguments: expected {}, got {}",
+                self.vir.arguments.len(), arguments.len())
+        }
         let signature: Vec<vir::TypeInfo> = arguments.iter().map(Into::into).collect();
         let func = match self.funcs.entry(signature) {
             Entry::Occupied(entry)  => entry.into_mut(),
