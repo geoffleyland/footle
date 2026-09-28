@@ -3,7 +3,7 @@ use seq_macro::seq;
 use super::scheduler::{Constant, Type};
 use super::allocator;
 use super::isa;
-use super::isa::{REGS, X_BANK, D_BANK, MachineReg, bank_for};
+use super::isa::{REGS, X_BANK, D_BANK, MachineReg, RegFile, bank_for};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -94,7 +94,7 @@ pub(super) fn run(
     functions:                      &[String],
     argument_types:                 Vec<Type>,
     return_types:                   Vec<Type>,
-    regs_to_save:                   &[Vec<MachineReg>; REGS.num_banks]) -> Block{
+    regs_to_save:                   &[Vec<MachineReg>; RegFile::BANK_COUNT]) -> Block{
     let mut instrs = Vec::new();
     emit_function(allocated, &mut instrs, functions, regs_to_save);
     let glue_start_words = instrs.len();
@@ -109,7 +109,7 @@ fn emit_function(
     allocated:                      Vec<allocator::Instr>,
     instrs:                         &mut Vec<Instr>,
     functions:                      &[String],
-    regs_to_save:                   &[Vec<MachineReg>; REGS.num_banks]) {
+    regs_to_save:                   &[Vec<MachineReg>; RegFile::BANK_COUNT]) {
     let stack = REGS.stack_reg;
     // Save any callee saved registers
     for pair in regs_to_save[0].chunks(2) { save_restore(instrs, pair, &isa::stp_x_pre, &isa::str_x_pre, stack, -16) }

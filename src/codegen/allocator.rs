@@ -7,7 +7,7 @@ use derive_more::{From, Into};
 
 use super::scheduler::{Value, ValueSlot, SchedulePosition};
 use super::isa;
-use super::isa::{REGS, Bank, MachineReg};
+use super::isa::{REGS, Bank, MachineReg, RegFile};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -20,7 +20,7 @@ pub(super) fn run(
     slot_count:                         usize,
     arguments:                          &[&Value<'_>],
     scheduled:                          &TiVec<SchedulePosition, &Value<'_>>,
-) -> (Vec<Instr>, [Vec<MachineReg>; REGS.num_banks]) {
+) -> (Vec<Instr>, [Vec<MachineReg>; RegFile::BANK_COUNT]) {
     let slot_block = lower_to_slots_and_split(slot_count, arguments, scheduled);
     let (regs, available_ranks) = allocate(&slot_block);
     lower_to_regs(&slot_block, &regs, &available_ranks)
@@ -85,7 +85,8 @@ fn lower_to_slots_and_split(
 
     // We're just keeping track of the slots (like arguments) that are given to us in a fixed
     // register - our arguments and fixed function outputs
-    let mut fixed_reg_slots: [[Option<ValueSlot>; 32]; REGS.num_banks] = [[None; 32]; REGS.num_banks];
+    let mut fixed_reg_slots: [[Option<ValueSlot>; RegFile::REG_COUNT]; RegFile::BANK_COUNT] =
+        [[None; RegFile::REG_COUNT]; RegFile::BANK_COUNT];
     // We're creating new AllocatorSlots, so we need to keep track of the renumbering from
     // ValueSlots to AllocatorSlots.  Start with `None` - we work through the slots in dependency
     // order so we should always write to `slot_map` before we read from it.
@@ -93,7 +94,7 @@ fn lower_to_slots_and_split(
     let mut slot_banks: TiVec<AllocatorSlot, Option<Bank>> = TiVec::new();
 
     let mut argument_regs = vec![];
-    let mut bank_argument_counts = [0u8; REGS.num_banks];
+    let mut bank_argument_counts = [0u8; RegFile::BANK_COUNT];
     for value in arguments {
         let bank = isa::bank_for(value.ty)
             .expect("internal compiler error: no bank for argument");
@@ -193,14 +194,14 @@ fn allocate(
     let mut interfering_slots: TiVec<AllocatorSlot, _> =
         vec![SlotSet::default(); block.slot_banks.len()].into();
     let mut available_ranks: TiVec<AllocatorSlot, _> = block.slot_banks.iter()
-        .map(|&b| REGS.available_rank_mask(b))
+        .map(|&b| REGS.available_ranks(b))
         .collect();
 
     for instr in block.instrs.iter().rev() {
         live_slots.remove(instr.slot);
         if instr.code.clobbers_anything() {
             for slot in live_slots.iter() {
-                available_ranks[slot].remove(instr.code.ranked_clobber_mask(block.slot_banks[slot]));
+                available_ranks[slot].remove(instr.code.clobbered_ranks(block.slot_banks[slot]));
             }
         }
         for (_, dest) in &instr.slot_moves { live_slots.remove(*dest); }
@@ -288,7 +289,7 @@ pub(super) struct Instr {
     pub(super) code:                    &'static isa::Code,
     pub(super) result_reg:              Option<MachineReg>,
     pub(super) operands:                Vec<Operand>,
-    pub(super) moves:                   [Vec<(MachineReg, MachineReg)>; REGS.num_banks],
+    pub(super) moves:                   [Vec<(MachineReg, MachineReg)>; RegFile::BANK_COUNT],
 
     #[cfg(feature = "dogfood")]
     pub(super) span:                    Span,
@@ -299,10 +300,10 @@ fn lower_to_regs(
     block:                              &SlotBlock,
     regs:                               &TiVec<AllocatorSlot, Option<MachineReg>>,
     available_ranks:                    &TiVec<AllocatorSlot, isa::RankSet>,
-) -> (Vec<Instr>, [Vec<MachineReg>; REGS.num_banks]) {
+) -> (Vec<Instr>, [Vec<MachineReg>; RegFile::BANK_COUNT]) {
 
     let mut reg_instrs = vec![];
-    let mut regs_to_save = [const { BTreeSet::new() }; REGS.num_banks];
+    let mut regs_to_save = [const { BTreeSet::new() }; RegFile::BANK_COUNT];
     let mut note_if_callee_saved = |bank: Bank, reg: MachineReg| {
         if REGS.is_callee_saved(bank, reg) { regs_to_save[bank.0].insert(reg); }
     };
@@ -313,10 +314,10 @@ fn lower_to_regs(
 
         // Unify fixed_input moves and slot_moves and transform them into an ordered list of moves
         // between registers.
-        let mut moves = [const { Vec::new() }; REGS.num_banks];
+        let mut moves = [const { Vec::new() }; RegFile::BANK_COUNT];
 
         #[allow(clippy::needless_range_loop)]
-        for bank_index in 0..REGS.num_banks {
+        for bank_index in 0..RegFile::BANK_COUNT {
             // Unify the fixed_input moves and slot_moves for this bank, lower them to registers,
             // and filter out any that turn out to be between the same register.
             // We store the source slot for each move so that, if the moves need a temp register,
@@ -395,8 +396,8 @@ fn move_regs(
     moves:                              &[(AllocatorSlot, MachineReg, MachineReg)],
     temp_reg_pool:                      isa::RankSet,
 ) -> Vec<(MachineReg, MachineReg)> {
-    let mut sources = [None; 32];
-    let mut destination_counts = [0u8; 32];
+    let mut sources = [None; RegFile::REG_COUNT];
+    let mut destination_counts = [0u8; RegFile::REG_COUNT];
     for (_, source, destination) in moves {
         sources[usize::from(*destination)] = Some(*source);
         destination_counts[usize::from(*source)] += 1;
@@ -406,7 +407,7 @@ fn move_regs(
     // Keep track of any copies we make of a value as we move them - they could be useful later
     // if we have to resolve a cycle including the value, where we could avoid using a temporary
     // register.
-    let mut copies = [None; 32];
+    let mut copies = [None; RegFile::REG_COUNT];
     // Handle all the chains by starting from their ends
     for (.., destination) in moves {
         if let Some(source) = sources[usize::from(*destination)] &&

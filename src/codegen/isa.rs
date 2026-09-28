@@ -17,7 +17,7 @@ pub(super) struct MachineReg(pub(super) u8);
 
 impl MachineReg {
     pub(super) const fn new(index: u8) -> Self {
-        debug_assert!(index < 32);
+        debug_assert!((index as usize) < RegFile::REG_COUNT);
         Self(index)
     }
 }
@@ -31,7 +31,7 @@ impl From<MachineReg> for usize { fn from(m: MachineReg) -> Self  { m.0.into() }
 impl TryFrom<u8> for MachineReg {
     type Error = ();
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        if value < 32 { Ok(Self(value)) } else { Err(()) }
+        if (value as usize) < RegFile::REG_COUNT { Ok(Self(value)) } else { Err(()) }
     }
 }
 
@@ -39,7 +39,7 @@ impl TryFrom<usize> for MachineReg {
     type Error = ();
     fn try_from(value: usize) -> Result<Self, Self::Error> {
         let v = u8::try_from(value).map_err(|_| ())?;
-        if value < 32 { Ok(Self(v)) } else { Err(()) }
+        if value < RegFile::REG_COUNT { Ok(Self(v)) } else { Err(()) }
     }
 }
 
@@ -50,7 +50,7 @@ pub(super) struct RegRank(u8);
 impl RegRank {
     #[allow(clippy::cast_possible_truncation)]
     const fn new(index: usize) -> Self {
-        debug_assert!(index < 32);
+        debug_assert!(index < RegFile::REG_COUNT);
         Self(index as u8)
     }
 }
@@ -59,20 +59,25 @@ impl RegRank {
 //-------------------------------------------------------------------------------------------------
 // Register details
 
+type SetBits = u32;
+
 #[derive(Debug, Copy, Clone)]
-pub(super) struct RankSet(u32);
+pub(super) struct RankSet(SetBits);
 
 impl RankSet {
+    const EMPTY: Self = Self(0);
+
     /// Remove every rank in `other` from this set.
     pub(super) fn remove(&mut self, other: Self)            { self.0 &= !other.0; }
     pub(super) fn contains(self, rank: RegRank) -> bool     { self.0 >> rank.0 & 1 != 0 }
     pub(super) fn remove_reg(&mut self, bank: Bank, reg: MachineReg) {
         self.remove(REGS.get_rank_bits(bank, reg));
     }
+    const fn with(self, rank: RegRank) -> Self { Self(self.0 | 1 << rank.0) }
 }
 
 #[derive(Debug, Copy, Clone)]
-pub(super) struct RegSet(u32);
+pub(super) struct RegSet(SetBits);
 
 impl RegSet {
     fn contains(self, reg: MachineReg) -> bool { self.0 >> reg.0 & 1 != 0 }
@@ -98,18 +103,19 @@ pub(super) struct RegFile {
     pub(super) stack_reg:       MachineReg,
     pub(super) link_reg:        MachineReg,
     pub(super) scratch_reg:     MachineReg,
-    pub(super) num_banks:       usize,
-    banks:                      [RegBank; 2],
+    banks:                      [RegBank; Self::BANK_COUNT],
 }
 
 
 impl RegFile {
+    pub(super) const REG_COUNT: usize = SetBits::BITS as usize;
+    pub(super) const BANK_COUNT: usize = 2;
+
     const fn new(stack_reg: u8, link_reg: u8, scratch_reg: u8, x: RegBank, d: RegBank) -> Self {
         Self {
             stack_reg:          MachineReg::new(stack_reg),
             link_reg:           MachineReg::new(link_reg),
             scratch_reg:        MachineReg::new(scratch_reg),
-            num_banks:          2,
             banks:              [x, d],
         }
     }
@@ -129,8 +135,8 @@ impl RegFile {
     pub(super) fn is_callee_saved(&self, bank: Bank, reg: MachineReg) -> bool {
         self.banks[bank.0].is_callee_saved(reg)
     }
-    pub(super) fn available_rank_mask(&self, bank: Option<Bank>) -> RankSet {
-        bank.map_or(RankSet(0), |b| self.banks[b.0].available_rank_mask())
+    pub(super) fn available_ranks(&self, bank: Option<Bank>) -> RankSet {
+        bank.map_or(RankSet::EMPTY, |b| self.banks[b.0].available_ranks)
     }
 }
 
@@ -138,43 +144,41 @@ impl RegFile {
 /// Information about a bank of registers (int or FP)  Possibly the structure is cross-platform?
 #[derive(Debug)]
 pub (super) struct RegBank {
-    order:              [MachineReg; 32],       // Order in which we allocate registers
-    rank:               [Option<RegRank>; 32],  // Rank (in `order`) of a register.  `None` if we
-                                                // never allocate that register.
-    callee_saved:       RegSet,                 // Registers we have to save in our prologue and
-                                                // epilogue (if we use them)
-    ranked_clobber_mask:RankSet,                // The register ranks a bl[r] will clobber in this
-                                                // bank
-    reg_count:          usize,                  // The number of registers available
+    order: [MachineReg; RegFile::REG_COUNT],        // Order in which we allocate registers
+    rank: [Option<RegRank>; RegFile::REG_COUNT],    // Rank (in `order`) of a register.  `None`
+                                                    // if we never allocate that register.
+    callee_saved: RegSet,                           // Registers we have to save in our prologue
+                                                    // and epilogue (if we use them)
+    clobbered_ranks: RankSet,                       // The register ranks a bl[r] will clobber
+                                                    // in this bank
+    available_ranks: RankSet,                       // Available registers by rank
 }
 
 impl RegBank {
-    #[allow(clippy::cast_possible_truncation)]
-    const fn new(callee_saved: u32, u8_order: &[u8]) -> Self {
-        let reg_count = u8_order.len();
-        let mut order = [MachineReg::new(0); 32];
-        let mut rank = [None; 32];
+    const fn new(callee_saved: RegSet, u8_order: &[u8]) -> Self {
+        let mut order = [MachineReg::new(0); RegFile::REG_COUNT];
+        let mut rank = [None; RegFile::REG_COUNT];
+        let mut available_ranks = RankSet::EMPTY;
         let mut i = 0;
         while i < u8_order.len() {
             order[i] = MachineReg::new(u8_order[i]);
-            rank[u8_order[i] as usize] = Some(RegRank::new(i));
+            let r = RegRank::new(i);
+            rank[u8_order[i] as usize] = Some(r);
+            available_ranks = available_ranks.with(r);
             i += 1;
         }
         // Ideally we'd use bit_indices here, but it's not const.
-        let mut c = !callee_saved;
-        let mut ranked_clobber_mask = 0u32;
+        let mut c = !callee_saved.0;
+        let mut clobbered_ranks = RankSet::EMPTY;
         while c != 0 {
             let reg = c.trailing_zeros() as usize;
             if let Some(rank) = rank[reg] {
-                ranked_clobber_mask |= 1 << rank.0;
+                clobbered_ranks = clobbered_ranks.with(rank);
             }
             c &= c - 1;
         }
 
-        Self { order, rank, reg_count,
-            callee_saved: RegSet(callee_saved),
-            ranked_clobber_mask: RankSet(ranked_clobber_mask)
-        }
+        Self { order, rank, callee_saved, clobbered_ranks, available_ranks }
     }
 
     /// Pick a register from `available` (a bitmask of ranks).  If `preferred` is available, use it —
@@ -196,21 +200,17 @@ impl RegBank {
     }
 
     fn is_callee_saved(&self, reg: MachineReg) -> bool { self.callee_saved.contains(reg) }
-
-    fn available_rank_mask(&self) -> RankSet {
-         RankSet(if self.reg_count >= 32 { u32::MAX } else { (1u32 << self.reg_count) - 1 })
-    }
 }
 
 
 pub(super) const REGS: RegFile = RegFile::new(31, 30, 16,
-    RegBank::new(0x1FF8_0000,
+    RegBank::new(RegSet(0x1FF8_0000),
     &[
         9, 10, 11, 12, 13, 14, 15,                  // caller-saved temps (x16-18 excluded)
         19, 20, 21, 22, 23, 24, 25, 26, 27, 28,     // callee-saved
         0, 1, 2, 3, 4, 5, 6, 7,                     // argument registers
     ]),
-    RegBank::new(0x0000_FF00,
+    RegBank::new(RegSet(0x0000_FF00),
     &[
         16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, // d16-d31 (caller saved)
          8,  9, 10, 11, 12, 13, 14, 15,                                 // d8-d16 (callee saved)
@@ -259,10 +259,10 @@ impl Code {
         self.save_link_reg() && bank.is_some_and(|b| !REGS.banks[b.0].callee_saved.contains(reg))
     }
 
-    pub fn ranked_clobber_mask(&self, bank: Option<Bank>) -> RankSet {
+    pub fn clobbered_ranks(&self, bank: Option<Bank>) -> RankSet {
         if let Some(b) = bank && self.save_link_reg() {
-            REGS.banks[b.0].ranked_clobber_mask
-        } else { RankSet(0) }
+            REGS.banks[b.0].clobbered_ranks
+        } else { RankSet::EMPTY }
     }
 
     pub fn restore_regs(&self) -> bool  { std::ptr::eq(self, &raw const ret) }
