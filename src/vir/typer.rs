@@ -26,7 +26,7 @@ pub fn infer_types(
 
     assert_eq!(block.arguments.len(), argument_types.len(), "internal compiler error: wrong number of arguments");
     for (argument, ty) in block.arguments.iter().zip(argument_types) {
-        assert!(typer.set_type(argument.pool_index(), *ty, argument.span()).is_ok(),
+        assert!(typer.set_type(argument.pool_index(), *ty, argument.definition_span()).is_ok(),
             "internal compiler error: type conflict setting argument type");
     }
 
@@ -35,7 +35,7 @@ pub fn infer_types(
             typer.type_instr(expr, env) {
             parse_error!(errors,
                 format!("Expected `{expected}`, got `{found}`"),
-                *expr.span(),
+                *expr.definition_span(),
                 format!("`{expected}` was set here:"),
                 expected_span,
                 format!("`{found}` was set here:"),
@@ -131,7 +131,7 @@ impl Typer {
 
     fn type_instr(&mut self,  instr: &vir::Expr, env: &Env) -> Result<(), TypeConflict> {
         let pool_index = instr.pool_index();
-        let span = instr.span();
+        let span = instr.definition_span();
         match instr.kind() {
             ExprKind::Number(..)            => self.set_type(pool_index, TypeInfo::F64, span)?,
             ExprKind::Bool(..)              => self.set_type(pool_index, TypeInfo::Bool, span)?,
@@ -143,7 +143,7 @@ impl Typer {
                     panic!("internal compiler error: unknown function `{name}`")
                 };
                 for (e, ty) in exprs.iter().zip(&def.argument_types) {
-                    self.set_type(e.pool_index(), *ty, e.span())?;
+                    self.set_type(e.pool_index(), *ty, e.use_span())?;
                 }
                 // We only cope with one result at the moment.
                 assert_eq!(def.result_types.len(), 1);
@@ -155,15 +155,15 @@ impl Typer {
                     BinaryOperator::Multiply | BinaryOperator::Divide |
                     BinaryOperator::Modulo | BinaryOperator::Power => {
                         self.set_type(pool_index, TypeInfo::F64, span)?;
-                        self.set_type(lhs.pool_index(), TypeInfo::F64, span)?;
-                        self.set_type(rhs.pool_index(), TypeInfo::F64, span)?;
-                        self.type_union(pool_index, lhs.pool_index(), span)?;
-                        self.type_union(pool_index, rhs.pool_index(), span)?;
+                        self.set_type(lhs.pool_index(), TypeInfo::F64, lhs.use_span())?;
+                        self.set_type(rhs.pool_index(), TypeInfo::F64, rhs.use_span())?;
+                        self.type_union(pool_index, lhs.pool_index(), lhs.use_span())?;
+                        self.type_union(pool_index, rhs.pool_index(), rhs.use_span())?;
                     }
                     BinaryOperator::LessEqual | BinaryOperator::LessThan |
                     BinaryOperator::GreaterEqual | BinaryOperator::GreaterThan => {
-                        self.set_type(lhs.pool_index(), TypeInfo::F64, span)?;
-                        self.set_type(rhs.pool_index(), TypeInfo::F64, span)?;
+                        self.set_type(lhs.pool_index(), TypeInfo::F64, lhs.use_span())?;
+                        self.set_type(rhs.pool_index(), TypeInfo::F64, rhs.use_span())?;
                         self.set_type(pool_index, TypeInfo::Bool, span)?;
                         self.type_union(lhs.pool_index(), rhs.pool_index(), span)?;
                     }

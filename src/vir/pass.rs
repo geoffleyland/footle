@@ -174,11 +174,12 @@ impl Pass {
             }
             ast::ExprKind::Identifier(name) => {
                 self.symbols.find(name).map_or_else(|| {
-                    parse_error!(self, format!("cannot find value '{name}' in this scope"), *expr.span());
-                    Err(())
-                },
+                        parse_error!(self, format!("cannot find value '{name}' in this scope"), *expr.span());
+                        Err(())
+                    },
                     // FIXME: will need phi node handling when if/else is added
-                    |binding| Ok(binding.values()[0].clone()))
+                    |binding| Ok(binding.values()[0].used_at(*expr.span()))
+                )
             }
             ast::ExprKind::Binary(op, lhs, rhs) => {
                 let span = lhs.span().union(rhs.span());
@@ -338,7 +339,7 @@ mod display {
                     Call(name, exprs)               => format!("{} I{address} = {name}({})", Token::Local,
                         exprs.iter().map(|e| format!("I{}", address_map[&e.pool_index()])).collect::<Vec<_>>().join(", ")),
                 };
-                writer.writeln(f, indent, Some(*expr.span()), &line)?;
+                writer.writeln(f, indent, Some(*expr.definition_span()), &line)?;
             }
             let line = format!("{} {}", Token::Return,
                 self.return_values.iter().map(|e| format!("I{}", address_map[&e.pool_index()])).collect::<Vec<_>>().join(", "));

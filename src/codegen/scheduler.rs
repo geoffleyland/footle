@@ -255,7 +255,7 @@ impl<'arena> Builder<'arena> {
                 vir::ExprKind::Number(value) => {
                     self.constants.push(Constant{ value: *value,
                     #[cfg(feature = "dogfood")]
-                         span: *expr.span()
+                         span: *expr.definition_span()
                     });
 
                     let constant_index = self.constants.len() - 1;
@@ -274,12 +274,12 @@ impl<'arena> Builder<'arena> {
                         let quotient = self.make_instr(ty,
                             &isa::fdiv_d, operands!(self, lhs, rhs),
                             #[cfg(feature = "dogfood")]
-                            *expr.span()
+                            *expr.definition_span()
                         );
                         let truncated = self.make_instr(ty,
                             &isa::frintz_d, operands!(self, quotient),
                             #[cfg(feature = "dogfood")]
-                            *expr.span()
+                            *expr.definition_span()
                         );
                         self.lower_instr(ty,
                             &isa::fmsub_d, operands!(self, truncated, rhs, lhs), expr);
@@ -339,7 +339,7 @@ impl<'arena> Builder<'arena> {
             let v = self.make_instr(Type::FunctionPointer,
                 &isa::ldr_x_literal, vec![Operand::Function(name.into())],
                 #[cfg(feature = "dogfood")]
-                *expr.span()
+                *expr.definition_span()
             );
             self.function_map.insert(name.into(), v);
             v
@@ -360,7 +360,7 @@ impl<'arena> Builder<'arena> {
     ) -> &'arena Value<'arena> {
         let value = self.make_value(ty, def, operands, fixed_inputs, fixed_output,
             #[cfg(feature = "dogfood")]
-            *expr.span()
+            *expr.definition_span()
         );
         let operand = value.into_operand(self);
         self.operand_map.insert(expr.pool_index(), operand.clone());

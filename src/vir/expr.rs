@@ -108,18 +108,20 @@ impl ExprEntry {
 #[derive(Debug, Clone)]
 pub struct Expr {
     entry:                                  Rc<ExprEntry>,
+    use_span:                               Span,
 }
 
 
 impl Expr {
-    pub fn new(entry: Rc<ExprEntry>) -> Self {
-        Self { entry }
-    }
+    pub fn new(entry: Rc<ExprEntry>, use_span: Span) -> Self { Self { entry, use_span } }
+    pub fn used_at(&self, use_span: Span) -> Self { Self { entry: self.entry.clone(), use_span } }
+
     pub fn kind(&self) -> &ExprKind         { self.entry.kind() }
     pub fn pool_index(&self) -> usize       { self.entry.pool_index() }
     pub fn is_constant(&self) -> bool       { self.entry.kind().is_constant() }
 
-    pub fn span(&self) -> &Span             { self.entry.span() }
+    pub fn use_span(&self) -> &Span         { &self.use_span }
+    pub fn definition_span(&self) -> &Span  { self.entry.span() }
 }
 
 

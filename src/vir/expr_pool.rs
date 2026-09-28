@@ -30,11 +30,11 @@ impl ExprPool {
         span:                   Span
     ) -> Expr {
         match self.exprs.entry(kind) {
-            Entry::Occupied(existing) => Expr::new(existing.get().clone()),
+            Entry::Occupied(existing) => Expr::new(existing.get().clone(), span),
             Entry::Vacant(vacant) => {
                 let entry = Rc::new(ExprEntry::new(vacant.key().clone(), self.ordered.len(), span));
                 vacant.insert(entry.clone());
-                let expr = Expr::new(entry);
+                let expr = Expr::new(entry, span);
                 self.ordered.push(expr.clone());
                 expr
             }
