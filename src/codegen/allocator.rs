@@ -87,8 +87,9 @@ fn lower_to_slots_and_split(
     // register - our arguments and fixed function outputs
     let mut fixed_reg_slots: [[Option<ValueSlot>; 32]; REGS.num_banks] = [[None; 32]; REGS.num_banks];
     // We're creating new AllocatorSlots, so we need to keep track of the renumbering from
-    // ValueSlots to AllocatorSlots.
-    let mut slot_map: TiVec<ValueSlot, _> = (0..slot_count).map(AllocatorSlot).collect();
+    // ValueSlots to AllocatorSlots.  Start with `None` - we work through the slots in dependency
+    // order so we should always write to `slot_map` before we read from it.
+    let mut slot_map: TiVec<ValueSlot, _> = vec![None; slot_count].into();
     let mut slot_banks: TiVec<AllocatorSlot, Option<Bank>> = TiVec::new();
 
     let mut argument_regs = vec![];
@@ -101,17 +102,18 @@ fn lower_to_slots_and_split(
         fixed_reg_slots[bank.0][reg as usize] = Some(value.slot);
         let new_slot = slot_banks.push_and_get_key(Some(bank));
         argument_regs.push((new_slot, MachineReg(reg)));
+        slot_map[value.slot] = Some(new_slot);
     }
 
     let mut new_schedule = vec![];
 
     for (i, value) in scheduled.iter_enumerated() {
         let operands = value.operands.iter().cloned()
-            .map(|o| o.map_reg::<AllocatorSlot>(|v| slot_map[v.slot])).collect();
+            .map(|o| o.map_reg::<AllocatorSlot>(|v| slot_map[v.slot].unwrap())).collect();
 
         // Renumber any fixed inputs
         let fixed_inputs = value.fixed_inputs.iter()
-            .map(|(v, reg)| (slot_map[v.slot], *reg))
+            .map(|(v, reg)| (slot_map[v.slot].unwrap(), *reg))
             .collect();
 
         // If this instruction clobbers anything, check it against what we've got sitting in
@@ -122,12 +124,12 @@ fn lower_to_slots_and_split(
             for fixed in &mut fixed_reg_slots {
                 for (reg, maybe_slot) in fixed.iter_mut().enumerate() {
                     if let Some(slot) = *maybe_slot &&
-                        let bank = slot_banks[slot_map[slot]] &&
+                        let bank = slot_banks[slot_map[slot].unwrap()] &&
                         (c.clobber_mask(bank) >> reg) & 1 != 0 {
                         if retirements[slot].is_some_and(|r| r > i) {
                             let new_slot = slot_banks.push_and_get_key(bank);
-                            slot_moves.push((slot_map[slot], new_slot));
-                            slot_map[slot] = new_slot;
+                            slot_moves.push((slot_map[slot].unwrap(), new_slot));
+                            slot_map[slot] = Some(new_slot);
                         }
                         *maybe_slot = None;
                     }
@@ -152,7 +154,7 @@ fn lower_to_slots_and_split(
             #[cfg(feature = "dogfood")]
             span:                           value.span,
         });
-        slot_map[value.slot] = new_slot;
+        slot_map[value.slot] = Some(new_slot);
     }
     SlotBlock{ arguments: argument_regs, instrs: new_schedule, slot_banks }
 }
