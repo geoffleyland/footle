@@ -71,6 +71,14 @@ impl RankSet {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub(super) struct RegSet(u32);
+
+impl RegSet {
+    fn contains(self, reg: MachineReg) -> bool { self.0 >> reg.0 & 1 != 0 }
+}
+
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Bank(pub(super) usize);
 pub(super) const X_BANK: Bank = Bank(0);
@@ -133,8 +141,8 @@ pub (super) struct RegBank {
     order:              [MachineReg; 32],       // Order in which we allocate registers
     rank:               [Option<RegRank>; 32],  // Rank (in `order`) of a register.  `None` if we
                                                 // never allocate that register.
-    callee_saved:       u32,                    // Bitmask of registers we have to save in our
-                                                // prologue and epilogue (if we use them)
+    callee_saved:       RegSet,                 // Registers we have to save in our prologue and
+                                                // epilogue (if we use them)
     ranked_clobber_mask:RankSet,                // The register ranks a bl[r] will clobber in this
                                                 // bank
     reg_count:          usize,                  // The number of registers available
@@ -163,8 +171,10 @@ impl RegBank {
             c &= c - 1;
         }
 
-        Self { order, rank, callee_saved, reg_count,
-            ranked_clobber_mask: RankSet(ranked_clobber_mask) }
+        Self { order, rank, reg_count,
+            callee_saved: RegSet(callee_saved),
+            ranked_clobber_mask: RankSet(ranked_clobber_mask)
+        }
     }
 
     /// Pick a register from `available` (a bitmask of ranks).  If `preferred` is available, use it —
@@ -185,9 +195,7 @@ impl RegBank {
         RankSet(1 << r.0)
     }
 
-    fn is_callee_saved(&self, reg: MachineReg) -> bool {
-        self.callee_saved & (1 << reg.0) != 0
-    }
+    fn is_callee_saved(&self, reg: MachineReg) -> bool { self.callee_saved.contains(reg) }
 
     fn available_rank_mask(&self) -> RankSet {
          RankSet(if self.reg_count >= 32 { u32::MAX } else { (1u32 << self.reg_count) - 1 })
@@ -244,14 +252,13 @@ pub(super) struct Code {
 
 
 impl Code {
-    pub fn has_output(&self) -> bool    { self.has_output }
+    pub fn has_output(&self) -> bool        { self.has_output }
 
-    pub fn clobbers(&self) -> bool      { self.save_link_reg() }
-    pub fn clobber_mask(&self, bank: Option<Bank>) -> u32 {
-        if let Some(b) = bank && self.save_link_reg() {
-            !REGS.banks[b.0].callee_saved
-        } else { 0 }
+    pub fn clobbers_anything(&self) -> bool { self.save_link_reg() }
+    pub fn clobbers(&self, bank: Option<Bank>, reg: MachineReg) -> bool {
+        self.save_link_reg() && bank.is_some_and(|b| !REGS.banks[b.0].callee_saved.contains(reg))
     }
+
     pub fn ranked_clobber_mask(&self, bank: Option<Bank>) -> RankSet {
         if let Some(b) = bank && self.save_link_reg() {
             REGS.banks[b.0].ranked_clobber_mask

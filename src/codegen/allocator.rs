@@ -120,12 +120,12 @@ fn lower_to_slots_and_split(
         // fixed_reg_slots (our arguments or results from functions).  If they're live after this
         // we need to move them.
         let mut slot_moves: Vec<(AllocatorSlot, AllocatorSlot)> = vec![];
-        if let Some(c) = value.code() && c.clobbers() {
+        if let Some(c) = value.code() && c.clobbers_anything() {
             for fixed in &mut fixed_reg_slots {
                 for (reg, maybe_slot) in fixed.iter_mut().enumerate() {
                     if let Some(slot) = *maybe_slot &&
                         let bank = slot_banks[slot_map[slot].unwrap()] &&
-                        (c.clobber_mask(bank) >> reg) & 1 != 0 {
+                        c.clobbers(bank, MachineReg::try_from(reg).unwrap()) {
                         if retirements[slot].is_some_and(|r| r > i) {
                             let new_slot = slot_banks.push_and_get_key(bank);
                             slot_moves.push((slot_map[slot].unwrap(), new_slot));
@@ -198,7 +198,7 @@ fn allocate(
 
     for instr in block.instrs.iter().rev() {
         live_slots.remove(instr.slot);
-        if instr.code.clobbers() {
+        if instr.code.clobbers_anything() {
             for slot in live_slots.iter() {
                 available_ranks[slot].remove(instr.code.ranked_clobber_mask(block.slot_banks[slot]));
             }
