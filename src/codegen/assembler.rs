@@ -192,15 +192,15 @@ fn emit_glue(argument_types: &[Type], return_types: &[Type], instrs: &mut Vec<In
     let (mut x_reg, mut d_reg) = (0u8, 0u8);
     for (i, &ty) in argument_types.iter().enumerate() {
         let offset = Offset(8 * i32::try_from(i)
-            .expect("internal compiler error; too many arguments"));
+            .expect("internal compiler error: too many arguments"));
         match bank_for(ty) {
             Some(X_BANK) => {
-                assert!(x_reg < 8, "internal compiler error; too many arguments");
+                assert!(x_reg < 8, "internal compiler error: too many arguments");
                 assemble!(instrs, ldr_x_offset, Reg(x_reg), REGS.scratch_reg, offset);
                 x_reg += 1;
             }
             Some(D_BANK) => {
-                assert!(d_reg < 8, "internal compiler error; too many arguments");
+                assert!(d_reg < 8, "internal compiler error: too many arguments");
                 assemble!(instrs, ldr_d_offset, Reg(d_reg), REGS.scratch_reg, offset);
                 d_reg += 1;
             }
@@ -219,15 +219,15 @@ fn emit_glue(argument_types: &[Type], return_types: &[Type], instrs: &mut Vec<In
     let (mut x_reg, mut d_reg) = (0u8, 0u8);
     for (i, &ty) in return_types.iter().enumerate() {
         let offset = Offset(8 * i32::try_from(i)
-            .expect("internal compiler error; too many return values"));
+            .expect("internal compiler error: too many return values"));
         match bank_for(ty) {
             Some(X_BANK) => {
-                assert!(x_reg < 8, "internal compiler error; too many return values");
+                assert!(x_reg < 8, "internal compiler error: too many return values");
                 assemble!(instrs, str_x_offset, Reg(x_reg), REGS.scratch_reg, offset);
                 x_reg += 1;
             }
             Some(D_BANK) => {
-                assert!(d_reg < 8, "internal compiler error; too many return values");
+                assert!(d_reg < 8, "internal compiler error: too many return values");
                 assemble!(instrs, str_d_offset, Reg(d_reg), REGS.scratch_reg, offset);
                 d_reg += 1;
             }

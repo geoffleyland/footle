@@ -418,12 +418,12 @@ impl<'arena> Builder<'arena> {
                     },
                     MachineReg::try_from(match isa::bank_for(type_for(types[expr.pool_index()])) {
                         Some(isa::X_BANK) => {
-                            assert!(x_reg < 8, "internal compiler error; too many return values");
+                            assert!(x_reg < 8, "internal compiler error: too many return values");
                             x_reg += 1;
                             x_reg - 1
                         }
                         Some(isa::D_BANK) => {
-                            assert!(d_reg < 8, "internal compiler error; too many return values");
+                            assert!(d_reg < 8, "internal compiler error: too many return values");
                             d_reg += 1;
                             d_reg - 1
                         }
