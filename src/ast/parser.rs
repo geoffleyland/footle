@@ -490,6 +490,11 @@ impl Parser {
         let start = expect!(self, Token::Return);
         let values = try_collect_nev(self.parse_expr_nev())?;
         let span = start.union(values.last().span());
+        let (next, next_span) = self.lookahead(0);
+        if !matches!(next, Ok(Token::End | Token::Eof)) {
+            parse_error!(self, "`return` must be the last statement in a block", next_span,
+                "the `return` is here:", span);
+        }
         Some(Stmt::return_stmt(values, span))
     }
 
@@ -698,6 +703,8 @@ mod test {
             "mutable local a = 3\na = 4\nlocal b = a + 3",
             "mutable local a = 3\na = 4\nlocal b = (a + 3)",
         );
+        test_stmts("return 1 return 2",
+            "`return` must be the last statement in a block\nthe `return` is here:");
     }
 
     #[test]
