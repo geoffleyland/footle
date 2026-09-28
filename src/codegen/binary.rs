@@ -85,7 +85,7 @@ impl Drop for CompiledFn {
 
 pub fn emit(block: &assembler::Block) -> CompiledFn {
     let instr_words = block.instrs.len();
-    let constant_start_words = instr_words + usize::from(instr_words.is_multiple_of(2));
+    let constant_start_words = instr_words.next_multiple_of(2);
     let function_start_words = constant_start_words + block.constants.len() * 2;
     let total_code_size_bytes = function_start_words * 4 + 8 * block.functions.len();
 

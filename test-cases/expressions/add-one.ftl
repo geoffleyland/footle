@@ -29,7 +29,7 @@ return a + 1
 
 #( expected assembly f64
 
-  0x1000: ldr d16, #0x102c
+  0x1000: ldr d16, #0x1028
   0x1004: fadd d0, d0, d16
   0x1008: ret
   0x100c: mov x16, x0
@@ -39,7 +39,7 @@ return a + 1
   0x101c: ldp x16, x30, [sp], #0x10
   0x1020: str d0, [x16]
   0x1024: ret
-  0x102c: 1.0
+  0x1028: 1.0
 
 #)
 

@@ -27,7 +27,7 @@ return sin(a)
 
 #( expected assembly f64
 
-  0x1000: ldr x9, #0x1034
+  0x1000: ldr x9, #0x1030
   0x1004: str x30, [sp, #-0x10]!
   0x1008: blr x9
   0x100c: ldr x30, [sp], #0x10
@@ -39,7 +39,7 @@ return sin(a)
   0x1024: ldp x16, x30, [sp], #0x10
   0x1028: str d0, [x16]
   0x102c: ret
-  0x1034: sin
+  0x1030: sin
 
 #)
 

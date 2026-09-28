@@ -11,7 +11,7 @@ return false, 1.3
 
 #( expected assembly
 
-  0x1000: ldr d0, #0x102c
+  0x1000: ldr d0, #0x1028
   0x1004: mov x0, #0
   0x1008: ret
   0x100c: mov x16, x0
@@ -21,7 +21,7 @@ return false, 1.3
   0x101c: str x0, [x16]
   0x1020: str d0, [x16, #8]
   0x1024: ret
-  0x102c: 1.3
+  0x1028: 1.3
 
 #)
 

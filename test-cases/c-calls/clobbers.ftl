@@ -34,7 +34,7 @@ return a, b, c
 #( expected assembly f64 f64
 
   0x1000: stp d8, d9, [sp, #-0x10]!
-  0x1004: ldr x9, #0x105c
+  0x1004: ldr x9, #0x1060
   0x1008: fmov d8, d0
   0x100c: fmov d0, d1
   0x1010: fmov d9, d1
@@ -56,7 +56,7 @@ return a, b, c
   0x1050: str d1, [x16, #8]
   0x1054: str d2, [x16, #0x10]
   0x1058: ret
-  0x105c: sin
+  0x1060: sin
 
 #)
 

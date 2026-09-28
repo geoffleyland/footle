@@ -251,7 +251,7 @@ mod display {
     impl Styleable for Block {
         fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
             let instr_words = self.instrs.len();
-            let constant_start_words = instr_words + usize::from(instr_words.is_multiple_of(2));
+            let constant_start_words = instr_words.next_multiple_of(2);
             let function_start_words = constant_start_words + self.constants.len() * 2;
             for (i, instr) in self.instrs.iter().enumerate() {
 

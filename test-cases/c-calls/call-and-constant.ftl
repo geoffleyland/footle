@@ -33,8 +33,8 @@ return sin(a * 1.57079632679)
 
 #( expected assembly f64
 
-  0x1000: ldr d16, #0x103c
-  0x1004: ldr x9, #0x1044
+  0x1000: ldr d16, #0x1038
+  0x1004: ldr x9, #0x1040
   0x1008: fmul d0, d0, d16
   0x100c: str x30, [sp, #-0x10]!
   0x1010: blr x9
@@ -47,8 +47,8 @@ return sin(a * 1.57079632679)
   0x102c: ldp x16, x30, [sp], #0x10
   0x1030: str d0, [x16]
   0x1034: ret
-  0x103c: 1.57079632679
-  0x1044: sin
+  0x1038: 1.57079632679
+  0x1040: sin
 
 #)
 

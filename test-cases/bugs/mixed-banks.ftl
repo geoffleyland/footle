@@ -23,8 +23,8 @@ return s, u, true, b
   0x1000: stp x19, x20, [sp, #-0x10]!
   0x1004: str x21, [sp, #-0x10]!
   0x1008: stp d8, d9, [sp, #-0x10]!
-  0x100c: ldr d16, #0x1094
-  0x1010: ldr x21, #0x109c
+  0x100c: ldr d16, #0x1090
+  0x1010: ldr x21, #0x1098
   0x1014: mov x19, #1
   0x1018: fadd d8, d0, d16
   0x101c: mov x20, x0
@@ -56,8 +56,8 @@ return s, u, true, b
   0x1084: str x0, [x16, #0x10]
   0x1088: str x1, [x16, #0x18]
   0x108c: ret
-  0x1094: 1.0
-  0x109c: sin
+  0x1090: 1.0
+  0x1098: sin
 
 #)
 
@@ -66,8 +66,8 @@ return s, u, true, b
   0x1000: stp x19, x20, [sp, #-0x10]!
   0x1004: stp d8, d9, [sp, #-0x10]!
   0x1008: str d10, [sp, #-0x10]!
-  0x100c: ldr d16, #0x1094
-  0x1010: ldr x20, #0x109c
+  0x100c: ldr d16, #0x1098
+  0x1010: ldr x20, #0x10a0
   0x1014: mov x19, #1
   0x1018: fadd d8, d1, d16
   0x101c: fmov d9, d0
@@ -100,8 +100,8 @@ return s, u, true, b
   0x1088: str x0, [x16, #0x10]
   0x108c: str d2, [x16, #0x18]
   0x1090: ret
-  0x1094: 1.0
-  0x109c: sin
+  0x1098: 1.0
+  0x10a0: sin
 
 #)
 

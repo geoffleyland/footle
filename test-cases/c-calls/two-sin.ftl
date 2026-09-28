@@ -33,7 +33,7 @@ return sin(b), sin(a)
 
   0x1000: str x19, [sp, #-0x10]!
   0x1004: stp d8, d9, [sp, #-0x10]!
-  0x1008: ldr x19, #0x106c
+  0x1008: ldr x19, #0x1068
   0x100c: fmov d8, d1
   0x1010: str x30, [sp, #-0x10]!
   0x1014: blr x19
@@ -57,7 +57,7 @@ return sin(b), sin(a)
   0x105c: str d0, [x16]
   0x1060: str d1, [x16, #8]
   0x1064: ret
-  0x106c: sin
+  0x1068: sin
 
 #)
 

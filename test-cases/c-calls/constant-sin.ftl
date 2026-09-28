@@ -23,7 +23,7 @@ return sin(1.57079632679)
 
 #( expected assembly
 
-  0x1000: ldr d0, #0x1024
+  0x1000: ldr d0, #0x1020
   0x1004: ret
   0x1008: mov x16, x0
   0x100c: stp x1, x30, [sp, #-0x10]!
@@ -31,7 +31,7 @@ return sin(1.57079632679)
   0x1014: ldp x16, x30, [sp], #0x10
   0x1018: str d0, [x16]
   0x101c: ret
-  0x1024: 1.0
+  0x1020: 1.0
 
 #)
 
