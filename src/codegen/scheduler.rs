@@ -509,7 +509,7 @@ fn schedule<'arena>(values: &TiVec<ValueSlot, &'arena Value<'arena>>
 
             // Pick a unit we think is going to run this instruction and reserve it.
             free_units -= best_instr.code().expect("internal compiler error: instruction without opcode")
-                .try_pick_unit(free_units).expect("internal compiler error: not enough registers");
+                .try_pick_unit(free_units).expect("internal compiler error: no free unit");
 
             // Mark that the results of this instruction will be ready in the appropriate cycle.
             let ready_cycle = cycle + usize::from(best_instr.latency());
