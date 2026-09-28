@@ -1,4 +1,4 @@
-use crate::core::{Source, LineMap};
+use crate::core::LineMap;
 
 
 //-------------------------------------------------------------------------------------------------
@@ -35,7 +35,7 @@ impl Scanner {
 
 
     /// Return text from start to the character before end.
-    pub fn slice(&self, start: usize, end: usize) -> String { self.source.slice(start, end).into() }
+    pub fn slice(&self, start: usize, end: usize) -> String { self.source[start..end].into() }
 }
 
 
@@ -48,15 +48,11 @@ impl Iterator for Scanner  {
     /// we move advance, we have to check if we've seen a newline (or not) and update our counters
     /// accordingly.
     fn next(&mut self) -> Option<(char, usize)> {
-        let p = self.pos;
-        let next = self.source.next(self.pos);
-
-        if let Some(p) = next { self.pos = p; }
-
-        if let Some(c) = self.source.at(p) {
-            self.map.count(c, next.unwrap_or(self.pos+1));
-            Some((c, p))
-        } else { None }
+        let start = self.pos;
+        let c = self.source[start..].chars().next()?;
+        self.pos = start + c.len_utf8();
+        self.map.count(c, self.pos);
+        Some((c, start))
     }
 }
 
@@ -81,6 +77,27 @@ mod test {
         assert_eq!(scanner.next(), Some(('5', 4)));
         assert_eq!(scanner.next(), None);
         assert_eq!(scanner.slice(1, scanner.pos()), "2345");
+    }
+
+    #[test]
+    fn test_utf8() {
+        // Positions are byte offsets, so each character moves us on by its UTF-8 length:
+        // 'é' is 2 bytes, '€' is 3 and '𝄞' is 4.
+        let mut scanner = Scanner::new("aé€𝄞1\né");
+        assert_eq!(scanner.next(), Some(('a', 0)));
+        assert_eq!(scanner.next(), Some(('é', 1)));
+        assert_eq!(scanner.next(), Some(('€', 3)));
+        assert_eq!(scanner.next(), Some(('𝄞', 6)));
+        assert_eq!(scanner.next(), Some(('1', 10)));
+        assert_eq!(scanner.slice(1, scanner.pos()), "é€𝄞1");
+        assert_eq!(scanner.next(), Some(('\n', 11)));
+        assert_eq!(scanner.next(), Some(('é', 12)));
+        assert_eq!(scanner.pos(), 14);
+        assert_eq!(scanner.next(), None);
+
+        // Line ends are byte offsets too.
+        assert_eq!(scanner.map.line_span_from_pos(6), (1, Span::new(0, 11)));
+        assert_eq!(scanner.map.line_span_from_pos(12), (2, Span::new(12, 14)));
     }
 
     #[test]

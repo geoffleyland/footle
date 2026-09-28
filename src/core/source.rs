@@ -47,34 +47,7 @@ impl fmt::Display for Span {
 
 //-------------------------------------------------------------------------------------------------
 
-/// A source of characters for a Lexer
-pub trait Source {
-    /// Return the character at the offset (if there is one).
-    fn at(&self, offset: usize) -> Option<char>;
-    /// Return the string of characters between start and end.
-    fn slice(&self, start: usize, end: usize) -> &str;
-    /// Return the string of characters in the span.
-    fn span(&self, span: Span) -> &str { self.slice(span.start, span.end) }
-    /// Return the start of the character after the one at offset (for UTF-8).
-    fn next(&self, offset: usize) -> Option<usize>;
-}
-
-
-impl Source for String {
-    fn slice(&self, start: usize, end: usize) -> &str { &self[start..end] }
-    fn at(&self, offset: usize) -> Option<char> { self[offset..].chars().next() }
-    fn next(&self, offset: usize) -> Option<usize> {
-        self[offset..].chars().next().map(|ch| offset + ch.len_utf8())
-    }
-}
-
-
-//-------------------------------------------------------------------------------------------------
-
 /// A map of where lines start and end in a file.
-///
-/// I've kept this separate from Chars in an attempt to make it available to users after the parse
-/// has finished, so that error reporting is less weird.  Haven't got there yet.
 #[derive(Debug)]
 pub struct LineMap {
     starts:         Vec<usize>,
@@ -130,6 +103,8 @@ impl SourceMap {
         SpanToShow { map: self, span: span.into(), colour }
     }
 
+    pub fn span(&self, span: Span) -> &str { &self.source[span.start..span.end] }
+
     #[cfg(feature = "dogfood")]
     pub fn file_name(&self) -> &str { &self.file_name }
     #[cfg(feature = "dogfood")]
@@ -138,11 +113,6 @@ impl SourceMap {
     #[cfg(feature = "dogfood")]
     pub fn line_span_from_span(&self, span: Span) -> (usize, Span) {
         self.map.line_span_from_span(span)
-    }
-
-    #[cfg(feature = "dogfood")]
-    pub fn span(&self, span: Span) -> &str {
-        self.source.span(span)
     }
 }
 
@@ -165,7 +135,7 @@ impl std::fmt::Display for SpanToShow<'_> {
             if self.colour { ("\x1b[1;34m", "\x1b[1;33m", "\x1b[0m") } else { ("", "", "") };
         let (line_number, line_span) = self.map.map.line_span_from_span(self.span);
         let linenumlen = format!("{line_number}").len();
-        let line = self.map.source.span(line_span);
+        let line = &self.map.span(line_span);
         writeln!(f, "{}{}-->{} {}:{}:{}",
                 " ".repeat(linenumlen), blue, stop, self.map.file_name, line_number, self.span.offset_from(&line_span) + 1)?;
         writeln!(f, "{}{} |{}", " ".repeat(linenumlen), blue, stop)?;
@@ -174,22 +144,6 @@ impl std::fmt::Display for SpanToShow<'_> {
                 " ".repeat(linenumlen), blue, stop,
                 " ".repeat(self.span.offset_from(&line_span)), yellow,
                 "^".repeat(max(1, self.span.len())), stop)
-    }
-}
-
-
-//-------------------------------------------------------------------------------------------------
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_source() {
-        let source = "12345".to_string();
-        assert_eq!(source.at(0), Some('1'));
-        assert_eq!(source.at(5), None);
-        assert_eq!(source.slice(1, 3), "23");
-        assert_eq!(source.next(1), Some(2));
     }
 }
 

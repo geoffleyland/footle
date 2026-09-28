@@ -10,7 +10,7 @@ pub use declaration::Declaration;
 pub use nonempty::Nev;
 pub use operators::BinaryOperator;
 pub use parse_error::{ErrorPart, ParseError};
-pub use source::{LineMap, Source, SourceMap, Span};
+pub use source::{LineMap, SourceMap, Span};
 pub use text::join_format;
 
 #[cfg(any(feature = "dogfood", test))]
