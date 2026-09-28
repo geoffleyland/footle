@@ -124,7 +124,9 @@ impl Pass {
 
                 if !assignment.stmts.is_empty() {
                     for (variable, span, values) in self.symbols.pop_scope() {
-                        if !assignment.assignments.iter().any(|(name, ..)| variable.matches(name)) {
+                        let overwritten_below = !assignment.declaration.is_declaring()
+                            && assignment.assignments.iter().any(|(name, ..)| variable.matches(name));
+                        if !overwritten_below {
                             let new_value = values[0].clone();
                             let initial_values = variable.try_push(self.symbols.scope_depth(), span, values)
                                 .expect("internal compiler error: internal block assignment to immutable variable");
