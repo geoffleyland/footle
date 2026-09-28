@@ -135,7 +135,7 @@ impl std::fmt::Display for SpanToShow<'_> {
             if self.colour { ("\x1b[1;34m", "\x1b[1;33m", "\x1b[0m") } else { ("", "", "") };
         let (line_number, line_span) = self.map.map.line_span_from_span(self.span);
         let linenumlen = format!("{line_number}").len();
-        let line = &self.map.span(line_span);
+        let line = self.map.span(line_span);
         writeln!(f, "{}{}-->{} {}:{}:{}",
                 " ".repeat(linenumlen), blue, stop, self.map.file_name, line_number, self.span.offset_from(&line_span) + 1)?;
         writeln!(f, "{}{} |{}", " ".repeat(linenumlen), blue, stop)?;
