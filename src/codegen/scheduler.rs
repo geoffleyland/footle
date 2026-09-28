@@ -70,6 +70,13 @@ impl<'arena> Operand<'arena> {
     }
 }
 
+/// The index of a `Value` in `Builder`'s `values` `TiVec`
+///
+/// `Values` are stored in the order they come out of `lower_vir`.
+/// Scheduling re-orders the list of instructions and we use the indexes into `values` to create
+/// side info arrays like list of users of the `Value` or critical path depths.
+/// Only use `TiVec`s, not `TiSlice`s (even when passing references to `TiVec`s) - `TiSlices` risk
+/// re-setting the zero on a slice and the numbering going out the window.
 #[derive(Debug, Copy, Clone, From, Into, Display)]
 pub(super) struct ValueSlot(usize);
 
@@ -130,7 +137,11 @@ pub(super) struct Constant {
 }
 
 
-#[derive(Debug, Copy, Clone, From, Into, Display)]
+/// Index of an instruction in `Block`'s `instrs` `TiVec` of scheduled instructions.
+///
+/// It's (currently) only used to see when values retire in `allocator`s
+/// `lower_to_slots_and_split`.
+#[derive(Debug, Copy, Clone, From, Into, Display, PartialOrd, Ord, PartialEq, Eq)]
 pub(super) struct SchedulePosition(usize);
 
 pub struct Block<'arena> {
@@ -381,7 +392,7 @@ impl<'arena> Builder<'arena> {
         span:                                   Span,
     ) -> &'arena Value<'arena>  {
         let def = def.into_value_def();
-        let value = self.arena.alloc(Value::new(self.arena.len().into(), ty, def,
+        let value = self.arena.alloc(Value::new(self.values.next_key(), ty, def,
             operands, fixed_inputs, fixed_output,
             #[cfg(feature = "dogfood")]
             span

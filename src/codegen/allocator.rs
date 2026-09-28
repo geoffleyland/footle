@@ -30,6 +30,10 @@ pub(super) fn run(
 //-------------------------------------------------------------------------------------------------
 // Lower Values to SlotInstrs
 
+/// Index of a slot in the allocator's numbering.
+///
+/// `lower_to_slots_and_split` has to split live ranges, and as a result, slots have to be
+/// re-numbered.
 #[derive(Debug, Copy, Clone, From, Into)]
 struct AllocatorSlot(usize);
 
@@ -73,17 +77,17 @@ fn lower_to_slots_and_split(
     arguments:                          &[&Value<'_>],
     scheduled:                          &TiVec<SchedulePosition, &Value<'_>>,
 ) -> SlotBlock {
-    // Walk backwards through the scheduled instructions finding out when instructions retire
+    // Walk through the scheduled instructions finding out when values retire.
     let mut retirements: TiVec<ValueSlot, _> = vec![None; slot_count].into();
-    for (i, value) in scheduled.iter().enumerate() {
+    for (i, value) in scheduled.iter_enumerated() {
         for predecessor in value.predecessors() { retirements[predecessor.slot] = Some(i); }
     }
 
     // We're just keeping track of the slots (like arguments) that are given to us in a fixed
     // register - our arguments and fixed function outputs
     let mut fixed_reg_slots: [[Option<ValueSlot>; 32]; REGS.num_banks] = [[None; 32]; REGS.num_banks];
-    // We're creating new slots, so we need to keep track fo the renumbering from "old slots"
-    // to new slots.
+    // We're creating new AllocatorSlots, so we need to keep track of the renumbering from
+    // ValueSlots to AllocatorSlots.
     let mut slot_map: TiVec<ValueSlot, _> = (0..slot_count).map(AllocatorSlot).collect();
     let mut slot_banks: TiVec<AllocatorSlot, Option<Bank>> = TiVec::new();
 
@@ -101,7 +105,7 @@ fn lower_to_slots_and_split(
 
     let mut new_schedule = vec![];
 
-    for (i, value) in scheduled.iter().enumerate() {
+    for (i, value) in scheduled.iter_enumerated() {
         let operands = value.operands.iter().cloned()
             .map(|o| o.map_reg::<AllocatorSlot>(|v| slot_map[v.slot])).collect();
 
@@ -157,6 +161,11 @@ fn lower_to_slots_and_split(
 //-------------------------------------------------------------------------------------------------
 // Register Allocation
 
+/// A `BitSet` of `AllocatorSlot` indexes.
+///
+/// We need to keep track of which slots are are live at each instruction, and which slots
+/// interfere with each other.  We do that with a `BitSet` and try to keep things clean by using
+/// the right type for indexing the right kind of slots.
 #[derive(Clone, Default)]
 struct SlotSet(BitSet);
 
@@ -309,6 +318,9 @@ fn lower_to_regs(
         for bank_index in 0..REGS.num_banks {
             // Unify the fixed_input moves and slot_moves for this bank, lower them to registers,
             // and filter out any that turn out to be between the same register.
+            // We store the source slot for each move so that, if the moves need a temp register,
+            // we have a representative slot we can use to figure out which registers are available
+            // as a temp.
             let unordered_moves: Vec<_> = instr.fixed_inputs.iter()
                 .filter(|(slot, _)| block.slot_banks[*slot].is_some_and(|b| b.0 == bank_index))
                 .map(|(slot, reg)| (*slot, regs[*slot].unwrap(), *reg))
@@ -372,6 +384,9 @@ fn lower_to_regs(
 ///    cycle, using a temp register to hold the value of the first register you write to, and then
 ///    moving the temp register into the last register you read from.  If you've already moved one
 ///    of the values in the cycle as part of a chain, you can save yourself the temp register.
+///
+/// The `AllocatorSlot` in `moves` is not used here - its purpose is explained above in
+/// `lower_to_regs`.
 fn move_regs(
     bank:                               Bank,
     moves:                              &[(AllocatorSlot, MachineReg, MachineReg)],
