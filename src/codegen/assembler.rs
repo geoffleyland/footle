@@ -41,7 +41,7 @@ impl From<PooledF64> for Operand {
 }
 
 impl From<MachineReg> for Operand {
-    fn from(r: MachineReg) -> Self { Self::Reg(r.0) }
+    fn from(r: MachineReg) -> Self { Self::Reg(r.encoding()) }
 }
 
 
@@ -123,8 +123,8 @@ fn emit_function(
         }
 
         let operands = ai.code.has_output()
-            .then(|| Operand::Reg(ai.result_reg
-                .expect("internal compiler error: no register allocated for instruction result").into()))
+            .then(|| Operand::from(ai.result_reg
+                .expect("internal compiler error: no register allocated for instruction result")))
             .into_iter()
             .chain(ai.operands.iter().map(|op| match op {
                 super::operand::Operand::Reg(r)             => (*r).into(),

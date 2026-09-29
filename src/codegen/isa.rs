@@ -20,6 +20,7 @@ impl MachineReg {
         debug_assert!((index as usize) < RegFile::REG_COUNT);
         Self(index)
     }
+    pub(super) fn encoding(self) -> u8 { self.0 & 0x1F }
 }
 
 impl From<MachineReg> for u8    { fn from(m: MachineReg) -> Self  { m.0 } }
