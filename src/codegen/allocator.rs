@@ -212,13 +212,13 @@ fn allocate(
 
     // Allocate registers for arguments
     for &(slot, reg) in &block.arguments {
-        set_reg(slot, reg, &regs, &interfering_slots, &block.slot_banks, &mut available_ranks);
+        set_reg(slot, reg, &regs, &interfering_slots, &mut available_ranks);
     }
 
     // Allocate registers for value with constrained output registers.
     for instr in &block.instrs {
         if let Some(fixed_output) = instr.fixed_output {
-            set_reg(instr.slot, fixed_output, &regs, &interfering_slots, &block.slot_banks, &mut available_ranks);
+            set_reg(instr.slot, fixed_output, &regs, &interfering_slots, &mut available_ranks);
         }
     }
 
@@ -227,7 +227,7 @@ fn allocate(
         for (input_slot, preferred_reg) in &instr.fixed_inputs {
             if regs[*input_slot].get().is_some() { continue; }
             let reg = REGS.best_reg(available_ranks[*input_slot], Some(*preferred_reg));
-            set_reg(*input_slot, reg, &regs, &interfering_slots, &block.slot_banks, &mut available_ranks);
+            set_reg(*input_slot, reg, &regs, &interfering_slots, &mut available_ranks);
         }
     }
 
@@ -235,7 +235,7 @@ fn allocate(
     for instr in &block.instrs {
         if regs[instr.slot].get().is_some() || !instr.code.has_output() { continue; }
         let reg = REGS.best_reg(available_ranks[instr.slot], None);
-        set_reg(instr.slot, reg, &regs, &interfering_slots, &block.slot_banks, &mut available_ranks);
+        set_reg(instr.slot, reg, &regs, &interfering_slots, &mut available_ranks);
     }
 
     // Allocate registers for any slots that get moved (which don't show up in instructions)
@@ -243,7 +243,7 @@ fn allocate(
         for (_, dest) in &instr.slot_moves {
             if regs[*dest].get().is_some() { continue; }
             let reg = REGS.best_reg(available_ranks[*dest], None);
-            set_reg(*dest, reg, &regs, &interfering_slots, &block.slot_banks, &mut available_ranks);
+            set_reg(*dest, reg, &regs, &interfering_slots, &mut available_ranks);
         }
     }
 
@@ -258,17 +258,11 @@ fn set_reg(
     reg:                                MachineReg,
     regs:                               &TiVec<AllocatorSlot, OnceCell<MachineReg>>,
     interfering_slots:                  &TiVec<AllocatorSlot, SlotSet>,
-    slot_banks:                         &TiVec<AllocatorSlot, Option<Bank>>,
     available_ranks:                    &mut TiVec<AllocatorSlot, isa::RankSet>
 ) {
-    regs[slot].set(reg)
-        .expect("internal compiler error: trying to set a register twice");
-    let bank = slot_banks[slot]
-        .expect("internal compiler error: trying to set a register for an instruction without a register bank");
+    regs[slot].set(reg).expect("internal compiler error: trying to set a register twice");
     for interfering_slot in interfering_slots[slot].iter() {
-        if slot_banks[interfering_slot].is_some_and(|b| b.0 == bank.0) {
-            available_ranks[interfering_slot].remove_reg(reg);
-        }
+        available_ranks[interfering_slot].remove_reg(reg);
     }
 }
 
