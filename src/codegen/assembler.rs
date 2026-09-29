@@ -183,9 +183,6 @@ fn save_restore(
 
 fn emit_glue(argument_types: &[Type], return_types: &[Type], instrs: &mut Vec<Instr>) {
     // Move the input buffer pointer to x16 so it doesn't get clobbered by arguments to our function.
-    // In fact, at the moment, we only have floating-point arguments, so it *won't* get clobbered,
-    // but if I ever get to types and integers, then I don't want to have a mystery bug strike me
-    // because I was too smart about my function glue.
     assemble!(instrs, mov_x, REGS.scratch_reg, x0);
 
     // Move the output buffer and the return address to the stack, since they're about to get

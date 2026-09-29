@@ -288,7 +288,7 @@ fn lower_to_regs(
 ) -> (Vec<Instr>, Vec<MachineReg>) {
 
     let mut reg_instrs = vec![];
-    let mut regs_to_save = const { BTreeSet::new() };
+    let mut regs_to_save = BTreeSet::new();
     let mut note_if_callee_saved = |reg: MachineReg| {
         if REGS.is_callee_saved(reg) { regs_to_save.insert(reg); }
     };
