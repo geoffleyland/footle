@@ -277,7 +277,7 @@ pub(super) struct Instr {
     pub(super) code:                    &'static isa::Code,
     pub(super) result_reg:              Option<MachineReg>,
     pub(super) operands:                Vec<Operand>,
-    pub(super) moves:                   [Vec<(MachineReg, MachineReg)>; RegFile::BANK_COUNT],
+    pub(super) moves:                   Vec<(MachineReg, MachineReg)>,
 
     #[cfg(feature = "dogfood")]
     pub(super) span:                    Span,
@@ -302,47 +302,38 @@ fn lower_to_regs(
 
         // Unify fixed_input moves and slot_moves and transform them into an ordered list of moves
         // between registers.
-        let mut moves = [const { Vec::new() }; RegFile::BANK_COUNT];
+        // While we're unifying, filter out any that turn out to be between the same register.
+        // We store the source slot for each move so that, if the moves need a temp register,
+        // we pick from any of the registers available to the moved slots (minus the registers
+        // they're using)
+        let unordered_moves: Vec<_> = instr.fixed_inputs.iter()
+            .map(|(slot, reg)| (*slot, regs[*slot].unwrap(), *reg))
+            .chain(instr.slot_moves.iter()
+                .map(|(src, dst)| (*src, regs[*src].unwrap(), regs[*dst].unwrap())))
+            .filter(|(_, source, dest)| source != dest)
+            .collect();
 
-        #[allow(clippy::needless_range_loop)]
-        for bank_index in 0..RegFile::BANK_COUNT {
-            // Unify the fixed_input moves and slot_moves for this bank, lower them to registers,
-            // and filter out any that turn out to be between the same register.
-            // We store the source slot for each move so that, if the moves need a temp register,
-            // we have a representative slot we can use to figure out which registers are available
-            // as a temp.
-            let unordered_moves: Vec<_> = instr.fixed_inputs.iter()
-                .filter(|(slot, _)| block.slot_banks[*slot].is_some_and(|b| b.0 == bank_index))
-                .map(|(slot, reg)| (*slot, regs[*slot].unwrap(), *reg))
-                .chain(instr.slot_moves.iter()
-                    .filter(|(src, _)| block.slot_banks[*src].is_some_and(|b| b.0 == bank_index))
-                    .map(|(src, dst)| (*src, regs[*src].unwrap(), regs[*dst].unwrap())))
-                .filter(|(_, source, dest)| source != dest)
-                .collect();
-
-            // Turn the moves into an ordered set of register moves that don't overwrite before
-            // they read.
-            let bank_moves = if let Some(&(representative_slot_for_bank, _, _)) = unordered_moves.first() {
-                // We might need a temporary register.  That can only be picked from registers
-                // available to any of the slots getting moved around minus all the registers we're
-                // using for the moves.
-                let mut temp_reg_pool = available_ranks[representative_slot_for_bank];
-                for (_, source, dest) in &unordered_moves {
-                    temp_reg_pool.remove_reg(*source);
-                    temp_reg_pool.remove_reg(*dest);
-                }
-
-                move_regs(&unordered_moves, temp_reg_pool)
-            } else { vec![] };
-
-            // Check if anything we used needs to be saved by us before we use it (and restored
-            // before we leave)
-            for (s, d) in &bank_moves {
-                note_if_callee_saved(*s);
-                note_if_callee_saved(*d);
+        let moves = if unordered_moves.is_empty() { vec![] } else {
+            // We might need a temporary register.  That can only be picked from registers
+            // available to any of the slots getting moved around minus all the registers we're
+            // using for the moves.
+            let mut temp_reg_pool = unordered_moves.iter()
+                .fold(isa::RankSet::EMPTY, |pool, (slot, ..)| pool.union(available_ranks[*slot]));
+            for (_, source, dest) in &unordered_moves {
+                temp_reg_pool.remove_reg(*source);
+                temp_reg_pool.remove_reg(*dest);
             }
-            moves[bank_index] = bank_moves;
+
+            move_regs(&unordered_moves, temp_reg_pool)
+        };
+
+        // Check if anything we used needs to be saved by us before we use it (and restored
+        // before we leave)
+        for (s, d) in &moves {
+            note_if_callee_saved(*s);
+            note_if_callee_saved(*d);
         }
+
         if let Some(reg) = regs[instr.slot] { note_if_callee_saved(reg); }
 
         reg_instrs.push(Instr{
@@ -409,15 +400,13 @@ fn move_regs(
     }
 
     // Now do the ones where there's no other copy and we need a temp.
-    if moves.iter().any(|(.., destination)| sources[usize::from(*destination)].is_some()) {
-        let temp_reg = REGS.best_reg(temp_reg_pool, None);
-        for (.., destination) in moves {
-            let Some(source) = sources[usize::from(*destination)] else { continue };
-            new_moves.push((source, temp_reg));
-            sources[usize::from(*destination)] = None;
-            move_regs_backwards(source, &mut sources, &mut destination_counts, &mut new_moves);
-            new_moves.push((temp_reg, *destination));
-        }
+    for (.., destination) in moves {
+        let Some(source) = sources[usize::from(*destination)] else { continue };
+        let temp_reg = REGS.best_reg(temp_reg_pool.intersection(REGS.class_ranks(source)), None);
+        new_moves.push((source, temp_reg));
+        sources[usize::from(*destination)] = None;
+        move_regs_backwards(source, &mut sources, &mut destination_counts, &mut new_moves);
+        new_moves.push((temp_reg, *destination));
     }
 
     new_moves

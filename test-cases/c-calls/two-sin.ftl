@@ -32,20 +32,20 @@ return sin(b), sin(a)
 #( expected assembly f64 f64
 
   0x1000: str x19, [sp, #-0x10]!
-  0x1004: stp d8, d9, [sp, #-0x10]!
+  0x1004: str d8, [sp, #-0x10]!
   0x1008: ldr x19, #0x1068
   0x100c: fmov d8, d1
   0x1010: str x30, [sp, #-0x10]!
   0x1014: blr x19
   0x1018: ldr x30, [sp], #0x10
-  0x101c: fmov d9, d8
+  0x101c: fmov d16, d8
   0x1020: fmov d8, d0
-  0x1024: fmov d0, d9
+  0x1024: fmov d0, d16
   0x1028: str x30, [sp, #-0x10]!
   0x102c: blr x19
   0x1030: ldr x30, [sp], #0x10
   0x1034: fmov d1, d8
-  0x1038: ldp d8, d9, [sp], #0x10
+  0x1038: ldr d8, [sp], #0x10
   0x103c: ldr x19, [sp], #0x10
   0x1040: ret
   0x1044: mov x16, x0

@@ -120,10 +120,10 @@ fn emit_function(
     for pair in d_regs_to_save.chunks(2) { save_restore(instrs, pair, &isa::stp_d_pre, &isa::str_d_pre, stack, -16) }
 
     for ai in allocated {
-        for (move_op, moves) in [&isa::mov_x, &isa::fmov_d].iter().zip(&ai.moves) {
-            for (source, destination) in moves {
-                assemble_expr!(instrs, *move_op, *destination, *source);
-            }
+        for (source, destination) in &ai.moves {
+            debug_assert_eq!(source.is_x_reg(), destination.is_x_reg());
+            if source.is_x_reg()    { assemble!(instrs, mov_x, *destination, *source); }
+            else                    { assemble!(instrs, fmov_d, *destination, *source); }
         }
 
         let operands = ai.code.has_output()

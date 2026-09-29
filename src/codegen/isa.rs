@@ -68,14 +68,17 @@ type SetBits = u64;
 pub(super) struct RankSet(SetBits);
 
 impl RankSet {
-    const EMPTY: Self = Self(0);
+    pub(super) const EMPTY: Self = Self(0);
 
+    pub(super) fn contains(self, rank: RegRank) -> bool     { self.0 >> rank.0 & 1 != 0 }
     /// Remove every rank in `other` from this set.
     pub(super) fn remove(&mut self, other: Self)            { self.0 &= !other.0; }
-    pub(super) fn contains(self, rank: RegRank) -> bool     { self.0 >> rank.0 & 1 != 0 }
     pub(super) fn remove_reg(&mut self, reg: MachineReg) {
         self.remove(REGS.get_rank_bits(reg));
     }
+
+    pub(super) const fn union(self, other: Self) -> Self    { Self(self.0 | other.0) }
+    pub(super) const fn intersection(self, other: Self) -> Self    { Self(self.0 & other.0) }
     const fn with(self, rank: RegRank) -> Self { Self(self.0 | 1 << rank.0) }
 }
 
@@ -142,6 +145,10 @@ impl RegFile {
     }
     pub(super) fn available_ranks(&self, bank: Option<Bank>) -> RankSet {
         bank.map_or(RankSet::EMPTY, |b| self.bank.available_ranks[b.0])
+    }
+    /// The ranks of every allocatable register in the same class as `reg`.
+    pub(super) fn class_ranks(&self, reg: MachineReg) -> RankSet {
+        self.bank.available_ranks[usize::from(reg.is_d_reg())]
     }
 
     pub(super) fn abi_regs(types: impl IntoIterator<Item = Type>) -> impl Iterator<Item = MachineReg> {
