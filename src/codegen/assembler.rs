@@ -3,7 +3,7 @@ use seq_macro::seq;
 use super::scheduler::{Constant, Type};
 use super::allocator;
 use super::isa;
-use super::isa::{REGS, X_BANK, D_BANK, MachineReg, RegFile, bank_for};
+use super::isa::{REGS, X_BANK, D_BANK, MachineReg, RegFile};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -189,21 +189,11 @@ fn emit_glue(argument_types: &[Type], return_types: &[Type], instrs: &mut Vec<In
     assemble!(instrs, stp_x_pre, x1, REGS.link_reg, REGS.stack_reg, Offset(-16));
 
     // Move the arguments from the input buffer into the argument registers.
-    let (mut x_reg, mut d_reg) = (0u8, 0u8);
-    for (i, &ty) in argument_types.iter().enumerate() {
-        let offset = Offset(8 * i32::try_from(i)
-            .expect("internal compiler error: too many arguments"));
-        match bank_for(ty) {
-            Some(X_BANK) => {
-                assert!(x_reg < 8, "internal compiler error: too many arguments");
-                assemble!(instrs, ldr_x_offset, Reg(x_reg), REGS.scratch_reg, offset);
-                x_reg += 1;
-            }
-            Some(D_BANK) => {
-                assert!(d_reg < 8, "internal compiler error: too many arguments");
-                assemble!(instrs, ldr_d_offset, Reg(d_reg), REGS.scratch_reg, offset);
-                d_reg += 1;
-            }
+    for (offset, (bank, reg)) in (0i32..).step_by(8)
+        .zip(RegFile::abi_regs(argument_types.iter().copied())) {
+        match bank {
+            X_BANK => assemble!(instrs, ldr_x_offset, reg, REGS.scratch_reg, Offset(offset)),
+            D_BANK => assemble!(instrs, ldr_d_offset, reg, REGS.scratch_reg, Offset(offset)),
             _ => panic!("internal compiler error: no bank for argument")
         }
     }
@@ -216,25 +206,14 @@ fn emit_glue(argument_types: &[Type], return_types: &[Type], instrs: &mut Vec<In
     // Load the output buffer in to x16 and the return address to the appropriate spot
     assemble!(instrs, ldp_x_post, REGS.scratch_reg, REGS.link_reg, REGS.stack_reg, Offset(16));
 
-    let (mut x_reg, mut d_reg) = (0u8, 0u8);
-    for (i, &ty) in return_types.iter().enumerate() {
-        let offset = Offset(8 * i32::try_from(i)
-            .expect("internal compiler error: too many return values"));
-        match bank_for(ty) {
-            Some(X_BANK) => {
-                assert!(x_reg < 8, "internal compiler error: too many return values");
-                assemble!(instrs, str_x_offset, Reg(x_reg), REGS.scratch_reg, offset);
-                x_reg += 1;
-            }
-            Some(D_BANK) => {
-                assert!(d_reg < 8, "internal compiler error: too many return values");
-                assemble!(instrs, str_d_offset, Reg(d_reg), REGS.scratch_reg, offset);
-                d_reg += 1;
-            }
-            _ => panic!("internal compiler error: no bank for return value")
+    for (offset, (bank, reg)) in (0i32..).step_by(8)
+        .zip(RegFile::abi_regs(return_types.iter().copied())) {
+        match bank {
+            X_BANK => assemble!(instrs, str_x_offset, reg, REGS.scratch_reg, Offset(offset)),
+            D_BANK => assemble!(instrs, str_d_offset, reg, REGS.scratch_reg, Offset(offset)),
+            _ => panic!("internal compiler error: no bank for argument")
         }
     }
-
     assemble!(instrs, ret);
 }
 

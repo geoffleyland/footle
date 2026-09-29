@@ -297,7 +297,8 @@ impl<'arena> Builder<'arena> {
                     }
                 }
                 vir::ExprKind::Call(name, exprs) => {
-                    self.lower_call(name, ty, exprs, types, MachineReg::new(0), expr);
+                    self.lower_call(name, ty, exprs, types,
+                        isa::RegFile::abi_regs([ty]).next().unwrap().1, expr);
                 }
             }
         }
@@ -308,7 +309,6 @@ impl<'arena> Builder<'arena> {
             #[cfg(feature = "dogfood")]
             input.return_span
         );
-
     }
 
 
@@ -407,31 +407,14 @@ impl<'arena> Builder<'arena> {
         exprs:                                  &[vir::Expr],
         types:                                  &[vir::TypeInfo],
     ) -> Vec<(&'arena Value<'arena>, MachineReg)> {
-        let (mut x_reg, mut d_reg) = (0u8, 0u8);
         exprs.iter()
-            .map(|expr|
-                (
-                    if let Operand::Reg(v) = self.operand_map[&expr.pool_index()] {
-                        v
-                    } else {
-                        panic!("internal compiler error: constant as a fixed input")
-                    },
-                    MachineReg::try_from(match isa::bank_for(type_for(types[expr.pool_index()])) {
-                        Some(isa::X_BANK) => {
-                            assert!(x_reg < 8, "internal compiler error: too many return values");
-                            x_reg += 1;
-                            x_reg - 1
-                        }
-                        Some(isa::D_BANK) => {
-                            assert!(d_reg < 8, "internal compiler error: too many return values");
-                            d_reg += 1;
-                            d_reg - 1
-                        }
-                        _ => panic!("internal compiler error: no register bank for value")
-                    }).expect("internal compiler error: too many values")
-                )
-            )
-            .collect::<Vec<_>>()
+            .zip(isa::RegFile::abi_regs(exprs.iter().map(|expr| type_for(types[expr.pool_index()]))))
+            .map(|(expr, (_, reg))| (
+                if let Operand::Reg(v) = self.operand_map[&expr.pool_index()] { v } else {
+                    panic!("internal compiler error: constant as a fixed input")
+                },
+                reg)
+            ).collect()
     }
 }
 

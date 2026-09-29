@@ -138,6 +138,17 @@ impl RegFile {
     pub(super) fn available_ranks(&self, bank: Option<Bank>) -> RankSet {
         bank.map_or(RankSet::EMPTY, |b| self.banks[b.0].available_ranks)
     }
+
+    pub(super) fn abi_regs(types: impl IntoIterator<Item = Type>) -> impl Iterator<Item = (Bank, MachineReg)> {
+        let mut used = [0usize; Self::BANK_COUNT];           // registers used so far, per class
+        types.into_iter().map(move |ty| {
+            let bank = bank_for(ty).expect("internal compiler error: no bank for type");
+            let reg = *REGS.banks[bank.0].argument_regs.get(used[bank.0])
+                .expect("internal compiler error: too many values in one register class");
+            used[bank.0] += 1;
+            (bank, reg)
+        })
+    }
 }
 
 
@@ -149,13 +160,18 @@ pub (super) struct RegBank {
                                                     // if we never allocate that register.
     callee_saved: RegSet,                           // Registers we have to save in our prologue
                                                     // and epilogue (if we use them)
+    argument_regs: &'static [MachineReg],           // Argument registers in order.
     clobbered_ranks: RankSet,                       // The register ranks a bl[r] will clobber
                                                     // in this bank
-    available_ranks: RankSet,                       // Available registers by rank
+    available_ranks: RankSet,                       // Available registers by rank.
 }
 
 impl RegBank {
-    const fn new(callee_saved: RegSet, u8_order: &[u8]) -> Self {
+    const fn new(
+        callee_saved:       RegSet,
+        argument_regs:      &'static [MachineReg],
+        u8_order:           &[u8]
+    ) -> Self {
         let mut order = [MachineReg::new(0); RegFile::REG_COUNT];
         let mut rank = [None; RegFile::REG_COUNT];
         let mut available_ranks = RankSet::EMPTY;
@@ -178,7 +194,7 @@ impl RegBank {
             c &= c - 1;
         }
 
-        Self { order, rank, callee_saved, clobbered_ranks, available_ranks }
+        Self { order, rank, callee_saved, argument_regs, clobbered_ranks, available_ranks }
     }
 
     /// Pick a register from `available` (a bitmask of ranks).  If `preferred` is available, use it —
@@ -203,14 +219,24 @@ impl RegBank {
 }
 
 
+const fn regs<const N: usize>(numbers: [u8; N]) -> [MachineReg; N] {
+    let mut out = [MachineReg::new(0); N];
+    let mut i = 0;
+    while i < N { out[i] = MachineReg::new(numbers[i]); i += 1; }
+    out
+}
+
+
 pub(super) const REGS: RegFile = RegFile::new(31, 30, 16,
     RegBank::new(RegSet(0x1FF8_0000),
+    &regs([0, 1, 2, 3, 4, 5, 6, 7]),
     &[
         9, 10, 11, 12, 13, 14, 15,                  // caller-saved temps (x16-18 excluded)
         19, 20, 21, 22, 23, 24, 25, 26, 27, 28,     // callee-saved
         0, 1, 2, 3, 4, 5, 6, 7,                     // argument registers
     ]),
     RegBank::new(RegSet(0x0000_FF00),
+    &regs([0, 1, 2, 3, 4, 5, 6, 7]),
     &[
         16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, // d16-d31 (caller saved)
          8,  9, 10, 11, 12, 13, 14, 15,                                 // d8-d16 (callee saved)

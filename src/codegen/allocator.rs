@@ -94,15 +94,12 @@ fn lower_to_slots_and_split(
     let mut slot_banks: TiVec<AllocatorSlot, Option<Bank>> = TiVec::new();
 
     let mut argument_regs = vec![];
-    let mut bank_argument_counts = [0u8; RegFile::BANK_COUNT];
-    for value in arguments {
-        let bank = isa::bank_for(value.ty)
-            .expect("internal compiler error: no bank for argument");
-        let reg = bank_argument_counts[bank.0];
-        bank_argument_counts[bank.0] += 1;
-        fixed_reg_slots[bank.0][reg as usize] = Some(value.slot);
+
+    for (value, (bank, reg)) in arguments.iter()
+        .zip(RegFile::abi_regs(arguments.iter().map(|v| v.ty))) {
+        fixed_reg_slots[bank.0][usize::from(reg)] = Some(value.slot);
         let new_slot = slot_banks.push_and_get_key(Some(bank));
-        argument_regs.push((new_slot, MachineReg(reg)));
+        argument_regs.push((new_slot, reg));
         slot_map[value.slot] = Some(new_slot);
     }
 
