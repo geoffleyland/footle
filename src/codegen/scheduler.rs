@@ -267,7 +267,8 @@ impl<'arena> Builder<'arena> {
                 },
                 vir::ExprKind::Binary(op, lhs, rhs) => {
                     if *op == BinaryOperator::Power {
-                        self.lower_call("pow", ty, &[lhs.clone(), rhs.clone()], types, MachineReg::new(0), expr);
+                        self.lower_call("pow", ty, &[lhs.clone(), rhs.clone()], types,
+                            isa::RegFile::abi_regs([ty]).next().unwrap().1, expr);
 
                     } else if *op == BinaryOperator::Modulo {
                         // AArch64 has no fmod; compute a - trunc(a / b) * b instead.
