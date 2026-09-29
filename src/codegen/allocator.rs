@@ -95,8 +95,10 @@ fn lower_to_slots_and_split(
 
     let mut argument_regs = vec![];
 
-    for (value, (bank, reg)) in arguments.iter()
+    for (value, reg) in arguments.iter()
         .zip(RegFile::abi_regs(arguments.iter().map(|v| v.ty))) {
+        let bank = isa::bank_for(value.ty)
+            .expect("internal compiler error: no bank for type");
         fixed_reg_slots[bank.0][usize::from(reg)] = Some(value.slot);
         let new_slot = slot_banks.push_and_get_key(Some(bank));
         argument_regs.push((new_slot, reg));
@@ -123,7 +125,7 @@ fn lower_to_slots_and_split(
                 for (reg, maybe_slot) in fixed.iter_mut().enumerate() {
                     if let Some(slot) = *maybe_slot &&
                         let bank = slot_banks[slot_map[slot].unwrap()] &&
-                        c.clobbers(bank, MachineReg::try_from(reg).unwrap()) {
+                        c.clobbers(MachineReg::try_from(reg).unwrap()) {
                         if retirements[slot].is_some_and(|r| r > i) {
                             let new_slot = slot_banks.push_and_get_key(bank);
                             slot_moves.push((slot_map[slot].unwrap(), new_slot));
@@ -198,7 +200,7 @@ fn allocate(
         live_slots.remove(instr.slot);
         if instr.code.clobbers_anything() {
             for slot in live_slots.iter() {
-                available_ranks[slot].remove(instr.code.clobbered_ranks(block.slot_banks[slot]));
+                available_ranks[slot].remove(instr.code.clobbered_ranks());
             }
         }
         for (_, dest) in &instr.slot_moves { live_slots.remove(*dest); }
@@ -229,7 +231,7 @@ fn allocate(
     for instr in &block.instrs {
         for (input_slot, preferred_reg) in &instr.fixed_inputs {
             if regs[*input_slot].get().is_some() { continue; }
-            let reg = REGS.best_reg(block.slot_banks[*input_slot], available_ranks[*input_slot], Some(*preferred_reg));
+            let reg = REGS.best_reg(available_ranks[*input_slot], Some(*preferred_reg));
             set_reg(*input_slot, reg, &regs, &interfering_slots, &block.slot_banks, &mut available_ranks);
         }
     }
@@ -237,7 +239,7 @@ fn allocate(
     // Allocate registers for remaining instructions
     for instr in &block.instrs {
         if regs[instr.slot].get().is_some() || !instr.code.has_output() { continue; }
-        let reg = REGS.best_reg(block.slot_banks[instr.slot], available_ranks[instr.slot], None);
+        let reg = REGS.best_reg(available_ranks[instr.slot], None);
         set_reg(instr.slot, reg, &regs, &interfering_slots, &block.slot_banks, &mut available_ranks);
     }
 
@@ -245,7 +247,7 @@ fn allocate(
     for instr in &block.instrs {
         for (_, dest) in &instr.slot_moves {
             if regs[*dest].get().is_some() { continue; }
-            let reg = REGS.best_reg(block.slot_banks[*dest], available_ranks[*dest], None);
+            let reg = REGS.best_reg(available_ranks[*dest], None);
             set_reg(*dest, reg, &regs, &interfering_slots, &block.slot_banks, &mut available_ranks);
         }
     }
@@ -270,7 +272,7 @@ fn set_reg(
         .expect("internal compiler error: trying to set a register for an instruction without a register bank");
     for interfering_slot in interfering_slots[slot].iter() {
         if slot_banks[interfering_slot].is_some_and(|b| b.0 == bank.0) {
-            available_ranks[interfering_slot].remove_reg(bank, reg);
+            available_ranks[interfering_slot].remove_reg(reg);
         }
     }
 }
@@ -302,7 +304,7 @@ fn lower_to_regs(
     let mut reg_instrs = vec![];
     let mut regs_to_save = [const { BTreeSet::new() }; RegFile::BANK_COUNT];
     let mut note_if_callee_saved = |bank: Bank, reg: MachineReg| {
-        if REGS.is_callee_saved(bank, reg) { regs_to_save[bank.0].insert(reg); }
+        if REGS.is_callee_saved(reg) { regs_to_save[bank.0].insert(reg); }
     };
 
     for instr in &block.instrs {
@@ -338,11 +340,11 @@ fn lower_to_regs(
                 // using for the moves.
                 let mut temp_reg_pool = available_ranks[representative_slot_for_bank];
                 for (_, source, dest) in &unordered_moves {
-                    temp_reg_pool.remove_reg(bank, *source);
-                    temp_reg_pool.remove_reg(bank, *dest);
+                    temp_reg_pool.remove_reg(*source);
+                    temp_reg_pool.remove_reg(*dest);
                 }
 
-                move_regs(bank, &unordered_moves, temp_reg_pool)
+                move_regs(&unordered_moves, temp_reg_pool)
             } else { vec![] };
 
             // Check if anything we used needs to be saved by us before we use it (and restored
@@ -389,7 +391,6 @@ fn lower_to_regs(
 /// The `AllocatorSlot` in `moves` is not used here - its purpose is explained above in
 /// `lower_to_regs`.
 fn move_regs(
-    bank:                               Bank,
     moves:                              &[(AllocatorSlot, MachineReg, MachineReg)],
     temp_reg_pool:                      isa::RankSet,
 ) -> Vec<(MachineReg, MachineReg)> {
@@ -426,7 +427,7 @@ fn move_regs(
 
     // Now do the ones where there's no other copy and we need a temp.
     if moves.iter().any(|(.., destination)| sources[usize::from(*destination)].is_some()) {
-        let temp_reg = REGS.best_reg(Some(bank), temp_reg_pool, None);
+        let temp_reg = REGS.best_reg(temp_reg_pool, None);
         for (.., destination) in moves {
             let Some(source) = sources[usize::from(*destination)] else { continue };
             new_moves.push((source, temp_reg));

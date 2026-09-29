@@ -189,9 +189,9 @@ fn emit_glue(argument_types: &[Type], return_types: &[Type], instrs: &mut Vec<In
     assemble!(instrs, stp_x_pre, x1, REGS.link_reg, REGS.stack_reg, Offset(-16));
 
     // Move the arguments from the input buffer into the argument registers.
-    for (offset, (bank, reg)) in (0i32..).step_by(8)
+    for (offset, reg) in (0i32..).step_by(8)
         .zip(RegFile::abi_regs(argument_types.iter().copied())) {
-        match bank {
+        match isa::bank_for_reg(reg) {
             X_BANK => assemble!(instrs, ldr_x_offset, reg, REGS.scratch_reg, Offset(offset)),
             D_BANK => assemble!(instrs, ldr_d_offset, reg, REGS.scratch_reg, Offset(offset)),
             _ => panic!("internal compiler error: no bank for argument")
@@ -206,9 +206,9 @@ fn emit_glue(argument_types: &[Type], return_types: &[Type], instrs: &mut Vec<In
     // Load the output buffer in to x16 and the return address to the appropriate spot
     assemble!(instrs, ldp_x_post, REGS.scratch_reg, REGS.link_reg, REGS.stack_reg, Offset(16));
 
-    for (offset, (bank, reg)) in (0i32..).step_by(8)
+    for (offset, reg) in (0i32..).step_by(8)
         .zip(RegFile::abi_regs(return_types.iter().copied())) {
-        match bank {
+            match isa::bank_for_reg(reg) {
             X_BANK => assemble!(instrs, str_x_offset, reg, REGS.scratch_reg, Offset(offset)),
             D_BANK => assemble!(instrs, str_d_offset, reg, REGS.scratch_reg, Offset(offset)),
             _ => panic!("internal compiler error: no bank for argument")
