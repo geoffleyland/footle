@@ -85,8 +85,7 @@ fn lower_to_slots_and_split(
 
     // We're just keeping track of the slots (like arguments) that are given to us in a fixed
     // register - our arguments and fixed function outputs
-    let mut fixed_reg_slots: [[Option<ValueSlot>; RegFile::REG_COUNT]; RegFile::BANK_COUNT] =
-        [[None; RegFile::REG_COUNT]; RegFile::BANK_COUNT];
+    let mut fixed_reg_slots: [Option<ValueSlot>; RegFile::REG_COUNT] = [None; RegFile::REG_COUNT];
     // We're creating new AllocatorSlots, so we need to keep track of the renumbering from
     // ValueSlots to AllocatorSlots.  Start with `None` - we work through the slots in dependency
     // order so we should always write to `slot_map` before we read from it.
@@ -99,7 +98,7 @@ fn lower_to_slots_and_split(
         .zip(RegFile::abi_regs(arguments.iter().map(|v| v.ty))) {
         let bank = isa::bank_for(value.ty)
             .expect("internal compiler error: no bank for type");
-        fixed_reg_slots[bank.0][usize::from(reg)] = Some(value.slot);
+        fixed_reg_slots[usize::from(reg)] = Some(value.slot);
         let new_slot = slot_banks.push_and_get_key(Some(bank));
         argument_regs.push((new_slot, reg));
         slot_map[value.slot] = Some(new_slot);
@@ -121,27 +120,23 @@ fn lower_to_slots_and_split(
         // we need to move them.
         let mut slot_moves: Vec<(AllocatorSlot, AllocatorSlot)> = vec![];
         if let Some(c) = value.code() && c.clobbers_anything() {
-            for fixed in &mut fixed_reg_slots {
-                for (reg, maybe_slot) in fixed.iter_mut().enumerate() {
-                    if let Some(slot) = *maybe_slot &&
-                        let bank = slot_banks[slot_map[slot].unwrap()] &&
-                        c.clobbers(MachineReg::try_from(reg).unwrap()) {
-                        if retirements[slot].is_some_and(|r| r > i) {
-                            let new_slot = slot_banks.push_and_get_key(bank);
-                            slot_moves.push((slot_map[slot].unwrap(), new_slot));
-                            slot_map[slot] = Some(new_slot);
-                        }
-                        *maybe_slot = None;
+            for (reg, maybe_slot) in fixed_reg_slots.iter_mut().enumerate() {
+                if let Some(slot) = *maybe_slot &&
+                    let bank = slot_banks[slot_map[slot].unwrap()] &&
+                    c.clobbers(MachineReg::try_from(reg).unwrap()) {
+                    if retirements[slot].is_some_and(|r| r > i) {
+                        let new_slot = slot_banks.push_and_get_key(bank);
+                        slot_moves.push((slot_map[slot].unwrap(), new_slot));
+                        slot_map[slot] = Some(new_slot);
                     }
+                    *maybe_slot = None;
                 }
             }
         }
 
         let maybe_bank = isa::bank_for(value.ty);
         if let Some(fixed_output) = value.fixed_output {
-            let bank = maybe_bank
-                .expect("internal compiler error: no bank for slot");
-            fixed_reg_slots[bank.0][usize::from(fixed_output)] = Some(value.slot);
+            fixed_reg_slots[usize::from(fixed_output)] = Some(value.slot);
         }
 
         let code = value.code().expect("internal compiler error: expected an excutable instruction");
