@@ -143,8 +143,8 @@ impl RegFile {
     pub(super) fn is_callee_saved(&self, reg: MachineReg) -> bool {
         self.bank.is_callee_saved(reg)
     }
-    pub(super) fn available_ranks(&self, bank: Option<Bank>) -> RankSet {
-        bank.map_or(RankSet::EMPTY, |b| self.bank.available_ranks[b.0])
+    pub(super) fn available_ranks(&self, ty: Type) -> RankSet {
+        bank_for(ty).map_or(RankSet::EMPTY, |b| self.bank.available_ranks[b.0])
     }
     /// The ranks of every allocatable register in the same class as `reg`.
     pub(super) fn class_ranks(&self, reg: MachineReg) -> RankSet {

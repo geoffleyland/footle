@@ -5,9 +5,9 @@ use bit_set::BitSet;
 use typed_index_collections::TiVec;
 use derive_more::{From, Into};
 
-use super::scheduler::{Value, ValueSlot, SchedulePosition};
+use super::scheduler::{Value, ValueSlot, SchedulePosition, Type};
 use super::isa;
-use super::isa::{REGS, Bank, MachineReg, RegFile};
+use super::isa::{REGS, MachineReg, RegFile};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -67,7 +67,7 @@ impl SlotInstr {
 struct SlotBlock {
     arguments:                          Vec<(AllocatorSlot, MachineReg)>,
     instrs:                             Vec<SlotInstr>,
-    slot_banks:                         TiVec<AllocatorSlot, Option<Bank>>,
+    slot_types:                         TiVec<AllocatorSlot, Type>,
 }
 
 
@@ -90,16 +90,14 @@ fn lower_to_slots_and_split(
     // ValueSlots to AllocatorSlots.  Start with `None` - we work through the slots in dependency
     // order so we should always write to `slot_map` before we read from it.
     let mut slot_map: TiVec<ValueSlot, _> = vec![None; slot_count].into();
-    let mut slot_banks: TiVec<AllocatorSlot, Option<Bank>> = TiVec::new();
+    let mut slot_types: TiVec<AllocatorSlot, Type> = TiVec::new();
 
     let mut argument_regs = vec![];
 
     for (value, reg) in arguments.iter()
         .zip(RegFile::abi_regs(arguments.iter().map(|v| v.ty))) {
-        let bank = isa::bank_for(value.ty)
-            .expect("internal compiler error: no bank for type");
         fixed_reg_slots[usize::from(reg)] = Some(value.slot);
-        let new_slot = slot_banks.push_and_get_key(Some(bank));
+        let new_slot = slot_types.push_and_get_key(value.ty);
         argument_regs.push((new_slot, reg));
         slot_map[value.slot] = Some(new_slot);
     }
@@ -122,11 +120,11 @@ fn lower_to_slots_and_split(
         if let Some(c) = value.code() && c.clobbers_anything() {
             for (reg, maybe_slot) in fixed_reg_slots.iter_mut().enumerate() {
                 if let Some(slot) = *maybe_slot &&
-                    let bank = slot_banks[slot_map[slot].unwrap()] &&
                     c.clobbers(MachineReg::try_from(reg).unwrap()) {
                     if retirements[slot].is_some_and(|r| r > i) {
-                        let new_slot = slot_banks.push_and_get_key(bank);
-                        slot_moves.push((slot_map[slot].unwrap(), new_slot));
+                        let old_slot = slot_map[slot].unwrap();
+                        let new_slot = slot_types.push_and_get_key(slot_types[old_slot]);
+                        slot_moves.push((old_slot, new_slot));
                         slot_map[slot] = Some(new_slot);
                     }
                     *maybe_slot = None;
@@ -134,13 +132,12 @@ fn lower_to_slots_and_split(
             }
         }
 
-        let maybe_bank = isa::bank_for(value.ty);
         if let Some(fixed_output) = value.fixed_output {
             fixed_reg_slots[usize::from(fixed_output)] = Some(value.slot);
         }
 
         let code = value.code().expect("internal compiler error: expected an excutable instruction");
-        let new_slot = slot_banks.push_and_get_key(maybe_bank);
+        let new_slot = slot_types.push_and_get_key(value.ty);
         new_schedule.push(SlotInstr{
             operands, code, slot_moves, fixed_inputs,
             slot:                           new_slot,
@@ -151,7 +148,7 @@ fn lower_to_slots_and_split(
         });
         slot_map[value.slot] = Some(new_slot);
     }
-    SlotBlock{ arguments: argument_regs, instrs: new_schedule, slot_banks }
+    SlotBlock{ arguments: argument_regs, instrs: new_schedule, slot_types }
 }
 
 
@@ -180,15 +177,15 @@ fn allocate(
     block:                              &SlotBlock,
 ) -> (TiVec<AllocatorSlot, Option<MachineReg>>, TiVec<AllocatorSlot, isa::RankSet>) {
     let mut regs: TiVec<AllocatorSlot, _> =
-        vec![OnceCell::new(); block.slot_banks.len()].into();
+        vec![OnceCell::new(); block.slot_types.len()].into();
 
     // Find which slots interfere with which, and which are live across calls.
     // If they are live, make sure they're not in a clobbered register.
     let mut live_slots = SlotSet::default();
     let mut interfering_slots: TiVec<AllocatorSlot, _> =
-        vec![SlotSet::default(); block.slot_banks.len()].into();
-    let mut available_ranks: TiVec<AllocatorSlot, _> = block.slot_banks.iter()
-        .map(|&b| REGS.available_ranks(b))
+        vec![SlotSet::default(); block.slot_types.len()].into();
+    let mut available_ranks: TiVec<AllocatorSlot, _> = block.slot_types.iter()
+        .map(|&ty| REGS.available_ranks(ty))
         .collect();
 
     for instr in block.instrs.iter().rev() {
