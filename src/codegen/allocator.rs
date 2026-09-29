@@ -20,7 +20,7 @@ pub(super) fn run(
     slot_count:                         usize,
     arguments:                          &[&Value<'_>],
     scheduled:                          &TiVec<SchedulePosition, &Value<'_>>,
-) -> (Vec<Instr>, [Vec<MachineReg>; RegFile::BANK_COUNT]) {
+) -> (Vec<Instr>, Vec<MachineReg>) {
     let slot_block = lower_to_slots_and_split(slot_count, arguments, scheduled);
     let (regs, available_ranks) = allocate(&slot_block);
     lower_to_regs(&slot_block, &regs, &available_ranks)
@@ -288,12 +288,12 @@ fn lower_to_regs(
     block:                              &SlotBlock,
     regs:                               &TiVec<AllocatorSlot, Option<MachineReg>>,
     available_ranks:                    &TiVec<AllocatorSlot, isa::RankSet>,
-) -> (Vec<Instr>, [Vec<MachineReg>; RegFile::BANK_COUNT]) {
+) -> (Vec<Instr>, Vec<MachineReg>) {
 
     let mut reg_instrs = vec![];
-    let mut regs_to_save = [const { BTreeSet::new() }; RegFile::BANK_COUNT];
-    let mut note_if_callee_saved = |bank: Bank, reg: MachineReg| {
-        if REGS.is_callee_saved(reg) { regs_to_save[bank.0].insert(reg); }
+    let mut regs_to_save = const { BTreeSet::new() };
+    let mut note_if_callee_saved = |reg: MachineReg| {
+        if REGS.is_callee_saved(reg) { regs_to_save.insert(reg); }
     };
 
     for instr in &block.instrs {
@@ -320,7 +320,6 @@ fn lower_to_regs(
                 .filter(|(_, source, dest)| source != dest)
                 .collect();
 
-            let bank = Bank(bank_index);
             // Turn the moves into an ordered set of register moves that don't overwrite before
             // they read.
             let bank_moves = if let Some(&(representative_slot_for_bank, _, _)) = unordered_moves.first() {
@@ -339,17 +338,12 @@ fn lower_to_regs(
             // Check if anything we used needs to be saved by us before we use it (and restored
             // before we leave)
             for (s, d) in &bank_moves {
-                note_if_callee_saved(bank, *s);
-                note_if_callee_saved(bank, *d);
+                note_if_callee_saved(*s);
+                note_if_callee_saved(*d);
             }
             moves[bank_index] = bank_moves;
         }
-
-        match (regs[instr.slot], block.slot_banks[instr.slot]) {
-            (Some(reg), Some(bank)) => note_if_callee_saved(bank, reg),
-            (None, None)            => {}
-            _                       => panic!("internal compiler error: expected a register and a bank or neither")
-        }
+        if let Some(reg) = regs[instr.slot] { note_if_callee_saved(reg); }
 
         reg_instrs.push(Instr{
             operands, moves,
@@ -361,7 +355,7 @@ fn lower_to_regs(
         });
     }
 
-    (reg_instrs, regs_to_save.map(|r| r.into_iter().collect()))
+    (reg_instrs, regs_to_save.into_iter().collect())
 }
 
 

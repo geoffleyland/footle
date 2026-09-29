@@ -21,6 +21,8 @@ impl MachineReg {
         Self(index)
     }
     pub(super) fn encoding(self) -> u8 { self.0 & 0x1F }
+    pub(super) fn is_x_reg(self) -> bool { self.0 < 32 }
+    pub(super) fn is_d_reg(self) -> bool { self.0 >= 32 }
 }
 
 impl From<MachineReg> for u8    { fn from(m: MachineReg) -> Self  { m.0 } }

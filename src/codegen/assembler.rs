@@ -94,7 +94,8 @@ pub(super) fn run(
     functions:                      &[String],
     argument_types:                 Vec<Type>,
     return_types:                   Vec<Type>,
-    regs_to_save:                   &[Vec<MachineReg>; RegFile::BANK_COUNT]) -> Block{
+    regs_to_save:                   &[MachineReg],
+) -> Block{
     let mut instrs = Vec::new();
     emit_function(allocated, &mut instrs, functions, regs_to_save);
     let glue_start_words = instrs.len();
@@ -109,11 +110,14 @@ fn emit_function(
     allocated:                      Vec<allocator::Instr>,
     instrs:                         &mut Vec<Instr>,
     functions:                      &[String],
-    regs_to_save:                   &[Vec<MachineReg>; RegFile::BANK_COUNT]) {
+    regs_to_save:                   &[MachineReg],
+) {
     let stack = REGS.stack_reg;
     // Save any callee saved registers
-    for pair in regs_to_save[0].chunks(2) { save_restore(instrs, pair, &isa::stp_x_pre, &isa::str_x_pre, stack, -16) }
-    for pair in regs_to_save[1].chunks(2) { save_restore(instrs, pair, &isa::stp_d_pre, &isa::str_d_pre, stack, -16) }
+    let x_regs_to_save = regs_to_save.iter().filter(|r| r.is_x_reg()).copied().collect::<Vec<_>>();
+    let d_regs_to_save = regs_to_save.iter().filter(|r| r.is_d_reg()).copied().collect::<Vec<_>>();
+    for pair in x_regs_to_save.chunks(2) { save_restore(instrs, pair, &isa::stp_x_pre, &isa::str_x_pre, stack, -16) }
+    for pair in d_regs_to_save.chunks(2) { save_restore(instrs, pair, &isa::stp_d_pre, &isa::str_d_pre, stack, -16) }
 
     for ai in allocated {
         for (move_op, moves) in [&isa::mov_x, &isa::fmov_d].iter().zip(&ai.moves) {
@@ -140,8 +144,8 @@ fn emit_function(
 
         // Restore callee saved registers before a `ret`.
         if ai.code.restore_regs() {
-            for pair in regs_to_save[1].chunks(2).rev() { save_restore(instrs, pair, &isa::ldp_d_post, &isa::ldr_d_post, stack, 16) }
-            for pair in regs_to_save[0].chunks(2).rev() { save_restore(instrs, pair, &isa::ldp_x_post, &isa::ldr_x_post, stack, 16) }
+            for pair in d_regs_to_save.chunks(2).rev() { save_restore(instrs, pair, &isa::ldp_d_post, &isa::ldr_d_post, stack, 16) }
+            for pair in x_regs_to_save.chunks(2).rev() { save_restore(instrs, pair, &isa::ldp_x_post, &isa::ldr_x_post, stack, 16) }
         }
 
         if ai.code.save_link_reg() {
