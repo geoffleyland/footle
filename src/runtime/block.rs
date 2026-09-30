@@ -53,8 +53,8 @@ pub fn load<O: Observer>(
 
     // Run type inference without any argument types.
     // This way we see any errors we can find at this point nice and early.
-    let argument_types = vec![vir::TypeInfo::Unknown; vir_block.arguments.len()];
-    match vir::infer_types(&vir_block, &argument_types, &env) {
+    let argument_types = vec![None; vir_block.arguments.len()];
+    match vir::check_types(&vir_block, &argument_types, &env) {
         Ok(..) => {},
         Err(errors) => {
             return Err(Diagnostics { errors, source: source_map });

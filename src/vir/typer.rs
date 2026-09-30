@@ -15,18 +15,40 @@ impl TypeErrors {
     fn push_error(&mut self, error: ParseError) { self.0.push(error); }
 }
 
+/// Load-time check: argument types may be unknown, so some types may stay unresolved.
+/// Only conflicts are errors.
+pub fn check_types(block: &vir::Block, argument_types: &[Option<TypeInfo>], env: &Env)
+    -> Result<(), Vec<ParseError>>
+{
+    infer(block, argument_types, env).map(|_| ())
+}
 
-pub fn infer_types(
+
+/// Call-time inference: every argument type is known, so every type must resolve.
+pub fn infer_types(block: &vir::Block, argument_types: &[TypeInfo], env: &Env)
+    -> Result<Vec<TypeInfo>, Vec<ParseError>>
+{
+    let arguments: Vec<_> = argument_types.iter().copied().map(Some).collect();
+    let types = infer(block, &arguments, env)?;
+    Ok(types.into_iter()
+        .map(|ty| ty.expect("internal compiler error: type unresolved with all argument types known"))
+        .collect())
+}
+
+
+fn infer(
     block:              &vir::Block,
-    argument_types:     &[TypeInfo],
+    argument_types:     &[Option<TypeInfo>],
     env:                &Env,
-) -> Result<Vec<TypeInfo>, Vec<ParseError>> {
+) -> Result<Vec<Option<TypeInfo>>, Vec<ParseError>> {
     let mut errors = TypeErrors(vec![]);
     let mut typer = Typer::new(block.exprs.len());
 
     assert_eq!(block.arguments.len(), argument_types.len(), "internal compiler error: wrong number of arguments");
-    for (argument, ty) in block.arguments.iter().zip(argument_types) {
-        assert!(typer.set_type(argument.pool_index(), *ty, argument.definition_span()).is_ok(),
+    for (argument, ty) in block.arguments.iter()
+        .zip(argument_types)
+        .filter_map(|(a, maybe_ty)| maybe_ty.map(|ty| (a, ty))) {
+        assert!(typer.set_type(argument.pool_index(), ty, argument.definition_span()).is_ok(),
             "internal compiler error: type conflict setting argument type");
     }
 
@@ -47,31 +69,31 @@ pub fn infer_types(
     for (name, old, new, span) in &block.reassignments {
         if let Err(TypeConflict{expected, expected_span, found, found_span}) =
             typer.type_union(old.pool_index(), new.pool_index(), span) {
-                parse_error!(errors,
-                    format!("Reassignment of `{name}` from `{expected}` to `{found}`"),
-                    *span,
-                    format!("`{name}` was `{expected}` here:"),
-                    expected_span,
-                    format!("The rhs is `{found}` here:"),
-                    found_span
-                );
-            }
+            parse_error!(errors,
+                format!("Reassignment of `{name}` from `{expected}` to `{found}`"),
+                *span,
+                format!("`{name}` was `{expected}` here:"),
+                expected_span,
+                format!("The rhs is `{found}` here:"),
+                found_span
+            );
+        }
     }
 
     if errors.0.is_empty() { Ok(typer.extract_types()) } else { Err(errors.0) }
 }
 
 
+
 //-------------------------------------------------------------------------------------------------
 // Type Figurer-outer
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum TypeInfo { Unknown, F64, Bool }
+pub enum TypeInfo { F64, Bool }
 
 impl fmt::Display for TypeInfo {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         let s = match self {
-            Self::Unknown           => "unknown",
             Self::F64               => "f64",
             Self::Bool              => "bool"
         };
@@ -81,10 +103,10 @@ impl fmt::Display for TypeInfo {
 
 
 #[derive(Debug, Copy, Clone)]
-enum TypeNode { Root(TypeInfo, u8), Pointer(usize) }
+enum TypeNode { Root(Option<TypeInfo>, u8), Pointer(usize) }
 
 impl TypeNode {
-    fn new() -> Self { Self::Root(TypeInfo::Unknown, 0) }
+    fn new() -> Self { Self::Root(None, 0) }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -119,7 +141,7 @@ struct Typer {
 impl Typer {
     fn new(len: usize) -> Self { Self { records: vec![TypeRecord::new(); len]}}
 
-    fn extract_types(&mut self) -> Vec<TypeInfo> {
+    fn extract_types(&mut self) -> Vec<Option<TypeInfo>> {
         (0..self.records.len()).map(|i| {
             let root = self.find_root(i);
             match self.records[root].node {
@@ -194,16 +216,16 @@ impl Typer {
                     self.records[root_2].node = Root(type_2, rank_2 + u8::from(rank_1 == rank_2));
                 }
             }
-            (Root(..), Root(TypeInfo::Unknown, ..)) => {
+            (Root(..), Root(None, ..)) => {
                 self.records[root_2].node = Pointer(root_1);
             }
-            (Root(TypeInfo::Unknown, ..), Root(..)) => {
+            (Root(None, ..), Root(..)) => {
                 self.records[root_1].node = Pointer(root_2);
             }
             (Pointer(_), _) | (_, Pointer(_)) => {
                 panic!("internal compiler error: find_root did not find a root")
             }
-            (Root(type_1, ..), Root(type_2, ..)) => {
+            (Root(Some(type_1), ..), Root(Some(type_2), ..)) => {
                 return Err(TypeConflict::new(
                     type_1, self.records[index_1].first_span.expect("internal compiler error"),
                     type_2, self.records[index_2].first_span.expect("internal compiler error")))
@@ -224,16 +246,14 @@ impl Typer {
         let current_type_node = self.records[root].node;
         match current_type_node {
             TypeNode::Pointer(..) => panic!("internal compiler error: find_root did not find a root"),
-            TypeNode::Root(current_type, rank) => {
-                match (current_type, the_type) {
-                    (TypeInfo::Unknown, _) => {
-                        self.records[root].node = TypeNode::Root(the_type, rank);
-                    }
-                    (x, y) if x == y => {}
-                    _ => { return Err(TypeConflict::new(
+            TypeNode::Root(None, rank) => {
+                self.records[root].node = TypeNode::Root(Some(the_type), rank);
+            },
+            TypeNode::Root(Some(current_type), _) => {
+                if current_type != the_type {
+                    return Err(TypeConflict::new(
                         current_type, self.records[index].first_span.expect("internal compiler error"),
                         the_type, *span))
-                    }
                 }
             }
         }

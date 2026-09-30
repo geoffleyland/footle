@@ -42,7 +42,6 @@ fn type_for(ty: vir::TypeInfo) -> Type {
     match ty {
         vir::TypeInfo::F64          => Type::F64,
         vir::TypeInfo::Bool         => Type::I64,
-        vir::TypeInfo::Unknown      => panic!("internal compiler error: incomplete type information")
     }
 }
 
