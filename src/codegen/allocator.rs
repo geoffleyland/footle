@@ -95,7 +95,7 @@ fn lower_to_slots_and_split(
     let mut argument_regs = vec![];
 
     for (value, reg) in arguments.iter()
-        .zip(RegFile::abi_regs(arguments.iter().map(|v| v.ty))) {
+        .zip(REGS.abi_regs(arguments.iter().map(|v| v.ty))) {
         fixed_reg_slots[usize::from(reg)] = Some(value.slot);
         let new_slot = slot_types.push_and_get_key(value.ty);
         argument_regs.push((new_slot, reg));
@@ -185,7 +185,7 @@ fn allocate(
     let mut interfering_slots: TiVec<AllocatorSlot, _> =
         vec![SlotSet::default(); block.slot_types.len()].into();
     let mut available_ranks: TiVec<AllocatorSlot, _> = block.slot_types.iter()
-        .map(|&ty| REGS.available_ranks(ty))
+        .map(|&ty| REGS.ranks_for_type(ty))
         .collect();
 
     for instr in block.instrs.iter().rev() {
@@ -399,7 +399,7 @@ fn move_regs(
     // Now do the ones where there's no other copy and we need a temp.
     for (.., destination) in moves {
         let Some(source) = sources[usize::from(*destination)] else { continue };
-        let temp_reg = REGS.best_reg(temp_reg_pool.intersection(REGS.class_ranks(source)), None);
+        let temp_reg = REGS.best_reg(temp_reg_pool.intersection(REGS.ranks_for_reg(source)), None);
         new_moves.push((source, temp_reg));
         sources[usize::from(*destination)] = None;
         move_regs_backwards(source, &mut sources, &mut destination_counts, &mut new_moves);

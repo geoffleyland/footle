@@ -3,7 +3,7 @@ use seq_macro::seq;
 use super::scheduler::{Constant, Type};
 use super::allocator;
 use super::isa;
-use super::isa::{REGS, Bank,MachineReg, RegFile};
+use super::isa::{REGS, Bank, MachineReg};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -193,7 +193,7 @@ fn emit_glue(argument_types: &[Type], return_types: &[Type], instrs: &mut Vec<In
 
     // Move the arguments from the input buffer into the argument registers.
     for (offset, reg) in (0i32..).step_by(8)
-        .zip(RegFile::abi_regs(argument_types.iter().copied())) {
+        .zip(REGS.abi_regs(argument_types.iter().copied())) {
         match Bank::of_reg(reg) {
             Bank::X => assemble!(instrs, ldr_x_offset, reg, REGS.scratch_reg, Offset(offset)),
             Bank::D => assemble!(instrs, ldr_d_offset, reg, REGS.scratch_reg, Offset(offset)),
@@ -209,7 +209,7 @@ fn emit_glue(argument_types: &[Type], return_types: &[Type], instrs: &mut Vec<In
     assemble!(instrs, ldp_x_post, REGS.scratch_reg, REGS.link_reg, REGS.stack_reg, Offset(16));
 
     for (offset, reg) in (0i32..).step_by(8)
-        .zip(RegFile::abi_regs(return_types.iter().copied())) {
+        .zip(REGS.abi_regs(return_types.iter().copied())) {
         match Bank::of_reg(reg) {
             Bank::X => assemble!(instrs, str_x_offset, reg, REGS.scratch_reg, Offset(offset)),
             Bank::D => assemble!(instrs, str_d_offset, reg, REGS.scratch_reg, Offset(offset)),

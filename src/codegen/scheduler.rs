@@ -9,7 +9,7 @@ use typed_index_collections::TiVec;
 use crate::core::BinaryOperator;
 use crate::vir;
 use super::isa;
-use super::isa::MachineReg;
+use super::isa::{REGS, MachineReg};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -268,7 +268,7 @@ impl<'arena> Builder<'arena> {
                 vir::ExprKind::Binary(op, lhs, rhs) => {
                     if *op == BinaryOperator::Power {
                         self.lower_call("pow", ty, &[lhs.clone(), rhs.clone()], types,
-                            isa::RegFile::abi_regs([ty]).next().unwrap(), expr);
+                            REGS.abi_regs([ty]).next().unwrap(), expr);
 
                     } else if *op == BinaryOperator::Modulo {
                         // AArch64 has no fmod; compute a - trunc(a / b) * b instead.
@@ -299,7 +299,7 @@ impl<'arena> Builder<'arena> {
                 }
                 vir::ExprKind::Call(name, exprs) => {
                     self.lower_call(name, ty, exprs, types,
-                        isa::RegFile::abi_regs([ty]).next().unwrap(), expr);
+                        REGS.abi_regs([ty]).next().unwrap(), expr);
                 }
             }
         }
@@ -409,7 +409,7 @@ impl<'arena> Builder<'arena> {
         types:                                  &[vir::TypeInfo],
     ) -> Vec<(&'arena Value<'arena>, MachineReg)> {
         exprs.iter()
-            .zip(isa::RegFile::abi_regs(exprs.iter().map(|expr| type_for(types[expr.pool_index()]))))
+            .zip(REGS.abi_regs(exprs.iter().map(|expr| type_for(types[expr.pool_index()]))))
             .map(|(expr, reg)| (
                 if let Operand::Reg(v) = self.operand_map[&expr.pool_index()] { v } else {
                     panic!("internal compiler error: constant as a fixed input")

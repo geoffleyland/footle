@@ -92,7 +92,7 @@ impl RegSet {
 pub(super) enum Bank { X = 0, D = 1 }
 
 impl Bank {
-    const BANK_COUNT: usize = Self::D as usize + 1;
+    const COUNT: usize = Self::D as usize + 1;
 
     pub(super) const fn of_reg(reg: MachineReg) -> Self { if reg.0 < 32 { Self::X } else { Self::D } }
     pub(super) const fn of_type(ty: Type) -> Option<Self> {
@@ -111,79 +111,35 @@ pub(super) struct RegFile {
     pub(super) stack_reg:       MachineReg,
     pub(super) link_reg:        MachineReg,
     pub(super) scratch_reg:     MachineReg,
-    bank:                       RegBank,
+    callee_saved:               RegSet,             // Registers we have to save in our prologue
+                                                    // and restore in our epilogue (if we use them)
+    argument_regs:              [&'static [MachineReg]; Bank::COUNT],
+                                                    // Argument registers in order.
+    order:                      [MachineReg; Self::REG_COUNT],
+                                                    // Order in which we allocate registers
+    rank:                       [Option<RegRank>; Self::REG_COUNT],
+                                                    // Rank (in `order`) of a register.  `None`
+                                                    // if we never allocate that register.
+    available_ranks:            [RankSet; Bank::COUNT],
+                                                    // Available registers by rank.
+    clobbered_ranks:            RankSet,            // The register ranks a bl[r] will clobber.
 }
 
 
 impl RegFile {
     pub(super) const REG_COUNT: usize = SetBits::BITS as usize;
 
-    const fn new(stack_reg: u8, link_reg: u8, scratch_reg: u8, b: RegBank) -> Self {
-        Self {
-            stack_reg:          MachineReg::new(stack_reg),
-            link_reg:           MachineReg::new(link_reg),
-            scratch_reg:        MachineReg::new(scratch_reg),
-            bank:               b,
-        }
-    }
-
-    pub(super) fn best_reg(
-        &self,
-        available:              RankSet,
-        preferred:              Option<MachineReg>
-    ) -> MachineReg {
-        self.bank.best_reg(available, preferred)
-    }
-    fn get_rank_bits(&self, reg: MachineReg) -> RankSet {
-        self.bank.get_rank_bits(reg)
-    }
-    pub(super) fn is_callee_saved(&self, reg: MachineReg) -> bool {
-        self.bank.is_callee_saved(reg)
-    }
-    pub(super) fn available_ranks(&self, ty: Type) -> RankSet {
-        Bank::of_type(ty).map_or(RankSet::EMPTY, |b| self.bank.available_ranks[b.index()])
-    }
-    /// The ranks of every allocatable register in the same class as `reg`.
-    pub(super) fn class_ranks(&self, reg: MachineReg) -> RankSet {
-        self.bank.available_ranks[Bank::of_reg(reg).index()]
-    }
-
-    pub(super) fn abi_regs(types: impl IntoIterator<Item = Type>) -> impl Iterator<Item = MachineReg> {
-        let mut used = [0usize; Bank::BANK_COUNT];           // registers used so far, per class
-        types.into_iter().map(move |ty| {
-            let b = Bank::of_type(ty).expect("internal compiler error: no bank for type").index();
-            let reg = *REGS.bank.argument_regs[b].get(used[b])
-                .expect("internal compiler error: too many values in one register class");
-            used[b] += 1;
-            reg
-        })
-    }
-}
-
-
-/// Information about a bank of registers (int or FP)  Possibly the structure is cross-platform?
-#[derive(Debug)]
-pub (super) struct RegBank {
-    order: [MachineReg; RegFile::REG_COUNT],        // Order in which we allocate registers
-    rank: [Option<RegRank>; RegFile::REG_COUNT],    // Rank (in `order`) of a register.  `None`
-                                                    // if we never allocate that register.
-    callee_saved: RegSet,                           // Registers we have to save in our prologue
-                                                    // and epilogue (if we use them)
-    argument_regs: [&'static [MachineReg]; 2],      // Argument registers in order.
-    clobbered_ranks: RankSet,                       // The register ranks a bl[r] will clobber
-                                                    // in this bank
-    available_ranks: [RankSet; 2],                  // Available registers by rank.
-}
-
-impl RegBank {
     const fn new(
+        stack_reg:          u8,
+        link_reg:           u8,
+        scratch_reg:        u8,
         callee_saved:       RegSet,
-        argument_regs:      [&'static [MachineReg]; 2],
-        u8_order:           &[u8]
+        argument_regs:      [&'static [MachineReg]; Bank::COUNT],
+        u8_order:           &[u8],
     ) -> Self {
-        let mut order = [MachineReg::new(0); RegFile::REG_COUNT];
-        let mut rank = [None; RegFile::REG_COUNT];
-        let mut available_ranks = [RankSet::EMPTY; 2];
+        let mut order = [MachineReg::new(0); Self::REG_COUNT];
+        let mut rank = [None; Self::REG_COUNT];
+        let mut available_ranks = [RankSet::EMPTY; Bank::COUNT];
         let mut i = 0;
         while i < u8_order.len() {
             order[i] = MachineReg::new(u8_order[i]);
@@ -203,13 +159,19 @@ impl RegBank {
             }
             c &= c - 1;
         }
-        Self { order, rank, callee_saved, argument_regs, clobbered_ranks, available_ranks }
+
+        Self {
+            stack_reg:          MachineReg::new(stack_reg),
+            link_reg:           MachineReg::new(link_reg),
+            scratch_reg:        MachineReg::new(scratch_reg),
+            callee_saved, argument_regs, order, rank, available_ranks, clobbered_ranks
+        }
     }
 
     /// Pick a register from `available` (a bitmask of ranks).  If `preferred` is available, use it —
     /// this just avoids an extra move later, it's not required for correctness (the move machinery
     /// will fix up the register either way).
-    fn best_reg(&self, available: RankSet, preferred: Option<MachineReg>) -> MachineReg {
+    pub(super) fn best_reg(&self, available: RankSet, preferred: Option<MachineReg>) -> MachineReg {
         if let Some(p) = preferred {
             let rank = self.rank[usize::from(p)]
                 .expect("internal compiler error: trying to use system register");
@@ -218,13 +180,30 @@ impl RegBank {
         self.order[available.0.trailing_zeros() as usize]
     }
 
+    pub(super) fn is_callee_saved(&self, reg: MachineReg) -> bool { self.callee_saved.contains(reg) }
     fn get_rank_bits(&self, reg: MachineReg) -> RankSet {
         let r = self.rank[usize::from(reg)]
             .expect("internal compiler error: trying to use system register");
         RankSet(1 << r.0)
     }
 
-    fn is_callee_saved(&self, reg: MachineReg) -> bool { self.callee_saved.contains(reg) }
+    pub(super) fn ranks_for_type(&self, ty: Type) -> RankSet {
+        Bank::of_type(ty).map_or(RankSet::EMPTY, |b| self.available_ranks[b.index()])
+    }
+    pub(super) fn ranks_for_reg(&self, reg: MachineReg) -> RankSet {
+        self.available_ranks[Bank::of_reg(reg).index()]
+    }
+
+    pub(super) fn abi_regs(&self, types: impl IntoIterator<Item = Type>) -> impl Iterator<Item = MachineReg> {
+        let mut used = [0usize; Bank::COUNT];           // registers used so far, per class
+        types.into_iter().map(move |ty| {
+            let b = Bank::of_type(ty).expect("internal compiler error: no bank for type").index();
+            let reg = *self.argument_regs[b].get(used[b])
+                .expect("internal compiler error: too many values in one register class");
+            used[b] += 1;
+            reg
+        })
+    }
 }
 
 
@@ -236,8 +215,8 @@ const fn regs<const N: usize>(numbers: [u8; N]) -> [MachineReg; N] {
 }
 
 
-pub(super) const REGS: RegFile = RegFile::new(31, 30, 16,
-    RegBank::new(RegSet(0x0000_FF00_1FF8_0000),
+pub(super) static REGS: RegFile = RegFile::new(31, 30, 16,
+    RegSet(0x0000_FF00_1FF8_0000),
     [
         &regs([ 0,  1,  2,  3,  4,  5,  6,  7]),
         &regs([32, 33, 34, 35, 36, 37, 38, 39]),
@@ -247,9 +226,9 @@ pub(super) const REGS: RegFile = RegFile::new(31, 30, 16,
         19, 20, 21, 22, 23, 24, 25, 26, 27, 28,     // callee-saved
          0,  1,  2,  3,  4,  5,  6,  7,             // argument registers
         48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, // d16-d31 (caller saved)
-        40, 41, 42, 43, 44, 45, 46, 47,                                 // d8-d16 (callee saved)
+        40, 41, 42, 43, 44, 45, 46, 47,                                 // d8-d15 (callee saved)
         32, 33, 34, 35, 36, 37, 38, 39,                                 // d0-d7 (function args)
-    ])
+    ],
 );
 
 
@@ -290,11 +269,11 @@ impl Code {
 
     pub fn clobbers_anything(&self) -> bool { self.save_link_reg() }
     pub fn clobbers(&self, reg: MachineReg) -> bool {
-        self.save_link_reg() && !REGS.bank.callee_saved.contains(reg)
+        self.save_link_reg() && !REGS.callee_saved.contains(reg)
     }
 
     pub fn clobbered_ranks(&self) -> RankSet {
-        if self.save_link_reg() { REGS.bank.clobbered_ranks } else { RankSet::EMPTY }
+        if self.save_link_reg() { REGS.clobbered_ranks } else { RankSet::EMPTY }
     }
 
     pub fn restore_regs(&self) -> bool  { std::ptr::eq(self, &raw const ret) }
