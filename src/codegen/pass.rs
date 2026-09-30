@@ -17,12 +17,12 @@ pub fn run<O:Observer>(
     observer.schedule(&scheduled_block);
     let argument_types = scheduled_block.arguments.iter().map(|a| a.ty).collect();
 
-    let (allocated, registers_to_save) =
+    let (allocated, written_regs) =
         allocator::run(scheduled_block.value_count, &scheduled_block.arguments,
             &scheduled_block.instrs);
     let assembly =
         assembler::run(allocated, &scheduled_block.constants, &scheduled_block.functions,
-            argument_types, scheduled_block.return_types, &registers_to_save);
+            argument_types, scheduled_block.return_types, written_regs);
     observer.assembly(&assembly);
     let func = binary::emit(&assembly);
     observer.func(&func);

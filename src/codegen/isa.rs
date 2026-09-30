@@ -84,7 +84,22 @@ impl RankSet {
 pub(super) struct RegSet(SetBits);
 
 impl RegSet {
-    fn contains(self, reg: MachineReg) -> bool { self.0 >> reg.0 & 1 != 0 }
+    pub(super) const EMPTY: Self = Self(0);
+    pub(super) fn insert(&mut self, reg: MachineReg)    { self.0 |= 1 << reg.0 }
+    pub(super) const fn intersection(self, other: Self) -> Self
+                                                        { Self(self.0 & other.0) }
+    fn contains(self, reg: MachineReg) -> bool          { self.0 >> reg.0 & 1 != 0 }
+
+    pub(super) fn iter(self) -> impl Iterator<Item = MachineReg> {
+        let mut bits = self.0;
+        std::iter::from_fn(move || {
+            if bits == 0 { return None }
+            let reg = MachineReg::try_from(bits.trailing_zeros() as usize)
+                .expect("internal compiler error: register out of range");
+            bits &= bits - 1;                           // clear the lowest set bit
+            Some(reg)
+        })
+    }
 }
 
 
@@ -103,6 +118,9 @@ impl Bank {
         }
     }
     pub(super) const fn index(self) -> usize { self as usize }
+    pub(super) const fn regs(self) -> RegSet {
+        match self { Self::X => RegSet(0xFFFF_FFFF), Self::D => RegSet(0xFFFF_FFFF << 32) }
+    }
 }
 
 
@@ -180,7 +198,9 @@ impl RegFile {
         self.order[available.0.trailing_zeros() as usize]
     }
 
-    pub(super) fn is_callee_saved(&self, reg: MachineReg) -> bool { self.callee_saved.contains(reg) }
+    pub(super) fn regs_to_save(&self, written: RegSet, bank: Bank) -> RegSet {
+        written.intersection(self.callee_saved).intersection(bank.regs())
+    }
     fn get_rank_bits(&self, reg: MachineReg) -> RankSet {
         let r = self.rank[usize::from(reg)]
             .expect("internal compiler error: trying to use system register");

@@ -1,5 +1,4 @@
 use std::cell::OnceCell;
-use std::collections::BTreeSet;
 
 use bit_set::BitSet;
 use typed_index_collections::TiVec;
@@ -7,7 +6,7 @@ use derive_more::{From, Into};
 
 use super::scheduler::{Value, ValueSlot, SchedulePosition, Type};
 use super::isa;
-use super::isa::{REGS, MachineReg, RegFile};
+use super::isa::{REGS, MachineReg, RegFile, RegSet};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -20,7 +19,7 @@ pub(super) fn run(
     slot_count:                         usize,
     arguments:                          &[&Value<'_>],
     scheduled:                          &TiVec<SchedulePosition, &Value<'_>>,
-) -> (Vec<Instr>, Vec<MachineReg>) {
+) -> (Vec<Instr>, RegSet) {
     let slot_block = lower_to_slots_and_split(slot_count, arguments, scheduled);
     let (regs, available_ranks) = allocate(&slot_block);
     lower_to_regs(&slot_block, &regs, &available_ranks)
@@ -285,13 +284,10 @@ fn lower_to_regs(
     block:                              &SlotBlock,
     regs:                               &TiVec<AllocatorSlot, Option<MachineReg>>,
     available_ranks:                    &TiVec<AllocatorSlot, isa::RankSet>,
-) -> (Vec<Instr>, Vec<MachineReg>) {
+) -> (Vec<Instr>, RegSet) {
 
     let mut reg_instrs = vec![];
-    let mut regs_to_save = BTreeSet::new();
-    let mut note_if_callee_saved = |reg: MachineReg| {
-        if REGS.is_callee_saved(reg) { regs_to_save.insert(reg); }
-    };
+    let mut written_regs = RegSet::EMPTY;
 
     for instr in &block.instrs {
         let operands: Vec<Operand> = instr.operands.iter().cloned().map(|o| o.map_reg(|s|
@@ -324,14 +320,11 @@ fn lower_to_regs(
             move_regs(&unordered_moves, temp_reg_pool)
         };
 
-        // Check if anything we used needs to be saved by us before we use it (and restored
-        // before we leave)
-        for (s, d) in &moves {
-            note_if_callee_saved(*s);
-            note_if_callee_saved(*d);
-        }
-
-        if let Some(reg) = regs[instr.slot] { note_if_callee_saved(reg); }
+        // Make a record of everything we write to, in case it needs to be callee saved.
+        // We don't need to worry about source registers for moves - we're only reading from them,
+        // and if we wrote to them we will have already picked that up.
+        for (_, d) in &moves { written_regs.insert(*d); }
+        if let Some(reg) = regs[instr.slot] { written_regs.insert(reg); }
 
         reg_instrs.push(Instr{
             operands, moves,
@@ -343,7 +336,7 @@ fn lower_to_regs(
         });
     }
 
-    (reg_instrs, regs_to_save.into_iter().collect())
+    (reg_instrs, written_regs)
 }
 
 

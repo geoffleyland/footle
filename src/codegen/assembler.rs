@@ -3,7 +3,7 @@ use seq_macro::seq;
 use super::scheduler::{Constant, Type};
 use super::allocator;
 use super::isa;
-use super::isa::{REGS, Bank, MachineReg};
+use super::isa::{REGS, Bank, MachineReg, RegSet};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -94,10 +94,10 @@ pub(super) fn run(
     functions:                      &[String],
     argument_types:                 Vec<Type>,
     return_types:                   Vec<Type>,
-    regs_to_save:                   &[MachineReg],
+    written_regs:                   RegSet,
 ) -> Block{
     let mut instrs = Vec::new();
-    emit_function(allocated, &mut instrs, functions, regs_to_save);
+    emit_function(allocated, &mut instrs, functions, written_regs);
     let glue_start_words = instrs.len();
     emit_glue(&argument_types, &return_types, &mut instrs);
 
@@ -110,12 +110,12 @@ fn emit_function(
     allocated:                      Vec<allocator::Instr>,
     instrs:                         &mut Vec<Instr>,
     functions:                      &[String],
-    regs_to_save:                   &[MachineReg],
+    written_regs:                   RegSet,
 ) {
     let stack = REGS.stack_reg;
     // Save any callee saved registers
-    let x_regs_to_save = regs_to_save.iter().filter(|&&r| Bank::of_reg(r) == Bank::X).copied().collect::<Vec<_>>();
-    let d_regs_to_save = regs_to_save.iter().filter(|&&r| Bank::of_reg(r) == Bank::D).copied().collect::<Vec<_>>();
+    let x_regs_to_save: Vec<_> = REGS.regs_to_save(written_regs, Bank::X).iter().collect();
+    let d_regs_to_save: Vec<_> = REGS.regs_to_save(written_regs, Bank::D).iter().collect();
     for pair in x_regs_to_save.chunks(2) { save_restore(instrs, pair, &isa::stp_x_pre, &isa::str_x_pre, stack, -16) }
     for pair in d_regs_to_save.chunks(2) { save_restore(instrs, pair, &isa::stp_d_pre, &isa::str_d_pre, stack, -16) }
 
