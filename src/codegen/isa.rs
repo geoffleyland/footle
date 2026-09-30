@@ -114,7 +114,7 @@ impl Bank {
         match ty {
             Type::F64                               => Some(Self::D),
             Type::I64 | Type::FunctionPointer       => Some(Self::X),
-            Type::None                              => None,
+            Type::NoValue                           => None,
         }
     }
     pub(super) const fn index(self) -> usize { self as usize }

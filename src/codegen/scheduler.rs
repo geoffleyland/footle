@@ -31,7 +31,7 @@ pub(super) enum ValueDef {
 
 #[derive(Debug, Copy, Clone)]
 pub(super) enum Type {
-    None,
+    NoValue,
     F64,
     I64,
     FunctionPointer,
@@ -51,7 +51,7 @@ impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use Type::*;
         let str = match self {
-            None                            => "None",
+            NoValue                         => "NoValue",
             I64                             => "i64",
             F64                             => "f64",
             FunctionPointer                 => "FunctionPointer",
@@ -306,7 +306,7 @@ impl<'arena> Builder<'arena> {
 
         let return_values = self.exprs_to_fixed_inputs(&input.return_values, types);
         self.return_types = return_values.iter().map(|(v, _)| v.ty).collect();
-        self.make_value(Type::None, &isa::ret, vec![], return_values, None,
+        self.make_value(Type::NoValue, &isa::ret, vec![], return_values, None,
             #[cfg(feature = "dogfood")]
             input.return_span
         );
