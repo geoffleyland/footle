@@ -3,7 +3,7 @@ use seq_macro::seq;
 use super::scheduler::{Constant, Type};
 use super::allocator;
 use super::isa;
-use super::isa::{REGS, X_BANK, D_BANK, MachineReg, RegFile};
+use super::isa::{REGS, Bank,MachineReg, RegFile};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -114,16 +114,18 @@ fn emit_function(
 ) {
     let stack = REGS.stack_reg;
     // Save any callee saved registers
-    let x_regs_to_save = regs_to_save.iter().filter(|r| r.is_x_reg()).copied().collect::<Vec<_>>();
-    let d_regs_to_save = regs_to_save.iter().filter(|r| r.is_d_reg()).copied().collect::<Vec<_>>();
+    let x_regs_to_save = regs_to_save.iter().filter(|&&r| Bank::of_reg(r) == Bank::X).copied().collect::<Vec<_>>();
+    let d_regs_to_save = regs_to_save.iter().filter(|&&r| Bank::of_reg(r) == Bank::D).copied().collect::<Vec<_>>();
     for pair in x_regs_to_save.chunks(2) { save_restore(instrs, pair, &isa::stp_x_pre, &isa::str_x_pre, stack, -16) }
     for pair in d_regs_to_save.chunks(2) { save_restore(instrs, pair, &isa::stp_d_pre, &isa::str_d_pre, stack, -16) }
 
     for ai in allocated {
         for (source, destination) in &ai.moves {
-            debug_assert_eq!(source.is_x_reg(), destination.is_x_reg());
-            if source.is_x_reg()    { assemble!(instrs, mov_x, *destination, *source); }
-            else                    { assemble!(instrs, fmov_d, *destination, *source); }
+            debug_assert_eq!(Bank::of_reg(*source), Bank::of_reg(*destination));
+            match Bank::of_reg(*source) {
+                Bank::X    => assemble!(instrs, mov_x, *destination, *source),
+                Bank::D    => assemble!(instrs, fmov_d, *destination, *source)
+            }
         }
 
         let operands = ai.code.has_output()
@@ -192,10 +194,9 @@ fn emit_glue(argument_types: &[Type], return_types: &[Type], instrs: &mut Vec<In
     // Move the arguments from the input buffer into the argument registers.
     for (offset, reg) in (0i32..).step_by(8)
         .zip(RegFile::abi_regs(argument_types.iter().copied())) {
-        match isa::bank_for_reg(reg) {
-            X_BANK => assemble!(instrs, ldr_x_offset, reg, REGS.scratch_reg, Offset(offset)),
-            D_BANK => assemble!(instrs, ldr_d_offset, reg, REGS.scratch_reg, Offset(offset)),
-            _ => panic!("internal compiler error: no bank for argument")
+        match Bank::of_reg(reg) {
+            Bank::X => assemble!(instrs, ldr_x_offset, reg, REGS.scratch_reg, Offset(offset)),
+            Bank::D => assemble!(instrs, ldr_d_offset, reg, REGS.scratch_reg, Offset(offset)),
         }
     }
 
@@ -209,10 +210,9 @@ fn emit_glue(argument_types: &[Type], return_types: &[Type], instrs: &mut Vec<In
 
     for (offset, reg) in (0i32..).step_by(8)
         .zip(RegFile::abi_regs(return_types.iter().copied())) {
-            match isa::bank_for_reg(reg) {
-            X_BANK => assemble!(instrs, str_x_offset, reg, REGS.scratch_reg, Offset(offset)),
-            D_BANK => assemble!(instrs, str_d_offset, reg, REGS.scratch_reg, Offset(offset)),
-            _ => panic!("internal compiler error: no bank for argument")
+        match Bank::of_reg(reg) {
+            Bank::X => assemble!(instrs, str_x_offset, reg, REGS.scratch_reg, Offset(offset)),
+            Bank::D => assemble!(instrs, str_d_offset, reg, REGS.scratch_reg, Offset(offset)),
         }
     }
     assemble!(instrs, ret);

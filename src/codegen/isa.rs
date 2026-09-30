@@ -21,8 +21,6 @@ impl MachineReg {
         Self(index)
     }
     pub(super) fn encoding(self) -> u8 { self.0 & 0x1F }
-    pub(super) fn is_x_reg(self) -> bool { self.0 < 32 }
-    pub(super) fn is_d_reg(self) -> bool { self.0 >= 32 }
 }
 
 impl From<MachineReg> for u8    { fn from(m: MachineReg) -> Self  { m.0 } }
@@ -91,20 +89,20 @@ impl RegSet {
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Bank(pub(super) usize);
-pub(super) const X_BANK: Bank = Bank(0);
-pub(super) const D_BANK: Bank = Bank(1);
-pub(super) fn bank_for(ty: Type) -> Option<Bank> {
-    match ty {
-        Type::F64               => Some(D_BANK),
-        Type::I64 |
-        Type::FunctionPointer   => Some(X_BANK),
-        Type::None              => None
-    }
-}
+pub(super) enum Bank { X = 0, D = 1 }
 
-pub(super) fn bank_for_reg(reg: MachineReg) -> Bank {
-    if reg.0 < 32 { X_BANK } else { D_BANK }
+impl Bank {
+    const BANK_COUNT: usize = Self::D as usize + 1;
+
+    pub(super) const fn of_reg(reg: MachineReg) -> Self { if reg.0 < 32 { Self::X } else { Self::D } }
+    pub(super) const fn of_type(ty: Type) -> Option<Self> {
+        match ty {
+            Type::F64                               => Some(Self::D),
+            Type::I64 | Type::FunctionPointer       => Some(Self::X),
+            Type::None                              => None,
+        }
+    }
+    pub(super) const fn index(self) -> usize { self as usize }
 }
 
 
@@ -119,7 +117,6 @@ pub(super) struct RegFile {
 
 impl RegFile {
     pub(super) const REG_COUNT: usize = SetBits::BITS as usize;
-    pub(super) const BANK_COUNT: usize = 2;
 
     const fn new(stack_reg: u8, link_reg: u8, scratch_reg: u8, b: RegBank) -> Self {
         Self {
@@ -144,20 +141,20 @@ impl RegFile {
         self.bank.is_callee_saved(reg)
     }
     pub(super) fn available_ranks(&self, ty: Type) -> RankSet {
-        bank_for(ty).map_or(RankSet::EMPTY, |b| self.bank.available_ranks[b.0])
+        Bank::of_type(ty).map_or(RankSet::EMPTY, |b| self.bank.available_ranks[b.index()])
     }
     /// The ranks of every allocatable register in the same class as `reg`.
     pub(super) fn class_ranks(&self, reg: MachineReg) -> RankSet {
-        self.bank.available_ranks[usize::from(reg.is_d_reg())]
+        self.bank.available_ranks[Bank::of_reg(reg).index()]
     }
 
     pub(super) fn abi_regs(types: impl IntoIterator<Item = Type>) -> impl Iterator<Item = MachineReg> {
-        let mut used = [0usize; Self::BANK_COUNT];           // registers used so far, per class
+        let mut used = [0usize; Bank::BANK_COUNT];           // registers used so far, per class
         types.into_iter().map(move |ty| {
-            let bank = bank_for(ty).expect("internal compiler error: no bank for type");
-            let reg = *REGS.bank.argument_regs[bank.0].get(used[bank.0])
+            let b = Bank::of_type(ty).expect("internal compiler error: no bank for type").index();
+            let reg = *REGS.bank.argument_regs[b].get(used[b])
                 .expect("internal compiler error: too many values in one register class");
-            used[bank.0] += 1;
+            used[b] += 1;
             reg
         })
     }
@@ -192,7 +189,7 @@ impl RegBank {
             order[i] = MachineReg::new(u8_order[i]);
             let r = RegRank::new(i);
             rank[u8_order[i] as usize] = Some(r);
-            let bank = if u8_order[i] < 32 { 0 } else { 1 };
+            let bank = Bank::of_reg(order[i]).index();
             available_ranks[bank] = available_ranks[bank].with(r);
             i += 1;
         }
