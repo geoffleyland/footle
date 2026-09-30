@@ -8,7 +8,7 @@ pub fn disassemble(func: &CompiledFn) -> Vec<String> {
         .mode(capstone::arch::arm64::ArchMode::Arm)
         .build()
         .expect("Couldn't build disassembler")
-        .disasm_count(func.bytes(), 0x1000, func.instruction_count)
+        .disasm_count(func.bytes(), 0x1000, func.instr_count)
         .expect("Couldn't disassemble code")
         .as_ref()
         .iter()

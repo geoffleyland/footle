@@ -18,7 +18,7 @@ pub struct CompiledFn {
     func:                           fn(*const u64, *mut u64),
 
     #[cfg(feature = "dogfood")]
-    pub(super) instruction_count:   usize,
+    pub(super) instr_count:         usize,
 }
 
 
@@ -30,7 +30,7 @@ impl CompiledFn {
         argument_types:             &[Type],
         return_types:               &[Type],
         #[cfg(feature = "dogfood")]
-        instruction_count:          usize,
+        instr_count:                usize,
     ) -> Self {
         let func = unsafe { mem::transmute::<*mut u32, fn(*const u64, *mut u64)>(ptr.add(glue_start_words)) };
 
@@ -38,7 +38,7 @@ impl CompiledFn {
             argument_types: argument_types.to_vec(),
             return_types: return_types.to_vec(),
         #[cfg(feature = "dogfood")]
-            instruction_count
+            instr_count
         }
     }
 
