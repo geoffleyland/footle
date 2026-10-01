@@ -5,30 +5,30 @@ TEST_FILE=test-cases/arguments/operators.ftl
 
 export COMPOSE_FILE=docker/compose.yaml
 
+# LESS_CLIPPY (the default in containers) lints only the dogfood build.  The platform-specific code
+# is all in it, and the other configurations only add code that's the same everywhere.
+clippy_all() {
+    cargo clippy --features dogfood || return
+    [ -n "$LESS_CLIPPY" ] && return
+    cargo clippy \
+        && cargo clippy --tests \
+        && cargo clippy --features dogfood --tests
+}
+
 case $1 in
 
     test)
-        RUST_BACKTRACE=1 \
-            cargo test \
-            && cargo run --features dogfood -- -t ${2:-$TEST_DIR} \
-            && cargo clippy \
-            && cargo clippy --features dogfood \
-            && cargo clippy --tests \
-            && cargo clippy --features dogfood --tests
+        export RUST_BACKTRACE=1
+        cargo test \
+            && cargo run -q --features dogfood -- -t ${2:-$TEST_DIR} \
+            && clippy_all
         ;;
 
     watch)
         case $2 in
 
             test)
-                RUST_BACKTRACE=1 watchexec -w src -w ${3:-$TEST_DIR} -w Cargo.toml -c -- "\
-                    cargo test \
-                    && cargo run -q --features dogfood -- --test ${3:-$TEST_DIR} \
-                    && cargo clippy \
-                    && cargo clippy --features dogfood \
-                    && cargo clippy --tests \
-                    && cargo clippy --features dogfood --tests \
-                    "
+                watchexec -w src -w ${3:-$TEST_DIR} -w Cargo.toml -c -- ./admin test ${3:-$TEST_DIR}
                 ;;
 
             verbose)
@@ -47,7 +47,7 @@ case $1 in
     linux)
         shift
         [ -t 0 ] || TTY=-T
-        docker compose run --rm $TTY alpine-aarch64 ./admin "$@"
+        docker compose run --rm $TTY -e LESS_CLIPPY=${LESS_CLIPPY-1} alpine-aarch64 ./admin "$@"
         ;;
 
     doc)
@@ -61,7 +61,7 @@ case $1 in
     **)
         F=$1
         shift 1
-        cargo run -q -- ${F:-$TEST_FILE} $@
+        cargo run -q -- ${F:-$TEST_FILE} "$@"
     ;;
 
 esac
