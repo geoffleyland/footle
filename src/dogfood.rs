@@ -131,6 +131,7 @@ fn find_tests(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
 
 struct DogfoodEater {
     expected:               HashMap<String, Vec<String>>,
+    unchecked:              Vec<String>,
     section:                &'static str,
     had_mismatches:         bool,
     safe_to_run:            bool,
@@ -138,8 +139,8 @@ struct DogfoodEater {
 }
 
 impl DogfoodEater {
-    fn new(expected: HashMap<String, Vec<String>>) -> Self {
-        Self{expected, section: "", had_mismatches: false, safe_to_run: true, signature: String::new() }
+    fn new(expected: HashMap<String, Vec<String>>, unchecked: Vec<String>) -> Self {
+        Self{expected, unchecked, section: "", had_mismatches: false, safe_to_run: true, signature: String::new() }
     }
 
     fn test(&mut self, key: &str, extra_passes: &[&str], required: bool, lines: &[String]) {
@@ -149,10 +150,12 @@ impl DogfoodEater {
             None => None,
         };
         if (self.section == "source" || (extra_passes.contains(&self.section))) &&
-            let Some(expected) = expected &&
-            let Err(e) = compare_lines(lines, expected, self.section, key) {
-            eprintln!("\n{e:#}");
-            self.had_mismatches = true;
+            let Some(expected) = expected {
+            self.unchecked.retain(|e| e != key);
+            if let Err(e) = compare_lines(lines, expected, self.section, key) {
+                eprintln!("\n{e:#}");
+                self.had_mismatches = true;
+            }
         }
         self.expected.insert(key.into(), lines.to_vec());
     }
@@ -229,8 +232,8 @@ impl runtime::Observer for DogfoodEater {
 /// compiler with the source, statements and vir as inputs all produce the same vir, then what
 /// follows should be the same in all cases.
 fn run_test(path: &Path) -> Result<()> {
-    let expected = read_test_file(path)?;
-    let mut eater = DogfoodEater::new(expected);
+    let (expected, sections) = read_test_file(path)?;
+    let mut eater = DogfoodEater::new(expected, sections);
 
     for key in ["source", "statements", "vir"] {
         eater.section = key;
@@ -240,22 +243,31 @@ fn run_test(path: &Path) -> Result<()> {
         eater.close()?;
         if stop { break }
     }
+    if !eater.unchecked.is_empty() {
+        bail!("unchecked sections: {}", eater.unchecked.join(", "));
+    }
     Ok(())
 }
 
 
-fn read_test_file(path: &Path) -> Result<HashMap<String, Vec<String>>> {
+#[allow(clippy::type_complexity)]
+fn read_test_file(path: &Path) -> Result<(HashMap<String, Vec<String>>, Vec<String>)> {
     let file =
         fs::File::open(path)
             .with_context(|| format!("couldn't open '{}'", path.display()))?;
 
     // Read the file, putting all the bits into the right buffers.
     let mut expected = HashMap::<String, Vec<String>>::new();
+    let mut sections = vec![];
     let mut mode = "source".to_string();
 
     for line in BufReader::new(file).lines().map_while(Result::ok) {
         if let Some(raw_mode) = line.strip_prefix("#( expected") {
             mode = raw_mode.trim().to_lowercase();
+            if sections.contains(&mode) {
+                bail!("Repeated expected section '{mode}'");
+            }
+            sections.push(mode.clone());
             expected.entry(mode.clone()).or_default();
         } else if !line.is_empty() && (mode == "source" || !line.starts_with("#)")) {
             expected.entry(mode.clone()).or_default().push(line);
@@ -263,7 +275,7 @@ fn read_test_file(path: &Path) -> Result<HashMap<String, Vec<String>>> {
             mode = "source".to_string();
         }
     }
-    Ok(expected)
+    Ok((expected, sections))
 }
 
 
@@ -276,6 +288,7 @@ fn test_lines(
     let mut block = match runtime::load(file_name, source.into(), eater) {
         Err(diagnostics) => {
             let error_strings: Vec<_> = diagnostics.errors.iter().map(|e| format!("{e}")).collect();
+            eater.unchecked.retain(|e| e != "errors");
             compare_lines(&error_strings, eater.expected.get("errors").unwrap_or(&vec![]), section, "errors")?;
             return Ok(true);
         }
@@ -292,6 +305,7 @@ fn test_lines(
     // if we run something NYI, we get an NYI and a panic.)
     if section == "source" && eater.expected.contains_key("results") {
         let all_arguments = parse_expected_results(&eater.expected["results"])?;
+        eater.unchecked.retain(|e| e != "results");
         let mut obtained_lines = vec![];
         for arguments in all_arguments {
             let outcome = match block.call(&arguments, eater) {
