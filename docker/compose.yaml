@@ -1,0 +1,29 @@
+# Linux development containers, one service per target.  From the repository root:
+#
+#   docker compose -f docker/compose.yaml run --rm alpine-aarch64 ./admin test
+#
+# Leave off the command for a shell.  `run` builds the image the first time; after changing a
+# dockerfile, add --build.
+#
+# The source is bind-mounted, so host edits show up without a rebuild.  Each target gets its own
+# named volumes for build products (so Linux builds don't fight the macOS one in ./target) and
+# for downloaded crates.
+
+name: footle
+
+services:
+  alpine-aarch64:
+    build:
+      context: .
+      dockerfile: dockerfile-alpine-aarch64
+    image: footle-alpine-aarch64
+    platform: linux/arm64
+    working_dir: /footle
+    volumes:
+      - ..:/footle
+      - alpine-aarch64-target:/target
+      - alpine-aarch64-cargo:/usr/local/cargo/registry
+
+volumes:
+  alpine-aarch64-target:
+  alpine-aarch64-cargo:

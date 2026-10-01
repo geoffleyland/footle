@@ -115,7 +115,8 @@ fn show_version() {
     let version: &str = env!("CARGO_PKG_VERSION");
     let profile = if cfg!(debug_assertions) { "debug" } else { "release" };
     let git_version: &str = git_version!();
-    eprintln!("{name} {version} ({profile}, {git_version})");
+    let (arch, os) = (std::env::consts::ARCH, std::env::consts::OS);
+    eprintln!("{name} {version} ({profile}, {arch}-{os}, {git_version})");
 }
 
 

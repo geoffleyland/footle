@@ -4,7 +4,7 @@ on it for a month or so, and then it gets lost for a year, but it comes back as 
 scratch.
 
 A loooong time later, and it's not got very far (there's no control flow), but it does compile
-very simple programs to AArch64.
+very simple programs to AArch64 on macOS and Linux.
 
 It has some features:
  * It doesn't use many libraries.  The results would be better and my life would be easier if I

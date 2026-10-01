@@ -1,8 +1,10 @@
 //-------------------------------------------------------------------------------------------------
-// Mac OS memory management and symbol lookup
+// macOS memory management
 
 use libc::{mmap, pthread_jit_write_protect_np,
         MAP_ANON, MAP_JIT, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE, MAP_FAILED};
+
+pub use super::unix::{free_jit, resolve_symbol};
 
 unsafe extern "C" {
     fn sys_icache_invalidate(start: *mut std::ffi::c_void, size: usize);
@@ -21,11 +23,6 @@ pub fn alloc_jit(size: usize) -> *mut u32 {
 }
 
 
-pub fn free_jit(ptr: *mut u32, size: usize) {
-    unsafe { libc::munmap(ptr.cast(), size); }
-}
-
-
 pub fn start_jit_compile() {
     unsafe { pthread_jit_write_protect_np(0); }
 }
@@ -35,12 +32,4 @@ pub fn finish_jit_compile(code_ptr: *mut u32, size: usize) {
         pthread_jit_write_protect_np(1);
         sys_icache_invalidate(code_ptr.cast(), size);
     }
-}
-
-pub fn resolve_symbol(name: &str) -> u64 {
-    let c_name = std::ffi::CString::new(name)
-        .expect("internal compiler error: function name has interior null");
-    let ptr = unsafe { libc::dlsym(libc::RTLD_DEFAULT, c_name.as_ptr()) };
-    assert!(!ptr.is_null(), "internal compiler error: function '{name}' not found");
-    ptr as u64
 }

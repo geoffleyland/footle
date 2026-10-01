@@ -3,6 +3,8 @@
 TEST_DIR=test-cases/
 TEST_FILE=test-cases/arguments/operators.ftl
 
+export COMPOSE_FILE=docker/compose.yaml
+
 case $1 in
 
     test)
@@ -36,12 +38,17 @@ case $1 in
             **)
                 F=$2
                 shift 2
-                RUST_BACKTRACE=1 watchexec -w src -w ${F:-$TEST_FILE} -w Cargo.toml -c -- cargo run -q -- ${F:-$TEST_FILE} $@
+                RUST_BACKTRACE=1 watchexec -w src -w ${F:-$TEST_FILE} -w Cargo.toml -c -- cargo run -q -- ${F:-$TEST_FILE} "$@"
                 ;;
 
         esac
         ;;
 
+    linux)
+        shift
+        [ -t 0 ] || TTY=-T
+        docker compose run --rm $TTY alpine-aarch64 ./admin "$@"
+        ;;
 
     doc)
         cargo doc --open

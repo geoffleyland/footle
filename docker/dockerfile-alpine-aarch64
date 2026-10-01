@@ -1,0 +1,22 @@
+# Linux/musl development environment for footle on arm64.  Native on Apple Silicon, no emulation.
+#
+# The image holds only the toolchain; the source and build volumes are set up in compose.yaml.
+
+FROM --platform=linux/arm64 rust:alpine
+
+# musl-dev and gcc: capstone-sys compiles capstone's C source with the cc crate.
+# git: the git-version crate runs `git describe` at compile time.
+RUN apk add --no-cache musl-dev gcc git \
+ && rustup component add clippy
+
+# rustup's musl target links statically by default, and musl's dlsym can't find anything in a
+# static binary.  Linking dynamically keeps dlsym (and so the builtin libc calls) working.
+ENV RUSTFLAGS="-C target-feature=-crt-static"
+
+# The bind-mounted repository belongs to the host user, not root, so git refuses to read it
+# ("dubious ownership") and git-version fails the build.
+RUN git config --global --add safe.directory /footle
+
+ENV CARGO_TARGET_DIR=/target
+WORKDIR /footle
+CMD ["sh"]
