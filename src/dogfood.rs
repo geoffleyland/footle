@@ -132,13 +132,14 @@ fn find_tests(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
 struct DogfoodEater {
     expected:               HashMap<String, Vec<String>>,
     section:                &'static str,
-    mismatches:             Vec<String>,
+    had_mismatches:         bool,
+    safe_to_run:            bool,
     signature:              String,
 }
 
 impl DogfoodEater {
     fn new(expected: HashMap<String, Vec<String>>) -> Self {
-        Self{expected, section: "", mismatches: vec![], signature: String::new() }
+        Self{expected, section: "", had_mismatches: false, safe_to_run: true, signature: String::new() }
     }
 
     fn test(&mut self, key: &str, extra_passes: &[&str], required: bool, lines: &[String]) {
@@ -150,15 +151,15 @@ impl DogfoodEater {
         if (self.section == "source" || (extra_passes.contains(&self.section))) &&
             let Some(expected) = expected &&
             let Err(e) = compare_lines(lines, expected, self.section, key) {
-            self.mismatches.push(format!("{e:#}"));
+            eprintln!("\n{e:#}");
+            self.had_mismatches = true;
         }
         self.expected.insert(key.into(), lines.to_vec());
     }
 
     fn close(&self) -> Result<()> {
-        if self.mismatches.is_empty() { Ok(()) } else {
-            bail!(self.mismatches.join("\n"));
-        }
+        if self.had_mismatches { bail!("")}
+        Ok(())
     }
 
     fn codegen_key(&self, stage: &str) -> String {
@@ -189,10 +190,14 @@ impl runtime::Observer for DogfoodEater {
     fn func(&mut self, func: &codegen::CompiledFn) {
         let disassembly = codegen::disassemble(func);
         let expected_disassembly = &self.expected[&self.codegen_key("disassembly")][0..disassembly.len()];
-        if let Err(e) = compare_lines(&disassembly, expected_disassembly, self.section, "disassembly") {
-            self.mismatches.push(format!("{e:#}"));
+        let check = compare_lines(&disassembly, expected_disassembly, self.section, "disassembly");
+        self.safe_to_run = check.is_ok();
+        if let Err(e) = check {
+            eprintln!("\n{e:#}");
+            self.had_mismatches = true;
         }
     }
+    fn safe_to_run(&self) -> bool { self.safe_to_run }
 }
 
 
@@ -302,7 +307,8 @@ fn test_lines(
             obtained_lines.push(format!("{} -> {outcome}", join_format(&arguments, " ")));
         }
         if let Err(e) = compare_lines(&obtained_lines, &eater.expected["results"], section, "results") {
-            eater.mismatches.push(format!("{e:#}"));
+            eprintln!("\n{e:#}");
+            eater.had_mismatches = true;
         }
     }
     Ok(false)

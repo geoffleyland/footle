@@ -21,6 +21,7 @@ pub trait Observer {
     fn schedule(&mut self, _block: &codegen::scheduler::Block) {}
     fn assembly(&mut self, _block: &codegen::assembler::Block) {}
     fn func(&mut self, _func: &codegen::CompiledFn) {}
+    fn safe_to_run(&self) -> bool { true }
 }
 
 pub struct Silent;
@@ -156,6 +157,7 @@ impl Block {
                     }
                 };
                 let func = codegen::run(&self.vir, &types, observer);
+                if !observer.safe_to_run() { bail!("not run: dissasembly doesn't match intended assembly") }
                 entry.insert(func)
             }
         };
