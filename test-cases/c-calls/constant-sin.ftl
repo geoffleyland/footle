@@ -13,7 +13,7 @@ return sin(1.57079632679)
 
 #)
 
-#( expected schedule
+#( expected schedule aarch64
 
   I0: ldr K0
   I1: ret I0
@@ -21,7 +21,7 @@ return sin(1.57079632679)
 
 #)
 
-#( expected assembly
+#( expected assembly aarch64
 
   0x1000: ldr d0, #0x1020
   0x1004: ret

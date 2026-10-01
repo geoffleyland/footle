@@ -13,14 +13,14 @@ return true
 
 #)
 
-#( expected schedule
+#( expected schedule aarch64
 
   I0: mov #1
   I1: ret I0
 
 #)
 
-#( expected assembly
+#( expected assembly aarch64
 
   0x1000: mov x0, #1
   0x1004: ret

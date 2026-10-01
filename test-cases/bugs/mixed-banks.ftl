@@ -3,7 +3,7 @@ local s = sin(x)
 local u = sin(x + 1)
 return s, u, true, b
 
-#( expected schedule
+#( expected schedule aarch64
 
   I0: argument
   I1: argument
@@ -18,7 +18,7 @@ return s, u, true, b
 
 #)
 
-#( expected assembly bool f64
+#( expected assembly aarch64 bool f64
 
   0x1000: stp x19, x20, [sp, #-0x10]!
   0x1004: str x21, [sp, #-0x10]!
@@ -61,7 +61,7 @@ return s, u, true, b
 
 #)
 
-#( expected assembly f64 f64
+#( expected assembly aarch64 f64 f64
 
   0x1000: stp x19, x20, [sp, #-0x10]!
   0x1004: stp d8, d9, [sp, #-0x10]!

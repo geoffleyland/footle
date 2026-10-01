@@ -16,7 +16,7 @@ return a, b
 
 #)
 
-#( expected schedule
+#( expected schedule aarch64
 
   I0: argument
   I1: argument
@@ -24,7 +24,7 @@ return a, b
 
 #)
 
-#( expected assembly f64 f64
+#( expected assembly aarch64 f64 f64
 
   0x1000: ret
   0x1004: mov x16, x0
@@ -39,7 +39,7 @@ return a, b
 
 #)
 
-#( expected assembly bool f64
+#( expected assembly aarch64 bool f64
 
   0x1000: ret
   0x1004: mov x16, x0
@@ -54,7 +54,7 @@ return a, b
 
 #)
 
-#( expected assembly f64 bool
+#( expected assembly aarch64 f64 bool
 
   0x1000: ret
   0x1004: mov x16, x0
@@ -69,7 +69,7 @@ return a, b
 
 #)
 
-#( expected assembly bool bool
+#( expected assembly aarch64 bool bool
 
   0x1000: ret
   0x1004: mov x16, x0

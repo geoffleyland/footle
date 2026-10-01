@@ -17,7 +17,7 @@ return a + 1
 
 #)
 
-#( expected schedule
+#( expected schedule aarch64
 
   I0: argument
   I1: ldr K0
@@ -27,7 +27,7 @@ return a + 1
 
 #)
 
-#( expected assembly f64
+#( expected assembly aarch64 f64
 
   0x1000: ldr d16, #0x1028
   0x1004: fadd d0, d0, d16

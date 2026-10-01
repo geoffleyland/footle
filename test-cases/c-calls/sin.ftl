@@ -16,7 +16,7 @@ return sin(a)
 
 #)
 
-#( expected schedule
+#( expected schedule aarch64
 
   I0: argument
   I1: ldr sin
@@ -25,7 +25,7 @@ return sin(a)
 
 #)
 
-#( expected assembly f64
+#( expected assembly aarch64 f64
 
   0x1000: ldr x9, #0x1030
   0x1004: str x30, [sp, #-0x10]!

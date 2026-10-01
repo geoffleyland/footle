@@ -1,7 +1,7 @@
 argument b
 return 1, 2, 3, 4, 5, 6, 7, 8, b
 
-#( expected schedule
+#( expected schedule aarch64
 
   I0: argument
   I8: ldr K7
@@ -24,7 +24,7 @@ return 1, 2, 3, 4, 5, 6, 7, 8, b
 
 #)
 
-#( expected assembly bool
+#( expected assembly aarch64 bool
 
   0x1000: ldr d7, #0x1098
   0x1004: ldr d6, #0x1090

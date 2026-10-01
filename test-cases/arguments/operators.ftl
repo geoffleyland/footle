@@ -28,7 +28,7 @@ return c, d, e, f
 
 #)
 
-#( expected schedule
+#( expected schedule aarch64
 
   I0: argument
   I1: argument
@@ -40,7 +40,7 @@ return c, d, e, f
 
 #)
 
-#( expected assembly f64 f64
+#( expected assembly aarch64 f64 f64
 
   0x1000: fdiv d3, d0, d1
   0x1004: fmul d2, d0, d1

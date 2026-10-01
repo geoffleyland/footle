@@ -16,7 +16,7 @@ return b, a
 
 #)
 
-#( expected schedule
+#( expected schedule aarch64
 
   I0: argument
   I1: argument
@@ -24,7 +24,7 @@ return b, a
 
 #)
 
-#( expected assembly f64 f64
+#( expected assembly aarch64 f64 f64
 
   0x1000: fmov d16, d1
   0x1004: fmov d1, d0

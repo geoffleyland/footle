@@ -1,6 +1,6 @@
 return false, 1.3
 
-#( expected schedule
+#( expected schedule aarch64
 
   I1: ldr K0
   I0: mov #0
@@ -9,7 +9,7 @@ return false, 1.3
 
 #)
 
-#( expected assembly
+#( expected assembly aarch64
 
   0x1000: ldr d0, #0x1028
   0x1004: mov x0, #0

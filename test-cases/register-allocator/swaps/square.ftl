@@ -1,7 +1,7 @@
 argument a
 return a * a, a
 
-#( expected schedule
+#( expected schedule aarch64
 
   I0: argument
   I1: fmul I0 I0
@@ -9,7 +9,7 @@ return a * a, a
 
 #)
 
-#( expected assembly f64
+#( expected assembly aarch64 f64
 
   0x1000: fmul d16, d0, d0
   0x1004: fmov d1, d0

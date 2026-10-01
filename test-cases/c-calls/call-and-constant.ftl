@@ -19,7 +19,7 @@ return sin(a * 1.57079632679)
 
 #)
 
-#( expected schedule
+#( expected schedule aarch64
 
   I0: argument
   I1: ldr K0
@@ -31,7 +31,7 @@ return sin(a * 1.57079632679)
 
 #)
 
-#( expected assembly f64
+#( expected assembly aarch64 f64
 
   0x1000: ldr d16, #0x1038
   0x1004: ldr x9, #0x1040

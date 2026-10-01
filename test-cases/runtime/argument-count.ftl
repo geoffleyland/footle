@@ -1,14 +1,14 @@
 argument a
 return a
 
-#( expected schedule
+#( expected schedule aarch64
 
   I0: argument
   I1: ret I0
 
 #)
 
-#( expected assembly f64
+#( expected assembly aarch64 f64
 
   0x1000: ret
   0x1004: mov x16, x0
@@ -21,7 +21,7 @@ return a
 
 #)
 
-#( expected assembly bool
+#( expected assembly aarch64 bool
 
   0x1000: ret
   0x1004: mov x16, x0

@@ -41,7 +41,7 @@ return x, y, z
 
 #)
 
-#( expected schedule
+#( expected schedule aarch64
 
   I2: ldr K2
   I1: ldr K1
@@ -53,7 +53,7 @@ return x, y, z
 
 #)
 
-#( expected assembly
+#( expected assembly aarch64
 
   0x1000: ldr d2, #0x1040
   0x1004: ldr d1, #0x1038

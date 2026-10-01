@@ -165,9 +165,13 @@ impl DogfoodEater {
         Ok(())
     }
 
-    fn codegen_key(&self, stage: &str) -> String {
-        if self.signature.is_empty() { stage.to_string() }
-        else { format!("{stage} {}", self.signature) }
+    fn schedule_key() -> String {
+        format!("schedule {}", std::env::consts::ARCH)
+    }
+
+    fn assembly_key(&self, stage: &str) -> String {
+        let key = format!("{stage} {}", std::env::consts::ARCH);
+        if self.signature.is_empty() { key } else { format!("{key} {}", self.signature) }
     }
 }
 
@@ -183,16 +187,16 @@ impl runtime::Observer for DogfoodEater {
         self.signature = join_format(signature, " ");
     }
     fn schedule(&mut self, block: &codegen::scheduler::Block) {
-        self.test("schedule", &[], true, &block_to_strings(block));
+        self.test(&Self::schedule_key(), &[], true, &block_to_strings(block));
     }
     fn assembly(&mut self, block: &codegen::assembler::Block) {
         let assembly = block_to_strings(block);
-        self.test(&self.codegen_key("assembly"), &[], true, &assembly);
-        self.expected.insert(self.codegen_key("disassembly"), assembly);
+        self.test(&self.assembly_key("assembly"), &[], true, &assembly);
+        self.expected.insert(self.assembly_key("disassembly"), assembly);
     }
     fn func(&mut self, func: &codegen::CompiledFn) {
         let disassembly = codegen::disassemble(func);
-        let expected_disassembly = &self.expected[&self.codegen_key("disassembly")][0..disassembly.len()];
+        let expected_disassembly = &self.expected[&self.assembly_key("disassembly")][0..disassembly.len()];
         let check = compare_lines(&disassembly, expected_disassembly, self.section, "disassembly");
         self.safe_to_run = check.is_ok();
         if let Err(e) = check {
@@ -214,10 +218,10 @@ impl runtime::Observer for DogfoodEater {
 ///  * errors - if there's any errors we expect, otherwise:
 ///  * statements - expected pretty-printed statements, which should be re-readable as footle source;
 ///  * vir - "value intermediate representation", an SSA form, readable as footle source;
-///  * schedule - expected scheduler output - no longer written as footle source, though;
-///  * assembly - assembler output - in the same format as the disassembler, so we check the
-///    generated assembly against what we expect AND what we get from disassembling the final
-///    binary;
+///  * schedule <arch> - expected scheduler output - no longer written as footle source, though;
+///  * assembly <arch> <argument types...> - assembler output - in the same format as the
+///    disassembler, so we check the generated assembly against what we expect AND what we get from
+///    disassembling the final binary;
 ///  * results - we call the code with the provided arguments and check the results match the
 ///    expected output
 ///
