@@ -24,6 +24,20 @@ services:
       - alpine-aarch64-target:/target
       - alpine-aarch64-cargo:/usr/local/cargo/registry
 
+  alpine-riscv64:
+    build:
+      context: .
+      dockerfile: dockerfile-alpine-riscv64
+    image: footle-alpine-riscv64
+    platform: linux/riscv64
+    working_dir: /footle
+    volumes:
+      - ..:/footle
+      - alpine-riscv64-target:/target
+      - alpine-riscv64-cargo:/root/.cargo/registry
+
 volumes:
   alpine-aarch64-target:
   alpine-aarch64-cargo:
+  alpine-riscv64-target:
+  alpine-riscv64-cargo:

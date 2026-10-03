@@ -50,6 +50,12 @@ case $1 in
         docker compose run --rm $TTY -e LESS_CLIPPY=${LESS_CLIPPY-1} alpine-aarch64 ./admin "$@"
         ;;
 
+    riscv)
+        shift
+        [ -t 0 ] || TTY=-T
+        docker compose run --rm $TTY -e LESS_CLIPPY=${LESS_CLIPPY-1} alpine-riscv64 ./admin "$@"
+        ;;
+
     doc)
         cargo doc --open
         ;;

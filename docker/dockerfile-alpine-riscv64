@@ -1,0 +1,26 @@
+# Linux/musl development environment for footle on riscv64.  Emulated by QEMU on Apple Silicon, so
+# slow.
+#
+# The image holds only the toolchain; the source and build volumes are set up in compose.yaml.
+
+# The official rust:alpine image isn't published for riscv64, so this uses Alpine's own Rust
+# packages.  They link dynamically by default, so (unlike the aarch64 image) dlsym works without
+# any RUSTFLAGS.
+FROM --platform=linux/riscv64 alpine:latest
+
+# musl-dev and gcc: capstone-sys compiles capstone's C source with the cc crate.
+# git: the git-version crate runs `git describe` at compile time.
+RUN apk add --no-cache rust cargo rust-clippy musl-dev gcc git
+
+# Alpine links rustc with the Scudo allocator, which expects riscv64's 39-bit address space.
+# QEMU's user-mode emulation hands out the host's much higher addresses, and Scudo aborts
+# ("CHECK failed @ primary32.h").  Reserving a 256 GB guest address space keeps them in range.
+ENV QEMU_RESERVED_VA=0x4000000000
+
+# The bind-mounted repository belongs to the host user, not root, so git refuses to read it
+# ("dubious ownership") and git-version fails the build.
+RUN git config --global --add safe.directory /footle
+
+ENV CARGO_TARGET_DIR=/target
+WORKDIR /footle
+CMD ["sh"]
