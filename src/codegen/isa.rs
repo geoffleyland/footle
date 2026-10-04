@@ -3,7 +3,7 @@
 use enumset::{EnumSet, EnumSetType, enum_set};
 use paste::paste;
 
-use super::scheduler::Type;
+use super::Type;
 
 #[cfg(feature = "dogfood")]
 use display::*;
@@ -104,9 +104,9 @@ impl RegSet {
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Bank { X = 0, D = 1 }
+pub(super) enum RegBank { X = 0, D = 1 }
 
-impl Bank {
+impl RegBank {
     const COUNT: usize = Self::D as usize + 1;
 
     pub(super) const fn of_reg(reg: MachineReg) -> Self { if reg.0 < 32 { Self::X } else { Self::D } }
@@ -131,14 +131,14 @@ pub(super) struct RegFile {
     pub(super) scratch_reg:     MachineReg,
     callee_saved:               RegSet,             // Registers we have to save in our prologue
                                                     // and restore in our epilogue (if we use them)
-    argument_regs:              [&'static [MachineReg]; Bank::COUNT],
+    argument_regs:              [&'static [MachineReg]; RegBank::COUNT],
                                                     // Argument registers in order.
     order:                      [MachineReg; Self::REG_COUNT],
                                                     // Order in which we allocate registers
     rank:                       [Option<RegRank>; Self::REG_COUNT],
                                                     // Rank (in `order`) of a register.  `None`
                                                     // if we never allocate that register.
-    available_ranks:            [RankSet; Bank::COUNT],
+    available_ranks:            [RankSet; RegBank::COUNT],
                                                     // Available registers by rank.
     clobbered_ranks:            RankSet,            // The register ranks a bl[r] will clobber.
 }
@@ -152,18 +152,18 @@ impl RegFile {
         link_reg:           u8,
         scratch_reg:        u8,
         callee_saved:       RegSet,
-        argument_regs:      [&'static [MachineReg]; Bank::COUNT],
+        argument_regs:      [&'static [MachineReg]; RegBank::COUNT],
         u8_order:           &[u8],
     ) -> Self {
         let mut order = [MachineReg::new(0); Self::REG_COUNT];
         let mut rank = [None; Self::REG_COUNT];
-        let mut available_ranks = [RankSet::EMPTY; Bank::COUNT];
+        let mut available_ranks = [RankSet::EMPTY; RegBank::COUNT];
         let mut i = 0;
         while i < u8_order.len() {
             order[i] = MachineReg::new(u8_order[i]);
             let r = RegRank::new(i);
             rank[u8_order[i] as usize] = Some(r);
-            let bank = Bank::of_reg(order[i]).index();
+            let bank = RegBank::of_reg(order[i]).index();
             available_ranks[bank] = available_ranks[bank].with(r);
             i += 1;
         }
@@ -198,7 +198,7 @@ impl RegFile {
         self.order[available.0.trailing_zeros() as usize]
     }
 
-    pub(super) fn regs_to_save(&self, written: RegSet, bank: Bank) -> RegSet {
+    pub(super) fn regs_to_save(&self, written: RegSet, bank: RegBank) -> RegSet {
         written.intersection(self.callee_saved).intersection(bank.regs())
     }
     fn get_rank_bits(&self, reg: MachineReg) -> RankSet {
@@ -208,18 +208,18 @@ impl RegFile {
     }
 
     pub(super) fn ranks_for_type(&self, ty: Type) -> RankSet {
-        Bank::of_type(ty).map_or(RankSet::EMPTY, |b| self.available_ranks[b.index()])
+        RegBank::of_type(ty).map_or(RankSet::EMPTY, |b| self.available_ranks[b.index()])
     }
     pub(super) fn ranks_for_reg(&self, reg: MachineReg) -> RankSet {
-        self.available_ranks[Bank::of_reg(reg).index()]
+        self.available_ranks[RegBank::of_reg(reg).index()]
     }
 
     pub(super) fn abi_regs(&self, types: impl IntoIterator<Item = Type>) -> impl Iterator<Item = MachineReg> {
-        let mut used = [0usize; Bank::COUNT];           // registers used so far, per class
+        let mut used = [0usize; RegBank::COUNT];           // registers used so far, per bank
         types.into_iter().map(move |ty| {
-            let b = Bank::of_type(ty).expect("internal compiler error: no bank for type").index();
+            let b = RegBank::of_type(ty).expect("internal compiler error: no bank for type").index();
             let reg = *self.argument_regs[b].get(used[b])
-                .expect("internal compiler error: too many values in one register class");
+                .expect("internal compiler error: too many arguments/return values in one register bank");
             used[b] += 1;
             reg
         })

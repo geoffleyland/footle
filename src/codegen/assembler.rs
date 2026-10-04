@@ -1,9 +1,6 @@
 use seq_macro::seq;
 
-use super::scheduler::{Constant, Type};
-use super::allocator;
-use super::isa;
-use super::isa::{REGS, Bank, MachineReg, RegSet};
+use super::{isa, allocator, Constant, Type, RegBank, MachineReg, RegSet, REGS};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -114,17 +111,17 @@ fn emit_function(
 ) {
     let stack = REGS.stack_reg;
     // Save any callee saved registers
-    let x_regs_to_save: Vec<_> = REGS.regs_to_save(written_regs, Bank::X).iter().collect();
-    let d_regs_to_save: Vec<_> = REGS.regs_to_save(written_regs, Bank::D).iter().collect();
+    let x_regs_to_save: Vec<_> = REGS.regs_to_save(written_regs, RegBank::X).iter().collect();
+    let d_regs_to_save: Vec<_> = REGS.regs_to_save(written_regs, RegBank::D).iter().collect();
     for pair in x_regs_to_save.chunks(2) { save_restore(instrs, pair, &isa::stp_x_pre, &isa::str_x_pre, stack, -16) }
     for pair in d_regs_to_save.chunks(2) { save_restore(instrs, pair, &isa::stp_d_pre, &isa::str_d_pre, stack, -16) }
 
     for ai in allocated {
         for (source, destination) in &ai.moves {
-            debug_assert_eq!(Bank::of_reg(*source), Bank::of_reg(*destination));
-            match Bank::of_reg(*source) {
-                Bank::X    => assemble!(instrs, mov_x, *destination, *source),
-                Bank::D    => assemble!(instrs, fmov_d, *destination, *source)
+            debug_assert_eq!(RegBank::of_reg(*source), RegBank::of_reg(*destination));
+            match RegBank::of_reg(*source) {
+                RegBank::X    => assemble!(instrs, mov_x, *destination, *source),
+                RegBank::D    => assemble!(instrs, fmov_d, *destination, *source)
             }
         }
 
@@ -194,9 +191,9 @@ fn emit_glue(argument_types: &[Type], return_types: &[Type], instrs: &mut Vec<In
     // Move the arguments from the input buffer into the argument registers.
     for (offset, reg) in (0i32..).step_by(8)
         .zip(REGS.abi_regs(argument_types.iter().copied())) {
-        match Bank::of_reg(reg) {
-            Bank::X => assemble!(instrs, ldr_x_offset, reg, REGS.scratch_reg, Offset(offset)),
-            Bank::D => assemble!(instrs, ldr_d_offset, reg, REGS.scratch_reg, Offset(offset)),
+        match RegBank::of_reg(reg) {
+            RegBank::X => assemble!(instrs, ldr_x_offset, reg, REGS.scratch_reg, Offset(offset)),
+            RegBank::D => assemble!(instrs, ldr_d_offset, reg, REGS.scratch_reg, Offset(offset)),
         }
     }
 
@@ -210,9 +207,9 @@ fn emit_glue(argument_types: &[Type], return_types: &[Type], instrs: &mut Vec<In
 
     for (offset, reg) in (0i32..).step_by(8)
         .zip(REGS.abi_regs(return_types.iter().copied())) {
-        match Bank::of_reg(reg) {
-            Bank::X => assemble!(instrs, str_x_offset, reg, REGS.scratch_reg, Offset(offset)),
-            Bank::D => assemble!(instrs, str_d_offset, reg, REGS.scratch_reg, Offset(offset)),
+        match RegBank::of_reg(reg) {
+            RegBank::X => assemble!(instrs, str_x_offset, reg, REGS.scratch_reg, Offset(offset)),
+            RegBank::D => assemble!(instrs, str_d_offset, reg, REGS.scratch_reg, Offset(offset)),
         }
     }
     assemble!(instrs, ret);

@@ -4,9 +4,7 @@ use bit_set::BitSet;
 use typed_index_collections::TiVec;
 use derive_more::{From, Into};
 
-use super::scheduler::{Value, ValueSlot, SchedulePosition, Type};
-use super::isa;
-use super::isa::{REGS, MachineReg, RegFile, RegSet};
+use super::{isa, Value, ValueSlot, Type, MachineReg, RegFile, RegSet, SchedulePosition, REGS};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
