@@ -1,6 +1,6 @@
 use capstone::prelude::*;
 
-use super::binary::CompiledFn;
+use super::CompiledFn;
 
 pub fn disassemble(func: &CompiledFn) -> Vec<String> {
     Capstone::new()

@@ -2,9 +2,7 @@ use std::mem;
 
 use anyhow::{bail, Result};
 
-use super::scheduler::{Constant, Type};
-use super::assembler;
-use super::sys;
+use super::{assembler, sys, Constant, Type};
 use crate::runtime::Value;
 
 
