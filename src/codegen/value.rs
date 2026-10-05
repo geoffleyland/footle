@@ -106,7 +106,7 @@ impl<'arena> Value<'arena> {
         if let ValueDef::Instr(code) = &self.def { Some(code) } else { None }
     }
 
-    pub(super) fn latency(&self) -> u8                 { self.code().map_or(0, |c| c.latency) }
+    pub(super) fn latency(&self) -> u8                 { self.code().map_or(0, isa::Code::latency) }
 
     pub(super) fn predecessors(&self) -> impl Iterator<Item = &'arena Value<'arena>> {
         let operands = self.operands.iter().filter_map(Operand::value);

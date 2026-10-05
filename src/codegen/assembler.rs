@@ -237,7 +237,7 @@ mod display {
                 writer.writeln(f, indent, instr.span, &format!("{:#06x}: {} {}",
                     address,
                     instr.code.mnemonic(),
-                    (instr.code.format)(&operands, address)))?;
+                    instr.code.format(&operands, address)))?;
             }
             for (i, c) in self.constants.iter().enumerate() {
                 let address = 0x1000 + constant_start_words * 4 + i * 8;

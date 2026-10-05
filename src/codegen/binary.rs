@@ -122,7 +122,7 @@ fn encode_instrs(
                                             .expect("internal compiler error: function offset too large"),
                 Offset(o)               => o.cast_unsigned(),
             }}).collect::<Vec<_>>();
-        words[word_index] = (instr.code.encode)(&operands);
+        words[word_index] = instr.code.encode(&operands);
     }
 }
 

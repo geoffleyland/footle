@@ -3,7 +3,7 @@
 use enumset::{EnumSet, EnumSetType, enum_set};
 use paste::paste;
 
-use super::{regs, RegFile, RegSet, MachineReg, RankSet};
+use crate::codegen::{regs, RegFile, RegSet, MachineReg, RankSet};
 
 #[cfg(feature = "dogfood")]
 use display::*;
@@ -11,7 +11,7 @@ use display::*;
 
 //-------------------------------------------------------------------------------------------------
 
-pub(super) static REGS: RegFile = RegFile::new(31, 30, 16,
+pub static REGS: RegFile = RegFile::new(31, 30, 16,
     RegSet::new(0x0000_FF00_1FF8_0000),
     [
         &regs::machine_regs([ 0,  1,  2,  3,  4,  5,  6,  7]),
@@ -32,7 +32,7 @@ pub(super) static REGS: RegFile = RegFile::new(31, 30, 16,
 // Architecture details.
 
 #[derive(Debug, EnumSetType)]
-pub(super) enum Unit {
+pub enum Unit {
     LS8,
     L9,
     L10,
@@ -47,21 +47,24 @@ pub(super) enum Unit {
 // Instruction encoding structures and macros.
 
 #[derive(Debug)]
-pub(super) struct Code {
-    pub(super) encode:          fn(&[u32]) -> u32,
-    pub(super) latency:         u8,
+pub struct Code {
+    encode:                     fn(&[u32]) -> u32,
+    latency:                    u8,
     has_output:                 bool,
     units:                      EnumSet<Unit>,
 
     #[cfg(any(feature = "dogfood", test))]
     mnemonic:                   &'static str,
     #[cfg(feature = "dogfood")]
-    pub(super) format:          fn(&[i32], i32) -> String,
+    format:                     fn(&[i32], i32) -> String,
 }
 
 
 impl Code {
     pub fn has_output(&self) -> bool        { self.has_output }
+
+    pub fn latency(&self) -> u8             { self.latency }
+    pub fn encode(&self, args: &[u32])-> u32{ (self.encode)(args) }
 
     pub fn clobbers_anything(&self) -> bool { self.is_call() }
     pub fn clobbers(&self, reg: MachineReg) -> bool {
@@ -83,6 +86,11 @@ impl Code {
 
     #[cfg(any(feature = "dogfood", test))]
     pub fn mnemonic(&self) -> &str      { self.mnemonic }
+
+    #[cfg(feature = "dogfood")]
+    pub fn format(&self, operands: &[i32], address: i32) -> String {
+        (self.format)(operands, address)
+    }
 }
 
 
@@ -174,7 +182,7 @@ macro_rules! _code {
         [$($unit:ident)|+ $(|)?],
         $pattern:literal
     ) => {
-        paste!(pub(super) static [<$mnemonic $($reg_bank)? $($mode_suffix)?>]: Code = Code {
+        paste!(pub static [<$mnemonic $($reg_bank)? $($mode_suffix)?>]: Code = Code {
             has_output:         $( has_output!($mnemonic, $reg) ||)* false,
             latency:            $latency,
             units:              enum_set!($(Unit::$unit)|*),
