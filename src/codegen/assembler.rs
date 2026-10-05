@@ -111,17 +111,17 @@ fn emit_function(
 ) {
     let stack = REGS.stack_reg;
     // Save any callee saved registers
-    let x_regs_to_save: Vec<_> = REGS.regs_to_save(written_regs, RegBank::X).iter().collect();
-    let d_regs_to_save: Vec<_> = REGS.regs_to_save(written_regs, RegBank::D).iter().collect();
-    for pair in x_regs_to_save.chunks(2) { save_restore(instrs, pair, &isa::stp_x_pre, &isa::str_x_pre, stack, -16) }
-    for pair in d_regs_to_save.chunks(2) { save_restore(instrs, pair, &isa::stp_d_pre, &isa::str_d_pre, stack, -16) }
+    let int_regs_to_save: Vec<_> = REGS.regs_to_save(written_regs, RegBank::Int).iter().collect();
+    let float_regs_to_save: Vec<_> = REGS.regs_to_save(written_regs, RegBank::Float).iter().collect();
+    for pair in int_regs_to_save.chunks(2)      { save_restore(instrs, pair, &isa::stp_x_pre, &isa::str_x_pre, stack, -16) }
+    for pair in float_regs_to_save.chunks(2)    { save_restore(instrs, pair, &isa::stp_d_pre, &isa::str_d_pre, stack, -16) }
 
     for ai in allocated {
         for (source, destination) in &ai.moves {
             debug_assert_eq!(RegBank::of_reg(*source), RegBank::of_reg(*destination));
             match RegBank::of_reg(*source) {
-                RegBank::X    => assemble!(instrs, mov_x, *destination, *source),
-                RegBank::D    => assemble!(instrs, fmov_d, *destination, *source)
+                RegBank::Int    => assemble!(instrs, mov_x, *destination, *source),
+                RegBank::Float  => assemble!(instrs, fmov_d, *destination, *source)
             }
         }
 
@@ -143,8 +143,8 @@ fn emit_function(
 
         // Restore callee saved registers before a `ret`.
         if ai.code.is_return() {
-            for pair in d_regs_to_save.chunks(2).rev() { save_restore(instrs, pair, &isa::ldp_d_post, &isa::ldr_d_post, stack, 16) }
-            for pair in x_regs_to_save.chunks(2).rev() { save_restore(instrs, pair, &isa::ldp_x_post, &isa::ldr_x_post, stack, 16) }
+            for pair in float_regs_to_save.chunks(2).rev()  { save_restore(instrs, pair, &isa::ldp_d_post, &isa::ldr_d_post, stack, 16) }
+            for pair in int_regs_to_save.chunks(2).rev()    { save_restore(instrs, pair, &isa::ldp_x_post, &isa::ldr_x_post, stack, 16) }
         }
 
         instrs.push(Instr{ code: ai.code, operands,
@@ -184,8 +184,8 @@ fn emit_glue(argument_types: &[Type], return_types: &[Type], instrs: &mut Vec<In
     for (offset, reg) in (0i32..).step_by(8)
         .zip(REGS.abi_regs(argument_types.iter().copied())) {
         match RegBank::of_reg(reg) {
-            RegBank::X => assemble!(instrs, ldr_x_offset, reg, REGS.scratch_reg, Offset(offset)),
-            RegBank::D => assemble!(instrs, ldr_d_offset, reg, REGS.scratch_reg, Offset(offset)),
+            RegBank::Int        => assemble!(instrs, ldr_x_offset, reg, REGS.scratch_reg, Offset(offset)),
+            RegBank::Float      => assemble!(instrs, ldr_d_offset, reg, REGS.scratch_reg, Offset(offset)),
         }
     }
 
@@ -200,8 +200,8 @@ fn emit_glue(argument_types: &[Type], return_types: &[Type], instrs: &mut Vec<In
     for (offset, reg) in (0i32..).step_by(8)
         .zip(REGS.abi_regs(return_types.iter().copied())) {
         match RegBank::of_reg(reg) {
-            RegBank::X => assemble!(instrs, str_x_offset, reg, REGS.scratch_reg, Offset(offset)),
-            RegBank::D => assemble!(instrs, str_d_offset, reg, REGS.scratch_reg, Offset(offset)),
+            RegBank::Int        => assemble!(instrs, str_x_offset, reg, REGS.scratch_reg, Offset(offset)),
+            RegBank::Float      => assemble!(instrs, str_d_offset, reg, REGS.scratch_reg, Offset(offset)),
         }
     }
     assemble!(instrs, ret);

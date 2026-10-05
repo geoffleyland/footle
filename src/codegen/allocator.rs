@@ -4,7 +4,7 @@ use bit_set::BitSet;
 use typed_index_collections::TiVec;
 use derive_more::{From, Into};
 
-use super::{isa, Value, ValueSlot, Type, MachineReg, RegFile, RegSet, SchedulePosition, REGS};
+use super::{isa, Value, ValueSlot, Type, MachineReg, RegFile, RegSet, RankSet, SchedulePosition, REGS};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -172,7 +172,7 @@ impl SlotSet {
 
 fn allocate(
     block:                              &SlotBlock,
-) -> (TiVec<AllocatorSlot, Option<MachineReg>>, TiVec<AllocatorSlot, isa::RankSet>) {
+) -> (TiVec<AllocatorSlot, Option<MachineReg>>, TiVec<AllocatorSlot, RankSet>) {
     let mut regs: TiVec<AllocatorSlot, _> =
         vec![OnceCell::new(); block.slot_types.len()].into();
 
@@ -252,11 +252,11 @@ fn set_reg(
     reg:                                MachineReg,
     regs:                               &TiVec<AllocatorSlot, OnceCell<MachineReg>>,
     interfering_slots:                  &TiVec<AllocatorSlot, SlotSet>,
-    available_ranks:                    &mut TiVec<AllocatorSlot, isa::RankSet>
+    available_ranks:                    &mut TiVec<AllocatorSlot, RankSet>
 ) {
     regs[slot].set(reg).expect("internal compiler error: trying to set a register twice");
     for interfering_slot in interfering_slots[slot].iter() {
-        available_ranks[interfering_slot].remove_reg(reg);
+        available_ranks[interfering_slot].remove(REGS.get_rank_bits(reg));
     }
 }
 
@@ -281,7 +281,7 @@ pub(super) struct Instr {
 fn lower_to_regs(
     block:                              &SlotBlock,
     regs:                               &TiVec<AllocatorSlot, Option<MachineReg>>,
-    available_ranks:                    &TiVec<AllocatorSlot, isa::RankSet>,
+    available_ranks:                    &TiVec<AllocatorSlot, RankSet>,
 ) -> (Vec<Instr>, RegSet) {
 
     let mut reg_instrs = vec![];
@@ -309,10 +309,10 @@ fn lower_to_regs(
             // available to any of the slots getting moved around minus all the registers we're
             // using for the moves.
             let mut temp_reg_pool = unordered_moves.iter()
-                .fold(isa::RankSet::EMPTY, |pool, (slot, ..)| pool.union(available_ranks[*slot]));
+                .fold(RankSet::EMPTY, |pool, (slot, ..)| pool.union(available_ranks[*slot]));
             for (_, source, dest) in &unordered_moves {
-                temp_reg_pool.remove_reg(*source);
-                temp_reg_pool.remove_reg(*dest);
+                temp_reg_pool.remove(REGS.get_rank_bits(*source));
+                temp_reg_pool.remove(REGS.get_rank_bits(*dest));
             }
 
             move_regs(&unordered_moves, temp_reg_pool)
@@ -355,7 +355,7 @@ fn lower_to_regs(
 /// `lower_to_regs`.
 fn move_regs(
     moves:                              &[(AllocatorSlot, MachineReg, MachineReg)],
-    temp_reg_pool:                      isa::RankSet,
+    temp_reg_pool:                      RankSet,
 ) -> Vec<(MachineReg, MachineReg)> {
     let mut sources = [None; RegFile::REG_COUNT];
     let mut destination_counts = [0u8; RegFile::REG_COUNT];
