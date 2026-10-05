@@ -4,7 +4,7 @@ use super::Type;
 
 /// Representation of a machine register - just a number from 0-63.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct MachineReg(pub(super) u8);
+pub(super) struct MachineReg(u8);
 
 impl MachineReg {
     pub(super) const fn new(index: u8) -> Self {
@@ -203,10 +203,10 @@ impl RegFile {
         self.order[available.0.trailing_zeros() as usize]
     }
 
-    pub(super) fn regs_to_save(&self, written: RegSet, bank: RegBank) -> RegSet {
+    pub(super) fn regs_to_save(&self, written: RegSet) -> RegSet {
         let mut must_save_if_used = self.callee_saved;
         must_save_if_used.insert(self.link_reg);
-        written.intersection(must_save_if_used).intersection(bank.regs())
+        written.intersection(must_save_if_used)
     }
     pub(super) fn rank_bits(&self, reg: MachineReg) -> RankSet {
         let r = self.rank[usize::from(reg)]

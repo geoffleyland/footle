@@ -1,6 +1,4 @@
-use seq_macro::seq;
-
-use super::{isa, allocator, Constant, Type, RegBank, MachineReg, RegSet, REGS};
+use super::{isa, abi, allocator, Constant, Type, MachineReg, RegSet, REGS};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -16,18 +14,7 @@ pub(super) enum Operand {
     Function(usize),
 }
 
-struct Reg(u8);
-impl From<Reg> for Operand {
-    fn from(r: Reg) -> Self { Self::Reg(r.0) }
-}
-seq!(N in 0..32 {
-    #[allow(non_upper_case_globals, dead_code)]
-    const x~N: Reg = Reg(N);
-    #[allow(non_upper_case_globals, dead_code)]
-    const d~N: Reg = Reg(N);
-});
-
-struct Offset(i32);
+pub(super) struct Offset(pub(super) i32);
 impl From<Offset> for Operand {
     fn from(o: Offset) -> Self { Self::Offset(o.0) }
 }
@@ -53,13 +40,15 @@ macro_rules! assemble_expr {
         })
     }
 }
+pub(super) use assemble_expr;
 
 
 macro_rules! assemble {
     ($instrs:expr, $op:ident $(, $($operand:expr),*)?) => {
-        assemble_expr!($instrs, &isa::$op $(, $($operand),*)?)
+        $crate::codegen::assembler::assemble_expr!($instrs, &crate::codegen::isa::$op $(, $($operand),*)?)
     }
 }
+pub(super) use assemble;
 
 
 //-------------------------------------------------------------------------------------------------
@@ -69,7 +58,7 @@ pub(super) struct Instr {
     pub(super) operands:            Vec<Operand>,
 
     #[cfg(feature = "dogfood")]
-    span:                           Option<Span>,
+    pub(super) span:                Option<Span>,
 }
 
 
@@ -96,7 +85,7 @@ pub(super) fn run(
     let mut instrs = Vec::new();
     emit_function(allocated, &mut instrs, functions, written_regs);
     let glue_start_words = instrs.len();
-    emit_glue(&argument_types, &return_types, &mut instrs);
+    abi::emit_glue(&argument_types, &return_types, &mut instrs);
 
     Block{ instrs, glue_start_words, constants: constants.into(), functions: functions.to_vec(),
         argument_types, return_types }
@@ -109,21 +98,14 @@ fn emit_function(
     functions:                      &[String],
     written_regs:                   RegSet,
 ) {
-    let stack = REGS.stack_reg;
-    // Save any callee saved registers
-    let int_regs_to_save: Vec<_> = REGS.regs_to_save(written_regs, RegBank::Int).iter().collect();
-    let float_regs_to_save: Vec<_> = REGS.regs_to_save(written_regs, RegBank::Float).iter().collect();
-    for pair in int_regs_to_save.chunks(2)      { save_restore(instrs, pair, &isa::stp_x_pre, &isa::str_x_pre, stack, -16) }
-    for pair in float_regs_to_save.chunks(2)    { save_restore(instrs, pair, &isa::stp_d_pre, &isa::str_d_pre, stack, -16) }
+    let regs_to_save = REGS.regs_to_save(written_regs);
+    abi::emit_save_regs(instrs, regs_to_save);
 
     for ai in allocated {
-        for (source, destination) in &ai.moves {
-            debug_assert_eq!(RegBank::of_reg(*source), RegBank::of_reg(*destination));
-            match RegBank::of_reg(*source) {
-                RegBank::Int    => assemble!(instrs, mov_x, *destination, *source),
-                RegBank::Float  => assemble!(instrs, fmov_d, *destination, *source)
-            }
-        }
+        abi::emit_moves(instrs, &ai.moves);
+
+        // Restore callee saved registers before a `ret`.
+        if ai.code.is_return() { abi::emit_restore_regs(instrs, regs_to_save); }
 
         let operands = ai.code.has_output()
             .then(|| Operand::from(ai.result_reg
@@ -141,70 +123,11 @@ fn emit_function(
             }))
         .collect();
 
-        // Restore callee saved registers before a `ret`.
-        if ai.code.is_return() {
-            for pair in float_regs_to_save.chunks(2).rev()  { save_restore(instrs, pair, &isa::ldp_d_post, &isa::ldr_d_post, stack, 16) }
-            for pair in int_regs_to_save.chunks(2).rev()    { save_restore(instrs, pair, &isa::ldp_x_post, &isa::ldr_x_post, stack, 16) }
-        }
-
         instrs.push(Instr{ code: ai.code, operands,
         #[cfg(feature = "dogfood")]
             span: Some(ai.span)
         });
     }
-}
-
-
-fn save_restore(
-    instrs:                         &mut Vec<Instr>,
-    pair:                           &[MachineReg],
-    pair_op:                        &'static isa::Code,
-    single_op:                      &'static isa::Code,
-    offset_reg:                     MachineReg,
-    offset:                         i32) {
-    match *pair {
-        [a, b]  => assemble_expr!(instrs, pair_op, a, b, offset_reg, Offset(offset)),
-        [a]     => assemble_expr!(instrs, single_op, a, offset_reg, Offset(offset)),
-        _       => unreachable!()
-    }
-}
-
-
-//-------------------------------------------------------------------------------------------------
-
-fn emit_glue(argument_types: &[Type], return_types: &[Type], instrs: &mut Vec<Instr>) {
-    // Move the input buffer pointer to x16 so it doesn't get clobbered by arguments to our function.
-    assemble!(instrs, mov_x, REGS.scratch_reg, x0);
-
-    // Move the output buffer and the return address to the stack, since they're about to get
-    // overwritten and we need them later.
-    assemble!(instrs, stp_x_pre, x1, REGS.link_reg, REGS.stack_reg, Offset(-16));
-
-    // Move the arguments from the input buffer into the argument registers.
-    for (offset, reg) in (0i32..).step_by(8)
-        .zip(REGS.abi_regs(argument_types.iter().copied())) {
-        match RegBank::of_reg(reg) {
-            RegBank::Int        => assemble!(instrs, ldr_x_offset, reg, REGS.scratch_reg, Offset(offset)),
-            RegBank::Float      => assemble!(instrs, ldr_d_offset, reg, REGS.scratch_reg, Offset(offset)),
-        }
-    }
-
-    // Call our function
-    assemble!(instrs, bl,
-        Offset(-4 * i32::try_from(instrs.len())
-            .expect("internal compiler error: function too long for jump")));
-
-    // Load the output buffer in to x16 and the return address to the appropriate spot
-    assemble!(instrs, ldp_x_post, REGS.scratch_reg, REGS.link_reg, REGS.stack_reg, Offset(16));
-
-    for (offset, reg) in (0i32..).step_by(8)
-        .zip(REGS.abi_regs(return_types.iter().copied())) {
-        match RegBank::of_reg(reg) {
-            RegBank::Int        => assemble!(instrs, str_x_offset, reg, REGS.scratch_reg, Offset(offset)),
-            RegBank::Float      => assemble!(instrs, str_d_offset, reg, REGS.scratch_reg, Offset(offset)),
-        }
-    }
-    assemble!(instrs, ret);
 }
 
 
@@ -237,7 +160,7 @@ mod display {
                 writer.writeln(f, indent, instr.span, &format!("{:#06x}: {} {}",
                     address,
                     instr.code.mnemonic(),
-                    (instr.code.format)(&operands, address)))?;
+                    instr.code.format(&operands, address)))?;
             }
             for (i, c) in self.constants.iter().enumerate() {
                 let address = 0x1000 + constant_start_words * 4 + i * 8;

@@ -7,7 +7,7 @@ mod allocator;
 pub mod assembler;
 mod binary;
 mod regs;
-mod isa;
+mod arch;
 mod sys;
 
 pub use pass::run;
@@ -15,7 +15,7 @@ pub use binary::CompiledFn;
 
 use value::{Value, ValueDef, ValueSlot, Type, Constant};
 use regs::{MachineReg, RegBank, RegFile, RegSet, RankSet};
-use isa::{REGS};
+use arch::{isa, isa::REGS, abi};
 use scheduler::SchedulePosition;
 
 #[cfg(feature = "dogfood")]
