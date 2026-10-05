@@ -1,8 +1,8 @@
 use super::Type;
 
 //-------------------------------------------------------------------------------------------------
-// Not really architecture specific stuff (maybe it'll move if we ever get to a second arch)
 
+/// Representation of a machine register - just a number from 0-63.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct MachineReg(pub(super) u8);
 
@@ -36,44 +36,19 @@ impl TryFrom<usize> for MachineReg {
 }
 
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct RegRank(u8);
-
-impl RegRank {
-    #[allow(clippy::cast_possible_truncation)]
-    const fn new(index: usize) -> Self {
-        debug_assert!(index < RegFile::REG_COUNT);
-        Self(index as u8)
-    }
-}
-
-
 //-------------------------------------------------------------------------------------------------
-// Register details
 
 type SetBits = u64;
 
+/// A set of register ranks.
 #[derive(Debug, Copy, Clone)]
-pub(super) struct RankSet(SetBits);
-
-impl RankSet {
-    pub(super) const EMPTY: Self = Self(0);
-
-    pub(super) fn contains(self, rank: RegRank) -> bool     { self.0 >> rank.0 & 1 != 0 }
-    /// Remove every rank in `other` from this set.
-    pub(super) fn remove(&mut self, other: Self)            { self.0 &= !other.0; }
-
-    pub(super) const fn union(self, other: Self) -> Self    { Self(self.0 | other.0) }
-    pub(super) const fn intersection(self, other: Self) -> Self
-                                                            { Self(self.0 & other.0) }
-    const fn with(self, rank: RegRank) -> Self { Self(self.0 | 1 << rank.0) }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub(super) struct RegSet(pub(super) SetBits);
+pub(super) struct RegSet(SetBits);
 
 impl RegSet {
     pub(super) const EMPTY: Self = Self(0);
+
+    pub(super) const fn new(regs: u64) -> Self              { Self(regs) }
+
     pub(super) fn insert(&mut self, reg: MachineReg)        { self.0 |= 1 << reg.0 }
     pub(super) const fn intersection(self, other: Self) -> Self
                                                             { Self(self.0 & other.0) }
@@ -91,6 +66,42 @@ impl RegSet {
     }
 }
 
+
+//-------------------------------------------------------------------------------------------------
+
+/// The "rank" of a register - again, a number from 1-64.
+///
+/// The is the order in which we wish to use registers - lowest first
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct RegRank(u8);
+
+impl RegRank {
+    #[allow(clippy::cast_possible_truncation)]
+    const fn new(index: usize) -> Self {
+        debug_assert!(index < RegFile::REG_COUNT);
+        Self(index as u8)
+    }
+}
+
+
+#[derive(Debug, Copy, Clone)]
+pub(super) struct RankSet(SetBits);
+
+impl RankSet {
+    pub(super) const EMPTY: Self = Self(0);
+
+    pub(super) fn contains(self, rank: RegRank) -> bool     { self.0 >> rank.0 & 1 != 0 }
+    /// Remove every rank in `other` from this set.
+    pub(super) fn remove(&mut self, other: Self)            { self.0 &= !other.0; }
+
+    pub(super) const fn union(self, other: Self) -> Self    { Self(self.0 | other.0) }
+    pub(super) const fn intersection(self, other: Self) -> Self
+                                                            { Self(self.0 & other.0) }
+    const fn with(self, rank: RegRank) -> Self { Self(self.0 | 1 << rank.0) }
+}
+
+
+//-------------------------------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum RegBank { Int = 0, Float = 1 }
@@ -116,6 +127,8 @@ impl RegBank {
 }
 
 
+//-------------------------------------------------------------------------------------------------
+
 #[derive(Debug)]
 pub(super) struct RegFile {
     pub(super) stack_reg:       MachineReg,
@@ -132,7 +145,7 @@ pub(super) struct RegFile {
                                                     // if we never allocate that register.
     available_ranks:            [RankSet; RegBank::COUNT],
                                                     // Available registers by rank.
-    pub(super) clobbered_ranks: RankSet,            // The register ranks a bl[r] will clobber.
+    pub(super) clobbered_ranks: RankSet,            // The register ranks a call will clobber.
 }
 
 
@@ -195,7 +208,7 @@ impl RegFile {
         must_save_if_used.insert(self.link_reg);
         written.intersection(must_save_if_used).intersection(bank.regs())
     }
-    pub(super) fn get_rank_bits(&self, reg: MachineReg) -> RankSet {
+    pub(super) fn rank_bits(&self, reg: MachineReg) -> RankSet {
         let r = self.rank[usize::from(reg)]
             .expect("internal compiler error: trying to use system register");
         RankSet(1 << r.0)
@@ -223,7 +236,7 @@ impl RegFile {
 
 //-------------------------------------------------------------------------------------------------
 
-pub(super) const fn regs<const N: usize>(numbers: [u8; N]) -> [MachineReg; N] {
+pub(super) const fn machine_regs<const N: usize>(numbers: [u8; N]) -> [MachineReg; N] {
     let mut out = [MachineReg::new(0); N];
     let mut i = 0;
     while i < N { out[i] = MachineReg::new(numbers[i]); i += 1; }

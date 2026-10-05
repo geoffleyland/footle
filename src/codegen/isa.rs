@@ -3,8 +3,7 @@
 use enumset::{EnumSet, EnumSetType, enum_set};
 use paste::paste;
 
-use super::{RegFile, RegSet, MachineReg, RankSet};
-use super::regs::regs;
+use super::{regs, RegFile, RegSet, MachineReg, RankSet};
 
 #[cfg(feature = "dogfood")]
 use display::*;
@@ -13,10 +12,10 @@ use display::*;
 //-------------------------------------------------------------------------------------------------
 
 pub(super) static REGS: RegFile = RegFile::new(31, 30, 16,
-    RegSet(0x0000_FF00_1FF8_0000),
+    RegSet::new(0x0000_FF00_1FF8_0000),
     [
-        &regs([ 0,  1,  2,  3,  4,  5,  6,  7]),
-        &regs([32, 33, 34, 35, 36, 37, 38, 39]),
+        &regs::machine_regs([ 0,  1,  2,  3,  4,  5,  6,  7]),
+        &regs::machine_regs([32, 33, 34, 35, 36, 37, 38, 39]),
     ],
     &[
          9, 10, 11, 12, 13, 14, 15,                 // caller-saved temps (x16-18 excluded)

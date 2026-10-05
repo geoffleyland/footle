@@ -256,7 +256,7 @@ fn set_reg(
 ) {
     regs[slot].set(reg).expect("internal compiler error: trying to set a register twice");
     for interfering_slot in interfering_slots[slot].iter() {
-        available_ranks[interfering_slot].remove(REGS.get_rank_bits(reg));
+        available_ranks[interfering_slot].remove(REGS.rank_bits(reg));
     }
 }
 
@@ -311,8 +311,8 @@ fn lower_to_regs(
             let mut temp_reg_pool = unordered_moves.iter()
                 .fold(RankSet::EMPTY, |pool, (slot, ..)| pool.union(available_ranks[*slot]));
             for (_, source, dest) in &unordered_moves {
-                temp_reg_pool.remove(REGS.get_rank_bits(*source));
-                temp_reg_pool.remove(REGS.get_rank_bits(*dest));
+                temp_reg_pool.remove(REGS.rank_bits(*source));
+                temp_reg_pool.remove(REGS.rank_bits(*dest));
             }
 
             move_regs(&unordered_moves, temp_reg_pool)
@@ -323,7 +323,7 @@ fn lower_to_regs(
         // and if we wrote to them we will have already picked that up.
         for (_, d) in &moves { written_regs.insert(*d); }
         if let Some(reg) = regs[instr.slot] { written_regs.insert(reg); }
-        if instr.code.is_call() { written_regs.insert(REGS.link_reg)}
+        if instr.code.is_call() { written_regs.insert(REGS.link_reg) }
 
         reg_instrs.push(Instr{
             operands, moves,
