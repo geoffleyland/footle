@@ -27,8 +27,8 @@ return sin(a)
 
 #( expected assembly aarch64 f64
 
-  0x1000: ldr x9, #0x1030
-  0x1004: str x30, [sp, #-0x10]!
+  0x1000: str x30, [sp, #-0x10]!
+  0x1004: ldr x9, #0x1030
   0x1008: blr x9
   0x100c: ldr x30, [sp], #0x10
   0x1010: ret

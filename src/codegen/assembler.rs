@@ -142,23 +142,15 @@ fn emit_function(
         .collect();
 
         // Restore callee saved registers before a `ret`.
-        if ai.code.restore_regs() {
+        if ai.code.is_return() {
             for pair in d_regs_to_save.chunks(2).rev() { save_restore(instrs, pair, &isa::ldp_d_post, &isa::ldr_d_post, stack, 16) }
             for pair in x_regs_to_save.chunks(2).rev() { save_restore(instrs, pair, &isa::ldp_x_post, &isa::ldr_x_post, stack, 16) }
-        }
-
-        if ai.code.save_link_reg() {
-            assemble!(instrs, str_x_pre, REGS.link_reg, REGS.stack_reg, Offset(-16));
         }
 
         instrs.push(Instr{ code: ai.code, operands,
         #[cfg(feature = "dogfood")]
             span: Some(ai.span)
         });
-
-        if ai.code.save_link_reg() {
-            assemble!(instrs, ldr_x_post, REGS.link_reg, REGS.stack_reg, Offset(16));
-        }
     }
 }
 

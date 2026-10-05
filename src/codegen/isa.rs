@@ -199,7 +199,9 @@ impl RegFile {
     }
 
     pub(super) fn regs_to_save(&self, written: RegSet, bank: RegBank) -> RegSet {
-        written.intersection(self.callee_saved).intersection(bank.regs())
+        let mut must_save_if_used = self.callee_saved;
+        must_save_if_used.insert(self.link_reg);
+        written.intersection(must_save_if_used).intersection(bank.regs())
     }
     fn get_rank_bits(&self, reg: MachineReg) -> RankSet {
         let r = self.rank[usize::from(reg)]
@@ -287,17 +289,17 @@ pub(super) struct Code {
 impl Code {
     pub fn has_output(&self) -> bool        { self.has_output }
 
-    pub fn clobbers_anything(&self) -> bool { self.save_link_reg() }
+    pub fn clobbers_anything(&self) -> bool { self.is_call() }
     pub fn clobbers(&self, reg: MachineReg) -> bool {
-        self.save_link_reg() && !REGS.callee_saved.contains(reg)
+        self.is_call() && !REGS.callee_saved.contains(reg)
     }
 
     pub fn clobbered_ranks(&self) -> RankSet {
-        if self.save_link_reg() { REGS.clobbered_ranks } else { RankSet::EMPTY }
+        if self.is_call() { REGS.clobbered_ranks } else { RankSet::EMPTY }
     }
 
-    pub fn restore_regs(&self) -> bool  { std::ptr::eq(self, &raw const ret) }
-    pub fn save_link_reg(&self) -> bool {
+    pub fn is_return(&self) -> bool  { std::ptr::eq(self, &raw const ret) }
+    pub fn is_call(&self) -> bool {
         std::ptr::eq(self, &raw const bl) || std::ptr::eq(self, &raw const blr)
     }
 

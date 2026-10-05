@@ -323,6 +323,7 @@ fn lower_to_regs(
         // and if we wrote to them we will have already picked that up.
         for (_, d) in &moves { written_regs.insert(*d); }
         if let Some(reg) = regs[instr.slot] { written_regs.insert(reg); }
+        if instr.code.is_call() { written_regs.insert(REGS.link_reg)}
 
         reg_instrs.push(Instr{
             operands, moves,

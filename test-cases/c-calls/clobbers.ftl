@@ -33,18 +33,18 @@ return a, b, c
 
 #( expected assembly aarch64 f64 f64
 
-  0x1000: stp d8, d9, [sp, #-0x10]!
-  0x1004: ldr x9, #0x1060
-  0x1008: fmov d8, d0
-  0x100c: fmov d0, d1
-  0x1010: fmov d9, d1
-  0x1014: str x30, [sp, #-0x10]!
+  0x1000: str x30, [sp, #-0x10]!
+  0x1004: stp d8, d9, [sp, #-0x10]!
+  0x1008: ldr x9, #0x1060
+  0x100c: fmov d8, d0
+  0x1010: fmov d0, d1
+  0x1014: fmov d9, d1
   0x1018: blr x9
-  0x101c: ldr x30, [sp], #0x10
-  0x1020: fmul d2, d8, d0
-  0x1024: fmov d0, d8
-  0x1028: fmov d1, d9
-  0x102c: ldp d8, d9, [sp], #0x10
+  0x101c: fmul d2, d8, d0
+  0x1020: fmov d0, d8
+  0x1024: fmov d1, d9
+  0x1028: ldp d8, d9, [sp], #0x10
+  0x102c: ldr x30, [sp], #0x10
   0x1030: ret
   0x1034: mov x16, x0
   0x1038: stp x1, x30, [sp, #-0x10]!

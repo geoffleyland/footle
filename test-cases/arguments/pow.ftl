@@ -29,11 +29,11 @@ return b ^ a
 
 #( expected assembly aarch64 f64 f64
 
-  0x1000: ldr x9, #0x1040
-  0x1004: fmov d16, d1
-  0x1008: fmov d1, d0
-  0x100c: fmov d0, d16
-  0x1010: str x30, [sp, #-0x10]!
+  0x1000: str x30, [sp, #-0x10]!
+  0x1004: ldr x9, #0x1040
+  0x1008: fmov d16, d1
+  0x100c: fmov d1, d0
+  0x1010: fmov d0, d16
   0x1014: blr x9
   0x1018: ldr x30, [sp], #0x10
   0x101c: ret
