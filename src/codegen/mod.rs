@@ -15,7 +15,7 @@ pub use binary::CompiledFn;
 
 use value::{Value, ValueDef, ValueSlot, Type, Constant};
 use regs::{MachineReg, RegBank, RegFile, RegSet, RankSet};
-use arch::{isa, isa::REGS};
+use arch::{isa, isa::REGS, abi};
 use scheduler::SchedulePosition;
 
 #[cfg(feature = "dogfood")]
