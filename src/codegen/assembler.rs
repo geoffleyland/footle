@@ -16,17 +16,6 @@ pub(super) enum Operand {
     Function(usize),
 }
 
-struct Reg(u8);
-impl From<Reg> for Operand {
-    fn from(r: Reg) -> Self { Self::Reg(r.0) }
-}
-seq!(N in 0..32 {
-    #[allow(non_upper_case_globals, dead_code)]
-    const x~N: Reg = Reg(N);
-    #[allow(non_upper_case_globals, dead_code)]
-    const d~N: Reg = Reg(N);
-});
-
 struct Offset(i32);
 impl From<Offset> for Operand {
     fn from(o: Offset) -> Self { Self::Offset(o.0) }
@@ -109,21 +98,14 @@ fn emit_function(
     functions:                      &[String],
     written_regs:                   RegSet,
 ) {
-    let stack = REGS.stack_reg;
-    // Save any callee saved registers
-    let int_regs_to_save: Vec<_> = REGS.regs_to_save(written_regs, RegBank::Int).iter().collect();
-    let float_regs_to_save: Vec<_> = REGS.regs_to_save(written_regs, RegBank::Float).iter().collect();
-    for pair in int_regs_to_save.chunks(2)      { save_restore(instrs, pair, &isa::stp_x_pre, &isa::str_x_pre, stack, -16) }
-    for pair in float_regs_to_save.chunks(2)    { save_restore(instrs, pair, &isa::stp_d_pre, &isa::str_d_pre, stack, -16) }
+    let regs_to_save = REGS.regs_to_save(written_regs);
+    emit_save_regs(instrs, regs_to_save);
 
     for ai in allocated {
-        for (source, destination) in &ai.moves {
-            debug_assert_eq!(RegBank::of_reg(*source), RegBank::of_reg(*destination));
-            match RegBank::of_reg(*source) {
-                RegBank::Int    => assemble!(instrs, mov_x, *destination, *source),
-                RegBank::Float  => assemble!(instrs, fmov_d, *destination, *source)
-            }
-        }
+        emit_moves(instrs, &ai.moves);
+
+        // Restore callee saved registers before a `ret`.
+        if ai.code.is_return() { emit_restore_regs(instrs, regs_to_save); }
 
         let operands = ai.code.has_output()
             .then(|| Operand::from(ai.result_reg
@@ -141,17 +123,57 @@ fn emit_function(
             }))
         .collect();
 
-        // Restore callee saved registers before a `ret`.
-        if ai.code.is_return() {
-            for pair in float_regs_to_save.chunks(2).rev()  { save_restore(instrs, pair, &isa::ldp_d_post, &isa::ldr_d_post, stack, 16) }
-            for pair in int_regs_to_save.chunks(2).rev()    { save_restore(instrs, pair, &isa::ldp_x_post, &isa::ldr_x_post, stack, 16) }
-        }
-
         instrs.push(Instr{ code: ai.code, operands,
         #[cfg(feature = "dogfood")]
             span: Some(ai.span)
         });
     }
+}
+
+
+//-------------------------------------------------------------------------------------------------
+
+seq!(N in 0..32 {
+    #[allow(non_upper_case_globals, dead_code)]
+    const x~N: MachineReg = MachineReg::new(N);
+    // N = 0 expands to 0 + 32 and clippy doesn't like that - hence the identity_op.
+    #[allow(non_upper_case_globals, dead_code, clippy::identity_op)]
+    const d~N: MachineReg = MachineReg::new(N + 32);
+});
+
+
+//-------------------------------------------------------------------------------------------------
+
+fn emit_moves(instrs: &mut Vec<Instr>, moves: &[(MachineReg, MachineReg)]) {
+    for (source, destination) in moves {
+        debug_assert_eq!(RegBank::of_reg(*source), RegBank::of_reg(*destination));
+        match RegBank::of_reg(*source) {
+            RegBank::Int    => assemble!(instrs, mov_x, *destination, *source),
+            RegBank::Float  => assemble!(instrs, fmov_d, *destination, *source)
+        }
+    }
+}
+
+
+//-------------------------------------------------------------------------------------------------
+
+fn split_regs_by_bank(regs: RegSet) -> (Vec<MachineReg>, Vec<MachineReg>) {
+    (regs.intersection(RegBank::Int.regs()).iter().collect(),
+     regs.intersection(RegBank::Float.regs()).iter().collect())
+}
+
+
+fn emit_save_regs(instrs: &mut Vec<Instr>, regs: RegSet) {
+    let (int_regs, float_regs) = split_regs_by_bank(regs);
+    for pair in int_regs.chunks(2)          { save_restore(instrs, pair, &isa::stp_x_pre, &isa::str_x_pre, REGS.stack_reg, -16) }
+    for pair in float_regs.chunks(2)        { save_restore(instrs, pair, &isa::stp_d_pre, &isa::str_d_pre, REGS.stack_reg, -16) }
+}
+
+
+fn emit_restore_regs(instrs: &mut Vec<Instr>, regs: RegSet) {
+    let (int_regs, float_regs) = split_regs_by_bank(regs);
+    for pair in float_regs.chunks(2).rev()  { save_restore(instrs, pair, &isa::ldp_d_post, &isa::ldr_d_post, REGS.stack_reg, 16) }
+    for pair in int_regs.chunks(2).rev()    { save_restore(instrs, pair, &isa::ldp_x_post, &isa::ldr_x_post, REGS.stack_reg, 16) }
 }
 
 
