@@ -15,6 +15,21 @@ clippy_all() {
         && cargo clippy --features dogfood --tests
 }
 
+
+# Run admin again inside the Linux container for an architecture (aarch64 or riscv64).
+launch_in_docker() {
+    service=alpine-$1
+    shift
+    if [ -t 0 ] && [ -z "$NO_TTY" ]; then
+        docker compose run --rm     -e LESS_CLIPPY=${LESS_CLIPPY-1} $service ./admin "$@"
+    else
+        # Not interactive (watchexec, a pipe): no terminal, and stdin from /dev/null, or compose
+        # tries to read a terminal it doesn't own and job control stops it (SIGTTIN).
+        docker compose run --rm -T  -e LESS_CLIPPY=${LESS_CLIPPY-1} $service ./admin "$@" < /dev/null
+    fi
+}
+
+
 case $1 in
 
     test)
@@ -24,37 +39,19 @@ case $1 in
             && clippy_all
         ;;
 
+    verbose)
+        F=${2:-$TEST_FILE}; shift; [ $# -gt 0 ] && shift
+        RUST_BACKTRACE=1 cargo run -q --features dogfood -- -v $F "$@"
+        ;;
+
     watch)
-        case $2 in
-
-            test)
-                watchexec -w src -w ${3:-$TEST_DIR} -w Cargo.toml -c -- ./admin test ${3:-$TEST_DIR}
-                ;;
-
-            verbose)
-                RUST_BACKTRACE=1 watchexec -w src -w ${3:-$TEST_FILE} -w Cargo.toml -c -- cargo run -q --features dogfood -- -v ${3:-$TEST_FILE}
-                ;;
-
-            **)
-                F=$2
-                shift 2
-                RUST_BACKTRACE=1 watchexec -w src -w ${F:-$TEST_FILE} -w Cargo.toml -c -- cargo run -q -- ${F:-$TEST_FILE} "$@"
-                ;;
-
-        esac
-        ;;
-
-    linux)
         shift
-        [ -t 0 ] || TTY=-T
-        docker compose run --rm $TTY -e LESS_CLIPPY=${LESS_CLIPPY-1} alpine-aarch64 ./admin "$@"
+        export NO_TTY=1
+        watchexec -w src -w test-cases -w Cargo.toml -c -- ./admin "$@"
         ;;
 
-    riscv)
-        shift
-        [ -t 0 ] || TTY=-T
-        docker compose run --rm $TTY -e LESS_CLIPPY=${LESS_CLIPPY-1} alpine-riscv64 ./admin "$@"
-        ;;
+    linux)  shift; launch_in_docker aarch64 "$@" ;;
+    riscv)  shift; launch_in_docker riscv64 "$@" ;;
 
     doc)
         cargo doc --open
@@ -62,6 +59,13 @@ case $1 in
 
     count-lines)
         tokei
+        ;;
+
+    cleanout-watchexec)
+        # watchexecs left behind by closing a terminal tab without Ctrl-C: their parent is now
+        # launchd (or init), PID 1.
+        pids=$(ps -e -o pid= -o ppid= -o args= | awk '$2 == 1 && /watchexec/ {print $1}')
+        [ -n "$pids" ] && kill $pids
         ;;
 
     **)
