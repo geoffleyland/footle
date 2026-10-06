@@ -20,12 +20,13 @@ clippy_all() {
 launch_in_docker() {
     service=alpine-$1
     shift
+    # Colour depends on where output goes (stdout), not on whether we can read a terminal (stdin).
+    if [ -t 1 ]; then colour=always; else colour=never; fi
     if [ -t 0 ] && [ -z "$NO_TTY" ]; then
         docker compose run --rm     -e LESS_CLIPPY=${LESS_CLIPPY-1} $service ./admin "$@"
     else
-        # Not interactive (watchexec, a pipe): no terminal, and stdin from /dev/null, or compose
-        # tries to read a terminal it doesn't own and job control stops it (SIGTTIN).
-        docker compose run --rm -T  -e LESS_CLIPPY=${LESS_CLIPPY-1} $service ./admin "$@" < /dev/null
+        docker compose run --rm -T  -e LESS_CLIPPY=${LESS_CLIPPY-1} -e CARGO_TERM_COLOR=$colour \
+            $service ./admin "$@" < /dev/null
     fi
 }
 
