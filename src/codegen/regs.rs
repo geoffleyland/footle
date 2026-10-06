@@ -49,6 +49,11 @@ impl RegSet {
 
     pub(super) const fn new(regs: u64) -> Self              { Self(regs) }
 
+    #[cfg_attr(not(target_arch = "riscv64"), expect(dead_code, reason = "only riscv64's frame layout uses it"))]
+    pub(super) const fn len(self) -> usize                  { self.0.count_ones() as usize }
+    #[cfg_attr(not(target_arch = "riscv64"), expect(dead_code, reason = "only riscv64's frame layout uses it"))]
+    pub(super) const fn is_empty(self) -> bool              { self.0 == 0 }
+
     pub(super) fn insert(&mut self, reg: MachineReg)        { self.0 |= 1 << reg.0 }
     pub(super) const fn intersection(self, other: Self) -> Self
                                                             { Self(self.0 & other.0) }
