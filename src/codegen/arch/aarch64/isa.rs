@@ -94,7 +94,7 @@ impl Code {
 }
 
 
-macro_rules! reg {
+macro_rules! encode_operand {
     (dd, $it:expr)    => { $it };
     (dn, $it:expr)    => { $it << 5 };
     (dm, $it:expr)    => { $it << 16 };
@@ -189,7 +189,7 @@ macro_rules! _code {
             encode: |operands: &[u32]| -> u32 {
                 // If there's no argument (ie `ret`), _it is unused, so the _ silences a warning.
                 let mut _it = operands.iter().copied();
-                $pattern $(| reg!($reg, _it.next().unwrap()))*
+                $pattern $(| encode_operand!($reg, _it.next().unwrap()))*
             },
 
             #[cfg(any(feature = "dogfood", test))]
