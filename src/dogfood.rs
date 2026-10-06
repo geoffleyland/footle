@@ -253,6 +253,20 @@ fn run_test(path: &Path) -> Result<()> {
     Ok(())
 }
 
+const ARCHITECTURES: [&str; 2] = ["aarch64", "riscv64"];
+
+fn check_mode_for_arch(mode: String) -> Result<Option<String>> {
+    let this_arch = std::env::consts::ARCH;
+    let mut words = mode.split_whitespace();
+    match (words.next(), words.next()) {
+        (Some("schedule"), None) => Ok(Some(format!("schedule {this_arch}"))),
+        (Some("assembly"), None) => bail!("expected assembly section is missing arch"),
+        (Some("schedule" | "assembly"), Some(arch))
+            if arch != this_arch && ARCHITECTURES.contains(&arch) => Ok(None),
+        _ => Ok(Some(mode))
+    }
+}
+
 
 #[allow(clippy::type_complexity)]
 fn read_test_file(path: &Path) -> Result<(HashMap<String, Vec<String>>, Vec<String>)> {
@@ -263,20 +277,20 @@ fn read_test_file(path: &Path) -> Result<(HashMap<String, Vec<String>>, Vec<Stri
     // Read the file, putting all the bits into the right buffers.
     let mut expected = HashMap::<String, Vec<String>>::new();
     let mut sections = vec![];
-    let mut mode = "source".to_string();
+    let mut mode = Some("source".to_string());
 
     for line in BufReader::new(file).lines().map_while(Result::ok) {
-        if let Some(raw_mode) = line.strip_prefix("#( expected") {
-            mode = raw_mode.trim().to_lowercase();
-            if sections.contains(&mode) {
-                bail!("Repeated expected section '{mode}'");
+        if let Some(header) = line.strip_prefix("#( expected") {
+            mode = check_mode_for_arch(header.trim().to_lowercase())?;
+            if let Some(m) = &mode {
+                if sections.contains(m) { bail!("Repeated expected section '{m}'"); }
+                sections.push(m.clone());
+                expected.entry(m.clone()).or_default();
             }
-            sections.push(mode.clone());
-            expected.entry(mode.clone()).or_default();
-        } else if !line.is_empty() && (mode == "source" || !line.starts_with("#)")) {
-            expected.entry(mode.clone()).or_default().push(line);
-        } else if mode != "source" && line.starts_with("#)") {
-            mode = "source".to_string();
+        } else if line.starts_with("#)") && mode.as_deref() != Some("source") {
+            mode = Some("source".to_string());
+        } else if let Some(m) = &mode && !line.is_empty() {
+            expected.entry(m.clone()).or_default().push(line);
         }
     }
     Ok((expected, sections))
