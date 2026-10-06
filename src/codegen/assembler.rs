@@ -1,4 +1,4 @@
-use super::{isa, abi, allocator, Constant, Type, MachineReg, RegSet, REGS};
+use super::{isa, abi, allocator, Constant, Type, MachineReg, RegSet, RegBank, REGS};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -128,6 +128,12 @@ fn emit_function(
             span: Some(ai.span)
         });
     }
+}
+
+
+pub(super) fn split_regs_by_bank(regs: RegSet) -> (Vec<MachineReg>, Vec<MachineReg>) {
+    (regs.intersection(RegBank::Int.regs()).iter().collect(),
+     regs.intersection(RegBank::Float.regs()).iter().collect())
 }
 
 

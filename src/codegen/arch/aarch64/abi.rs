@@ -1,6 +1,7 @@
 use seq_macro::seq;
 
-use crate::codegen::{isa, assembler::{assemble, assemble_expr, Instr, Offset}, Type, RegBank, MachineReg, RegSet, REGS};
+use crate::codegen::{isa, Type, RegBank, MachineReg, RegSet, REGS,
+    assembler::{assemble, assemble_expr, split_regs_by_bank, Instr, Offset}};
 
 
 //-------------------------------------------------------------------------------------------------
@@ -29,14 +30,8 @@ pub fn emit_moves(instrs: &mut Vec<Instr>, moves: &[(MachineReg, MachineReg)]) {
 
 //-------------------------------------------------------------------------------------------------
 
-fn split_regs_by_bank(regs: RegSet) -> (Vec<MachineReg>, Vec<MachineReg>) {
-    (regs.intersection(RegBank::Int.regs()).iter().collect(),
-     regs.intersection(RegBank::Float.regs()).iter().collect())
-}
-
-
 pub fn emit_save_regs(instrs: &mut Vec<Instr>, regs: RegSet) {
-    let (int_regs, float_regs) = split_regs_by_bank(regs);
+    let (int_regs, float_regs) =  split_regs_by_bank(regs);
     for pair in int_regs.chunks(2)          { save_restore(instrs, pair, &isa::stp_x_pre, &isa::str_x_pre, REGS.stack_reg, -16) }
     for pair in float_regs.chunks(2)        { save_restore(instrs, pair, &isa::stp_d_pre, &isa::str_d_pre, REGS.stack_reg, -16) }
 }
