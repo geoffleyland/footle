@@ -189,7 +189,7 @@ macro_rules! _code {
             encode: |operands: &[u32]| -> u32 {
                 // If there's no argument (ie `ret`), _it is unused, so the _ silences a warning.
                 let mut _it = operands.iter().copied();
-                $pattern $(| encode_operand!($reg, _it.next().unwrap()))*
+                $pattern $(| { let value = _it.next().unwrap(); encode_operand!($reg, value) })*
             },
 
             #[cfg(any(feature = "dogfood", test))]
