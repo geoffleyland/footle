@@ -1,6 +1,6 @@
 use seq_macro::seq;
 
-use crate::codegen::{isa, Type, RegBank, MachineReg, RegSet, REGS,
+use crate::codegen::{isa, Code, Type, RegBank, MachineReg, RegSet, REGS,
     assembler::{assemble, assemble_expr, split_regs_by_bank, Instr, Offset}};
 
 
@@ -47,8 +47,8 @@ pub fn emit_restore_regs(instrs: &mut Vec<Instr>, regs: RegSet) {
 fn save_restore(
     instrs:                         &mut Vec<Instr>,
     pair:                           &[MachineReg],
-    pair_op:                        &'static isa::Code,
-    single_op:                      &'static isa::Code,
+    pair_op:                        &'static Code,
+    single_op:                      &'static Code,
     offset_reg:                     MachineReg,
     offset:                         i32) {
     match *pair {

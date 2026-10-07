@@ -2,7 +2,7 @@ use std::fmt;
 
 use derive_more::{From, Into, Display};
 
-use super::{isa, MachineReg};
+use super::{MachineReg, Code};
 use crate::vir;
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -12,7 +12,7 @@ use crate::core::Span;
 
 #[derive(Debug, Clone)]
 pub(super) enum ValueDef {
-    Instr(&'static isa::Code),
+    Instr(&'static Code),
     #[cfg(any(feature = "dogfood", test))]
     Argument(usize, String),
     #[cfg(not(any(feature = "dogfood", test)))]
@@ -102,11 +102,11 @@ impl<'arena> Value<'arena> {
     }
 
 
-    pub(super) fn code(&self) -> Option<&'static isa::Code> {
+    pub(super) fn code(&self) -> Option<&'static Code> {
         if let ValueDef::Instr(code) = &self.def { Some(code) } else { None }
     }
 
-    pub(super) fn latency(&self) -> u8                 { self.code().map_or(0, isa::Code::latency) }
+    pub(super) fn latency(&self) -> u8                 { self.code().map_or(0, Code::latency) }
 
     pub(super) fn predecessors(&self) -> impl Iterator<Item = &'arena Value<'arena>> {
         let operands = self.operands.iter().filter_map(Operand::value);

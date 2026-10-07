@@ -4,7 +4,7 @@ use bit_set::BitSet;
 use typed_index_collections::TiVec;
 use derive_more::{From, Into};
 
-use super::{isa, Value, ValueSlot, Type, MachineReg, RegFile, RegSet, RankSet, SchedulePosition, REGS};
+use super::{Code, Value, ValueSlot, Type, MachineReg, RegFile, RegSet, RankSet, SchedulePosition, REGS};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -39,7 +39,7 @@ type SlotOperand = super::operand::Operand<AllocatorSlot>;
 #[derive(Debug)]
 struct SlotInstr {
     slot:                               AllocatorSlot,
-    code:                               &'static isa::Code,
+    code:                               &'static Code,
     operands:                           Vec<SlotOperand>,
     fixed_inputs:                       Vec<(AllocatorSlot, MachineReg)>,
     fixed_output:                       Option<MachineReg>,
@@ -268,7 +268,7 @@ type Operand = super::operand::Operand<MachineReg>;
 
 #[derive(Debug)]
 pub(super) struct Instr {
-    pub(super) code:                    &'static isa::Code,
+    pub(super) code:                    &'static Code,
     pub(super) result_reg:              Option<MachineReg>,
     pub(super) operands:                Vec<Operand>,
     pub(super) moves:                   Vec<(MachineReg, MachineReg)>,

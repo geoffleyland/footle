@@ -1,9 +1,9 @@
 #![allow(clippy::unusual_byte_groupings, non_upper_case_globals)]
 
-use enumset::{EnumSet, EnumSetType, enum_set};
+use enumset::{EnumSetType, enum_set};
 use paste::paste;
 
-use crate::codegen::{regs, RegFile, RegSet, MachineReg, RankSet};
+use crate::codegen::{regs, Code, RegFile, RegSet};
 
 #[cfg(feature = "dogfood")]
 use display::*;
@@ -40,57 +40,6 @@ pub enum Unit {
     FP12,
     FP13,
     FP14,
-}
-
-
-//-------------------------------------------------------------------------------------------------
-// Instruction encoding structures and macros.
-
-#[derive(Debug)]
-pub struct Code {
-    encode:                     fn(&[u32]) -> u32,
-    is_call:                    bool,
-    is_return:                  bool,
-    has_output:                 bool,
-
-    latency:                    u8,
-    units:                      EnumSet<Unit>,
-
-    #[cfg(any(feature = "dogfood", test))]
-    mnemonic:                   &'static str,
-    #[cfg(feature = "dogfood")]
-    format:                     fn(&[i32], i32) -> String,
-}
-
-
-impl Code {
-    pub fn encode(&self, args: &[u32])-> u32{ (self.encode)(args) }
-
-    pub fn is_call(&self) -> bool           { self.is_call }
-    pub fn is_return(&self) -> bool         { self.is_return }
-    pub fn has_output(&self) -> bool        { self.has_output }
-
-
-    pub fn clobbers_anything(&self) -> bool { self.is_call() }
-    pub fn clobbers(&self, reg: MachineReg) -> bool {
-        self.is_call() && !REGS.callee_saved.contains(reg)
-    }
-    pub fn clobbered_ranks(&self) -> RankSet {
-        if self.is_call() { REGS.clobbered_ranks } else { RankSet::EMPTY }
-    }
-
-    pub fn latency(&self) -> u8             { self.latency }
-    pub fn try_pick_unit(&self, free_units: EnumSet<Unit>) -> Option<Unit> {
-        (self.units & free_units).iter().next()
-    }
-
-    #[cfg(any(feature = "dogfood", test))]
-    pub fn mnemonic(&self) -> &str      { self.mnemonic }
-
-    #[cfg(feature = "dogfood")]
-    pub fn format(&self, operands: &[i32], address: i32) -> String {
-        (self.format)(operands, address)
-    }
 }
 
 
