@@ -161,8 +161,8 @@ macro_rules! _code {
             #[cfg(any(feature = "dogfood", test))]
             mnemonic:           stringify!($mnemonic),
             #[cfg(feature = "dogfood")]
-            format: |operands, address|
-                format_operands(AddressingMode::$addressing_mode, operands, address, &[$(format_operand!($reg)),*]),
+            format_assembly: |mnemonic, operands, address|
+                format_assembly(mnemonic, AddressingMode::$addressing_mode, operands, address, &[$(format_operand!($reg)),*]),
             };);
     }
 }
@@ -219,22 +219,31 @@ mod display {
         Offset,
     }
 
-    pub(super) fn format_operands(
-        addressing_mode:    AddressingMode,
+    pub(super) fn format_assembly(
+        mnemonic:           &str,
+        mode:               AddressingMode,
         operands:           &[i32],
         address:            i32,
-        formatters:         &[fn(i32, i32, AddressingMode) -> String]
+        formatters:         &[fn(i32, i32) -> String]
     ) -> String {
+        use AddressingMode::*;
+        if operands.is_empty() { return mnemonic.to_string() }
+
         debug_assert_eq!(operands.len(), formatters.len());
-        formatters.iter().zip(operands)
-            .map(|(f, &v)| f(v, address, addressing_mode))
-            .fold(String::new(), |mut acc, piece| {
-                if !acc.is_empty() && !piece.starts_with(']') {
-                    acc.push_str(", ");
-                }
-                acc.push_str(&piece);
-                acc
-            })
+        let operand_strings: Vec<_> = formatters.iter().zip(operands)
+            .map(|(f, &v)| f(v, address))
+            .collect();
+
+        let operand_string = match (mode, operand_strings.as_slice()) {
+            (Offset,    [head @ .., base, _]) if operands.last() == Some(&0)
+                                                    => format!("{}, [{base}]", head.join(", ")),
+            (Offset,    [head @ .., base, offset])  => format!("{}, [{base}, {offset}]", head.join(", ")),
+            (Pre,       [head @ .., base, offset])  => format!("{}, [{base}, {offset}]!", head.join(", ")),
+            (Post,      [head @ .., base, offset])  => format!("{}, [{base}], {offset}", head.join(", ")),
+            (None,      all)                        => all.join(", "),
+            _ => unreachable!("internal compiler error: memory operand without a base and offset"),
+        };
+        format!("{mnemonic} {operand_string}")
     }
 
     macro_rules! format_operand {
@@ -246,7 +255,7 @@ mod display {
         (dt1)   => { format_d_reg };
         (dt2)   => { format_d_reg };
         (xd)    => { format_x_reg };
-        (xn)    => { format_xn };
+        (xn)    => { format_x_reg };
         (xm)    => { format_x_reg };
         (xa)    => { format_x_reg };
         (xt)    => { format_x_reg };
@@ -254,7 +263,7 @@ mod display {
         (xt2)   => { format_x_reg };
         (imm7)  => { format_imm };
         (imm9)  => { format_imm };
-        (imm12) => { format_imm12 };
+        (imm12) => { format_imm };
         (imm16) => { format_imm };
         (imm19) => { format_address };
         (imm26) => { format_address };
@@ -262,39 +271,17 @@ mod display {
     pub(super) use format_operand;
 
 
-    pub(super) fn format_xn(n: i32, _address: i32, mode: AddressingMode) -> String {
-        let reg = x_reg(n);
-        match mode {
-            AddressingMode::Pre | AddressingMode::Offset => format!("[{reg}"),
-            AddressingMode::Post => format!("[{reg}]"),
-            AddressingMode::None => reg
-        }
-    }
-    pub(super) fn format_d_reg(n: i32, _address: i32, _mode: AddressingMode) -> String { format!("d{n}") }
-    pub(super) fn format_x_reg(n: i32, _address: i32, _mode: AddressingMode) -> String  { x_reg(n) }
-    pub(super) fn format_address(n: i32, address: i32, _mode: AddressingMode) -> String  { format!("#{:#x}", address + n) }
-    pub(super) fn format_imm(n: i32, _address: i32, mode: AddressingMode) -> String
-    {
-        let offset = if n > -10 && n < 10 { format!("#{n}")}
-            else if n < 0 { format!("#-{:#x}", -n) }
-            else { format!("#{n:#x}") };
-        match mode {
-            AddressingMode::Pre => format!("{offset}]!"),
-            _ => offset
-        }
-    }
-    pub(super) fn format_imm12(n: i32, _address: i32, _mode: AddressingMode) -> String {
-        if n == 0                   { "]".to_string() }
-        else if n > -10 && n < 10   { format!("#{n}]")}
-        else if n < 0               { format!("#-{:#x}]", -n) }
-        else                        { format!("#{n:#x}]") }
-    }
-
-    pub(super) fn x_reg(n: i32) -> String {
+    pub(super) fn format_d_reg(n: i32, _address: i32) -> String { format!("d{n}") }
+    pub(super) fn format_address(n: i32, address: i32) -> String  { format!("#{:#x}", address + n) }
+    pub(super) fn format_x_reg(n: i32, _address: i32) -> String {
         match n {
             31 => "sp".into(),
             n  => format!("x{n}"),
         }
+    }
+    pub(super) fn format_imm(n: i32, _address: i32) -> String {
+        if (-9..=9).contains(&n) { format!("#{n}") }
+        else { format!("#{}{:#x}", if n < 0 { "-" } else { "" }, n.unsigned_abs()) }
     }
 }
 
