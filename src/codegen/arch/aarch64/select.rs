@@ -1,5 +1,5 @@
 use crate::{vir, core::BinaryOperator};
-use crate::codegen::{isa, lower::{Builder, IntoOperand, operands}, Constant, value::Operand, Value, ValueDef, Type, MachineReg, REGS};
+use crate::codegen::{isa, lower::{Builder, operands}, Constant, value::Operand, Value, ValueDef, Type, MachineReg, REGS};
 
 //-------------------------------------------------------------------------------------------------
 

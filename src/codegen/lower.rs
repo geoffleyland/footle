@@ -67,7 +67,7 @@ impl<'arena> IntoOperand<'arena> for &vir::Expr {
 
 macro_rules! operands {
     ($builder:expr, $( $op:expr ),* $(,)?) => {
-        vec![$( ($op).into_operand($builder) ),*]
+        vec![$( $crate::codegen::lower::IntoOperand::into_operand($op, $builder) ),*]
     };
 }
 pub(super) use operands;
