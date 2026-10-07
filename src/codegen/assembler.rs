@@ -45,7 +45,7 @@ pub(super) use assemble_expr;
 
 macro_rules! assemble {
     ($instrs:expr, $op:ident $(, $($operand:expr),*)?) => {
-        $crate::codegen::assembler::assemble_expr!($instrs, &crate::codegen::isa::$op $(, $($operand),*)?)
+        $crate::codegen::assembler::assemble_expr!($instrs, &$crate::codegen::isa::$op $(, $($operand),*)?)
     }
 }
 pub(super) use assemble;
