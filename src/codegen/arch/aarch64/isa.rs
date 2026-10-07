@@ -146,7 +146,7 @@ macro_rules! _code {
     ) => {
         paste!(pub static [<$mnemonic $($reg_bank)? $($mode_suffix)?>]: Code = Code {
             is_call:            is_call!($mnemonic),
-            is_return :         is_return!($mnemonic),
+            is_return:          is_return!($mnemonic),
             has_output:         $( has_output!($mnemonic, $reg) ||)* false,
 
             encode: |operands: &[u32]| -> u32 {
