@@ -4,7 +4,7 @@ use typed_arena::Arena;
 use typed_index_collections::TiVec;
 
 use crate::vir;
-use super::{isa, Value, ValueDef, ValueSlot, value::Operand, Type, Constant, MachineReg, REGS};
+use super::{Code, Value, ValueDef, ValueSlot, value::Operand, Type, Constant, MachineReg, REGS};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -81,7 +81,7 @@ impl IntoValueDef for ValueDef {
     fn into_value_def(self) -> ValueDef     { self }
 }
 
-impl IntoValueDef for &'static isa::Code {
+impl IntoValueDef for &'static Code {
     fn into_value_def(self) -> ValueDef     { ValueDef::Instr(self) }
 }
 
@@ -108,7 +108,7 @@ impl<'arena> Builder<'arena> {
     pub(super) fn lower_instr(
         &mut self,
         ty:                                     Type,
-        code:                                   &'static isa::Code,
+        code:                                   &'static Code,
         operands:                               Vec<Operand<'arena>>,
         expr:                                   &vir::Expr,
     ) -> &'arena Value<'arena> {
@@ -137,7 +137,7 @@ impl<'arena> Builder<'arena> {
     pub(super) fn make_instr(
         &mut self,
         ty:                                     Type,
-        code:                                   &'static isa::Code,
+        code:                                   &'static Code,
         operands:                               Vec<Operand<'arena>>,
         #[cfg(feature = "dogfood")]
         span:                                   Span,

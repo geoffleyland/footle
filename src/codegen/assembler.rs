@@ -1,4 +1,4 @@
-use super::{isa, abi, allocator, Constant, Type, MachineReg, RegSet, RegBank, REGS};
+use super::{Code, abi, allocator, Constant, Type, MachineReg, RegSet, RegBank, REGS};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -54,7 +54,7 @@ pub(super) use assemble;
 //-------------------------------------------------------------------------------------------------
 
 pub(super) struct Instr {
-    pub(super) code:                &'static isa::Code,
+    pub(super) code:                &'static Code,
     pub(super) operands:            Vec<Operand>,
 
     #[cfg(feature = "dogfood")]

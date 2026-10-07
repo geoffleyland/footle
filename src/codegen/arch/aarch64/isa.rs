@@ -1,9 +1,9 @@
 #![allow(clippy::unusual_byte_groupings, non_upper_case_globals)]
 
-use enumset::{EnumSet, EnumSetType, enum_set};
+use enumset::{EnumSetType, enum_set};
 use paste::paste;
 
-use crate::codegen::{regs, RegFile, RegSet, MachineReg, RankSet};
+use crate::codegen::{regs, Code, RegFile, RegSet};
 
 #[cfg(feature = "dogfood")]
 use display::*;
@@ -44,55 +44,6 @@ pub enum Unit {
 
 
 //-------------------------------------------------------------------------------------------------
-// Instruction encoding structures and macros.
-
-#[derive(Debug)]
-pub struct Code {
-    encode:                     fn(&[u32]) -> u32,
-    latency:                    u8,
-    has_output:                 bool,
-    units:                      EnumSet<Unit>,
-
-    #[cfg(any(feature = "dogfood", test))]
-    mnemonic:                   &'static str,
-    #[cfg(feature = "dogfood")]
-    format:                     fn(&[i32], i32) -> String,
-}
-
-
-impl Code {
-    pub fn has_output(&self) -> bool        { self.has_output }
-
-    pub fn latency(&self) -> u8             { self.latency }
-    pub fn encode(&self, args: &[u32])-> u32{ (self.encode)(args) }
-
-    pub fn clobbers_anything(&self) -> bool { self.is_call() }
-    pub fn clobbers(&self, reg: MachineReg) -> bool {
-        self.is_call() && !REGS.callee_saved.contains(reg)
-    }
-
-    pub fn clobbered_ranks(&self) -> RankSet {
-        if self.is_call() { REGS.clobbered_ranks } else { RankSet::EMPTY }
-    }
-
-    pub fn is_return(&self) -> bool  { std::ptr::eq(self, &raw const ret) }
-    pub fn is_call(&self) -> bool {
-        std::ptr::eq(self, &raw const bl) || std::ptr::eq(self, &raw const blr)
-    }
-
-    pub fn try_pick_unit(&self, free_units: EnumSet<Unit>) -> Option<Unit> {
-        (self.units & free_units).iter().next()
-    }
-
-    #[cfg(any(feature = "dogfood", test))]
-    pub fn mnemonic(&self) -> &str      { self.mnemonic }
-
-    #[cfg(feature = "dogfood")]
-    pub fn format(&self, operands: &[i32], address: i32) -> String {
-        (self.format)(operands, address)
-    }
-}
-
 
 macro_rules! encode_operand {
     (dd, $it:expr)    => { $it };
@@ -127,11 +78,22 @@ macro_rules! output_reg {
     ($other:tt) => { false };
 }
 
+macro_rules! is_call {
+    (bl)                    => { true };
+    (blr)                   => { true };
+    ($other:ident)          => { false };
+}
+macro_rules! is_return {
+    (ret)                   => { true };
+    ($other:ident)          => { false };
+}
+
 macro_rules! has_output {
     (str, $($reg:ident),*)  => { false };
     (stp, $($reg:ident),*)  => { false };
     ($mnemonic:ident, $($reg:ident),*) => { $( output_reg!($reg) ||)* false };
 }
+
 
 // Cover the instruction operand patterns to try to figure out the addressing mode (if there is one)
 macro_rules! code {
@@ -183,14 +145,18 @@ macro_rules! _code {
         [$($unit:ident)|+ $(|)?]
     ) => {
         paste!(pub static [<$mnemonic $($reg_bank)? $($mode_suffix)?>]: Code = Code {
+            is_call:            is_call!($mnemonic),
+            is_return :         is_return!($mnemonic),
             has_output:         $( has_output!($mnemonic, $reg) ||)* false,
-            latency:            $latency,
-            units:              enum_set!($(Unit::$unit)|*),
+
             encode: |operands: &[u32]| -> u32 {
                 // If there's no argument (ie `ret`), _it is unused, so the _ silences a warning.
                 let mut _it = operands.iter().copied();
                 $pattern $(| { let value = _it.next().unwrap(); encode_operand!($reg, value) })*
             },
+
+            latency:            $latency,
+            units:              enum_set!($(Unit::$unit)|*),
 
             #[cfg(any(feature = "dogfood", test))]
             mnemonic:           stringify!($mnemonic),
