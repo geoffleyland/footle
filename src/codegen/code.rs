@@ -18,7 +18,7 @@ pub struct Code {
     #[cfg(any(feature = "dogfood", test))]
     pub(super) mnemonic:                    &'static str,
     #[cfg(feature = "dogfood")]
-    pub(super) format:                      fn(&[i32], i32) -> String,
+    pub(super) format_assembly:             fn(&str, &[i32], i32) -> String,
 }
 
 
@@ -47,8 +47,8 @@ impl Code {
     pub fn mnemonic(&self) -> &str      { self.mnemonic }
 
     #[cfg(feature = "dogfood")]
-    pub fn format(&self, operands: &[i32], address: i32) -> String {
-        (self.format)(operands, address)
+    pub fn format_assembly(&self, operands: &[i32], address: i32) -> String {
+        (self.format_assembly)(self.mnemonic, operands, address)
     }
 }
 

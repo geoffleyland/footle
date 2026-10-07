@@ -163,10 +163,9 @@ mod display {
                     }).collect::<Vec<_>>();
 
                 let address = i32::try_from(0x1000 + i * 4).unwrap();
-                writer.writeln(f, indent, instr.span, &format!("{:#06x}: {} {}",
+                writer.writeln(f, indent, instr.span, &format!("{:#06x}: {}",
                     address,
-                    instr.code.mnemonic(),
-                    instr.code.format(&operands, address)))?;
+                    instr.code.format_assembly(&operands, address)))?;
             }
             for (i, c) in self.constants.iter().enumerate() {
                 let address = 0x1000 + constant_start_words * 4 + i * 8;
