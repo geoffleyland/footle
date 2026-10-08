@@ -21,7 +21,12 @@ launch_in_docker() {
     service=alpine-$1
     shift
     # Colour depends on where output goes (stdout), not on whether we can read a terminal (stdin).
-    if [ -t 1 ]; then colour=always; else colour=never; fi
+    # An explicit CARGO_TERM_COLOR wins: under `watch` stdout is a pipe to tee, but the terminal is
+    # still at the end of it.
+    if [ -n "$CARGO_TERM_COLOR" ]; then colour=$CARGO_TERM_COLOR
+    elif [ -t 1 ]; then colour=always
+    else colour=never
+    fi
     if [ -t 0 ] && [ -z "$NO_TTY" ]; then
         docker compose run --rm     -e LESS_CLIPPY=${LESS_CLIPPY-1} $service ./admin "$@"
     else
