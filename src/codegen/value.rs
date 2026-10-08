@@ -27,7 +27,7 @@ pub(super) enum Type {
     NoValue,
     F64,
     I64,
-    FunctionPointer,
+    Pointer,
 }
 
 impl From<vir::TypeInfo> for Type {
@@ -43,10 +43,10 @@ impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use Type::*;
         let str = match self {
-            NoValue                         => "NoValue",
-            I64                             => "i64",
-            F64                             => "f64",
-            FunctionPointer                 => "FunctionPointer",
+            NoValue                     => "NoValue",
+            I64                         => "i64",
+            F64                         => "f64",
+            Pointer                     => "Pointer",
         };
         write!(f, "{str}")
     }
