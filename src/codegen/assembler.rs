@@ -53,18 +53,41 @@ pub(super) use assemble;
 
 //-------------------------------------------------------------------------------------------------
 
-pub(super) struct Instr {
+pub(super) struct Instr<OP> {
     pub(super) code:                &'static Code,
-    pub(super) operands:            Vec<Operand>,
+    pub(super) operands:            Vec<OP>,
 
     #[cfg(feature = "dogfood")]
     pub(super) span:                Option<Span>,
 }
 
 
-pub struct Block {
-    pub(super) instrs:              Vec<Instr>,
+#[derive(Debug, Copy, Clone)]
+pub(super) struct Layout {
     pub(super) glue_start_words:    usize,
+    pub(super) constant_start_words:usize,
+    pub(super) function_start_words:usize,
+    pub(super) total_bytes:         usize,
+    #[cfg(feature = "dogfood")]
+    pub(super) instr_words:         usize,
+}
+impl Layout {
+    fn new(glue_start_words: usize, instr_words: usize, constant_count:usize, function_count:usize) -> Self {
+        let constant_start_words = instr_words.next_multiple_of(2);
+        let function_start_words = constant_start_words + constant_count * 2;
+
+        Self {
+            glue_start_words, constant_start_words, function_start_words,
+            total_bytes:            function_start_words * 4 + function_count * 8,
+            #[cfg(feature = "dogfood")]
+            instr_words,
+        }
+    }
+}
+
+pub struct Block {
+    pub(super) layout:              Layout,
+    pub(super) instrs:              Vec<Instr<i32>>,
     pub(super) constants:           Vec<Constant>,
     pub(super) functions:           Vec<String>,
     pub(super) argument_types:      Vec<Type>,
@@ -87,14 +110,18 @@ pub(super) fn run(
     let glue_start_words = instrs.len();
     abi::emit_glue(&argument_types, &return_types, &mut instrs);
 
-    Block{ instrs, glue_start_words, constants: constants.into(), functions: functions.to_vec(),
+    let layout = Layout::new(glue_start_words, instrs.len(), constants.len(), functions.len());
+
+    let resolved = resolve(instrs, &layout);
+
+    Block{ layout, instrs: resolved, constants: constants.into(), functions: functions.to_vec(),
         argument_types, return_types }
 }
 
 
 fn emit_function(
     allocated:                      Vec<allocator::Instr>,
-    instrs:                         &mut Vec<Instr>,
+    instrs:                         &mut Vec<Instr<Operand>>,
     functions:                      &[String],
     written_regs:                   RegSet,
 ) {
@@ -138,6 +165,33 @@ pub(super) fn split_regs_by_bank(regs: RegSet) -> (Vec<MachineReg>, Vec<MachineR
 
 
 //-------------------------------------------------------------------------------------------------
+
+/// Once we have ALL the instructions, resolve offsets to constants and functions into simple
+/// offsets.
+fn resolve(instrs: Vec<Instr<Operand>>, layout: &Layout) -> Vec<Instr<i32>> {
+    use Operand::*;
+
+    instrs.into_iter().enumerate()
+        .map(|(word_index, instr)| {
+            let operands: Vec<i32> = instr.operands.into_iter().map(|op| {
+                match op {
+                    Reg(i)                  => i32::from(i),
+                    ImmU16(v)               => i32::from(v),
+                    PooledF64(i)            => i32::try_from((layout.constant_start_words - word_index) * 4 + (i * 8))
+                                                .expect("internal compiler error: constant offset too large"),
+                    Function(i)             => i32::try_from((layout.function_start_words - word_index) * 4 + (i * 8))
+                                                .expect("internal compiler error: function offset too large"),
+                    Offset(o)               => o,
+                }
+            }).collect();
+            Instr{ operands, code: instr.code,
+                #[cfg(feature = "dogfood")]
+                span: instr.span,
+            }
+        }).collect()
+}
+
+//-------------------------------------------------------------------------------------------------
 // Text output for assembler
 
 #[cfg(feature = "dogfood")]
@@ -148,31 +202,18 @@ mod display {
 
     impl Styleable for Block {
         fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
-            let instr_words = self.instrs.len();
-            let constant_start_words = instr_words.next_multiple_of(2);
-            let function_start_words = constant_start_words + self.constants.len() * 2;
             for (i, instr) in self.instrs.iter().enumerate() {
-
-                let operands = instr.operands.iter().map(|o|
-                    match o {
-                        Operand::PooledF64(c)   => i32::try_from((constant_start_words - i) * 4 + *c * 8).unwrap(),
-                        Operand::Function(f)    => i32::try_from((function_start_words - i) * 4 + *f * 8).unwrap(),
-                        Operand::Reg(r)         => i32::from(*r),
-                        Operand::ImmU16(v)      => i32::from(*v),
-                        Operand::Offset(o)      => *o,
-                    }).collect::<Vec<_>>();
-
                 let address = i32::try_from(0x1000 + i * 4).unwrap();
                 writer.writeln(f, indent, instr.span, &format!("{:#06x}: {}",
                     address,
-                    instr.code.format_assembly(&operands, address)))?;
+                    instr.code.format_assembly(&instr.operands, address)))?;
             }
             for (i, c) in self.constants.iter().enumerate() {
-                let address = 0x1000 + constant_start_words * 4 + i * 8;
+                let address = 0x1000 + self.layout.constant_start_words * 4 + i * 8;
                 writer.writeln(f, indent, Some(c.span), &format!("{address:#06x}: {:?}", c.value))?;
             }
             for (i, func) in self.functions.iter().enumerate() {
-                let address = 0x1000 + function_start_words * 4 + i * 8;
+                let address = 0x1000 + self.layout.function_start_words * 4 + i * 8;
                 writer.writeln(f, indent, None, &format!("{address:#06x}: {func}"))?;
             }
             Ok(())

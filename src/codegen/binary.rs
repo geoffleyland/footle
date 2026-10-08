@@ -2,7 +2,7 @@ use std::mem;
 
 use anyhow::{bail, Result};
 
-use super::{assembler, sys, Constant, Type};
+use super::{assembler, sys, Constant, Type, Layout};
 use crate::runtime::Value;
 
 
@@ -10,33 +10,25 @@ use crate::runtime::Value;
 
 pub struct CompiledFn {
     ptr:                            *mut u32,
-    size:                           usize,
+    pub(super) layout:              Layout,
     argument_types:                 Vec<Type>,
     return_types:                   Vec<Type>,
     func:                           fn(*const u64, *mut u64),
-
-    #[cfg(feature = "dogfood")]
-    pub(super) instr_count:         usize,
 }
 
 
 impl CompiledFn {
     fn new(
         ptr:                        *mut u32,
-        size:                       usize,
-        glue_start_words:           usize,
+        layout:                     Layout,
         argument_types:             &[Type],
         return_types:               &[Type],
-        #[cfg(feature = "dogfood")]
-        instr_count:                usize,
     ) -> Self {
-        let func = unsafe { mem::transmute::<*mut u32, fn(*const u64, *mut u64)>(ptr.add(glue_start_words)) };
+        let func = unsafe { mem::transmute::<*mut u32, fn(*const u64, *mut u64)>(ptr.add(layout.glue_start_words)) };
 
-        Self { ptr, size, func,
-            argument_types: argument_types.to_vec(),
-            return_types: return_types.to_vec(),
-        #[cfg(feature = "dogfood")]
-            instr_count
+        Self { ptr, layout, func,
+            argument_types:         argument_types.to_vec(),
+            return_types:           return_types.to_vec(),
         }
     }
 
@@ -69,60 +61,39 @@ impl CompiledFn {
 
     #[cfg(feature = "dogfood")]
     pub(super) fn bytes(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.ptr.cast::<u8>(), self.size) }
+        unsafe { std::slice::from_raw_parts(self.ptr.cast::<u8>(), self.layout.total_bytes) }
     }
 }
 
 
 impl Drop for CompiledFn {
-    fn drop(&mut self) { sys::free_jit(self.ptr, self.size); }
+    fn drop(&mut self) { sys::free_jit(self.ptr, self.layout.total_bytes); }
 }
 
 
 //-------------------------------------------------------------------------------------------------
 
 pub fn emit(block: &assembler::Block) -> CompiledFn {
-    let instr_words = block.instrs.len();
-    let constant_start_words = instr_words.next_multiple_of(2);
-    let function_start_words = constant_start_words + block.constants.len() * 2;
-    let total_code_size_bytes = function_start_words * 4 + 8 * block.functions.len();
-
-    let ptr = sys::alloc_jit(total_code_size_bytes);
-    let words = jit_as_words_mut(ptr, total_code_size_bytes);
+    let ptr = sys::alloc_jit(block.layout.total_bytes);
+    let words = jit_as_words_mut(ptr, block.layout.total_bytes);
 
     sys::start_jit_compile();
 
-    encode_instrs(&block.instrs, words, constant_start_words, function_start_words);
-    encode_constants(&block.constants, words, constant_start_words);
-    encode_functions(&block.functions, words, function_start_words);
+    encode_instrs(&block.instrs, words);
+    encode_constants(&block.constants, words, block.layout.constant_start_words);
+    encode_functions(&block.functions, words, block.layout.function_start_words);
 
-    sys::finish_jit_compile(ptr, total_code_size_bytes);
+    sys::finish_jit_compile(ptr, block.layout.total_bytes);
 
-    CompiledFn::new(ptr, total_code_size_bytes, block.glue_start_words, &block.argument_types, &block.return_types,
-        #[cfg(feature = "dogfood")]
-        instr_words
-        )
+    CompiledFn::new(ptr, block.layout, &block.argument_types, &block.return_types)
 }
 
 
 fn encode_instrs(
-    instrs:                         &[assembler::Instr],
-    words:                          &mut [u32],
-    constant_start_words:           usize,
-    function_start_words:           usize) {
-    use assembler::Operand::*;
+    instrs:                         &[assembler::Instr<i32>],
+    words:                          &mut [u32]) {
     for (word_index, instr) in instrs.iter().enumerate() {
-        let operands = instr.operands.iter().map(|op| {
-            match op {
-                Reg(i)                  => u32::from(*i),
-                ImmU16(v)               => u32::from(*v),
-                PooledF64(i)            => u32::try_from((constant_start_words - word_index) * 4 + (*i * 8))
-                                            .expect("internal compiler error: constant offset too large"),
-                Function(i)             => u32::try_from((function_start_words - word_index) * 4 + (*i * 8))
-                                            .expect("internal compiler error: function offset too large"),
-                Offset(o)               => o.cast_unsigned(),
-            }}).collect::<Vec<_>>();
-        words[word_index] = instr.code.encode(&operands);
+        words[word_index] = instr.code.encode(&instr.operands);
     }
 }
 

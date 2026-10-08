@@ -9,7 +9,7 @@ pub fn disassemble(func: &CompiledFn) -> Vec<String> {
     builder
         .build()
         .expect("Couldn't build disassembler")
-        .disasm_count(func.bytes(), 0x1000, func.instr_count)
+        .disasm_count(func.bytes(), 0x1000, func.layout.instr_words)
         .expect("Couldn't disassemble code")
         .as_ref()
         .iter()
