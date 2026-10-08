@@ -20,6 +20,7 @@ use arch::{isa, isa::REGS, isa::Unit, abi};
 use code::Code;
 use scheduler::SchedulePosition;
 use assembler::Layout;
+use operand::RelativeTo;
 
 #[cfg(feature = "dogfood")]
 mod disassembler;
