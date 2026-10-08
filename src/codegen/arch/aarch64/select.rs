@@ -42,19 +42,8 @@ impl<'arena> Builder<'arena> {
                             REGS.abi_regs([ty]).next().unwrap(), expr);
 
                     } else if *op == BinaryOperator::Modulo {
-                        // AArch64 has no fmod; compute a - trunc(a / b) * b instead.
-                        let quotient = self.make_instr(ty,
-                            &isa::fdiv_d, operands!(self, lhs, rhs),
-                            #[cfg(feature = "dogfood")]
-                            *expr.definition_span()
-                        );
-                        let truncated = self.make_instr(ty,
-                            &isa::frintz_d, operands!(self, quotient),
-                            #[cfg(feature = "dogfood")]
-                            *expr.definition_span()
-                        );
-                        self.lower_instr(ty,
-                            &isa::fmsub_d, operands!(self, truncated, rhs, lhs), expr);
+                        self.select_call("fmod", ty, &[lhs.clone(), rhs.clone()], types,
+                            REGS.abi_regs([ty]).next().unwrap(), expr);
 
                     } else {
                         let machine_instr = match op {
