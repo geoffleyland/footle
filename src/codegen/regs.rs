@@ -117,16 +117,16 @@ impl RegBank {
     pub(super) const fn of_reg(reg: MachineReg) -> Self { if reg.0 < 32 { Self::Int } else { Self::Float } }
     pub(super) const fn of_type(ty: Type) -> Option<Self> {
         match ty {
-            Type::I64 | Type::FunctionPointer       => Some(Self::Int),
-            Type::F64                               => Some(Self::Float),
-            Type::NoValue                           => None,
+            Type::I64 | Type::Pointer       => Some(Self::Int),
+            Type::F64                       => Some(Self::Float),
+            Type::NoValue                   => None,
         }
     }
     pub(super) const fn index(self) -> usize { self as usize }
     pub(super) const fn regs(self) -> RegSet {
         match self {
-            Self::Int                               => RegSet(0x0000_0000_FFFF_FFFF),
-            Self::Float                             => RegSet(0xFFFF_FFFF_0000_0000),
+            Self::Int                       => RegSet(0x0000_0000_FFFF_FFFF),
+            Self::Float                     => RegSet(0xFFFF_FFFF_0000_0000),
         }
     }
 }

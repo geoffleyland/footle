@@ -98,7 +98,7 @@ impl<'arena> Builder<'arena> {
         let function_value = if let Some(&(_, v)) = self.functions.iter().find(|(n, _)| n == name) {
             v
         } else {
-            let v = self.make_instr(Type::FunctionPointer,
+            let v = self.make_instr(Type::Pointer,
                 &isa::ldr_x_literal, vec![Operand::Function(name.into(), RelativeTo::ThisInstr)],
                 #[cfg(feature = "dogfood")]
                 *expr.definition_span()
