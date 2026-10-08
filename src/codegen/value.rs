@@ -69,7 +69,7 @@ impl<'arena> Operand<'arena> {
 /// side info arrays like list of users of the `Value` or critical path depths.
 /// Only use `TiVec`s, not `TiSlice`s (even when passing references to `TiVec`s) - `TiSlices` risk
 /// re-setting the zero on a slice and the numbering going out the window.
-#[derive(Debug, Copy, Clone, From, Into, Display)]
+#[derive(Debug, Copy, Clone, From, Into, Display, PartialEq, Eq, Hash)]
 pub(super) struct ValueSlot(usize);
 
 #[derive(Debug)]

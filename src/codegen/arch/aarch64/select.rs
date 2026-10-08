@@ -1,5 +1,6 @@
 use crate::{vir, core::BinaryOperator};
-use crate::codegen::{isa, lower::{Builder, operands}, Constant, value::Operand, Value, ValueDef, Type, MachineReg, REGS};
+use crate::codegen::{isa, RelativeTo, Constant, Value, ValueDef, Type, MachineReg, REGS,
+    lower::{Builder, operands}, value::Operand};
 
 //-------------------------------------------------------------------------------------------------
 
@@ -28,7 +29,8 @@ impl<'arena> Builder<'arena> {
                     });
 
                     let constant_index = self.constants.len() - 1;
-                    self.lower_instr(ty, &isa::ldr_d_literal, vec![Operand::PooledF64(constant_index)], expr);
+                    self.lower_instr(ty, &isa::ldr_d_literal,
+                        vec![Operand::PooledF64(constant_index, RelativeTo::ThisInstr)], expr);
                 }
                 vir::ExprKind::Bool(value) => {
                     self.lower_instr(ty,
@@ -97,7 +99,7 @@ impl<'arena> Builder<'arena> {
             v
         } else {
             let v = self.make_instr(Type::FunctionPointer,
-                &isa::ldr_x_literal, vec![Operand::Function(name.into())],
+                &isa::ldr_x_literal, vec![Operand::Function(name.into(), RelativeTo::ThisInstr)],
                 #[cfg(feature = "dogfood")]
                 *expr.definition_span()
             );

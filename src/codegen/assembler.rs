@@ -1,4 +1,6 @@
-use super::{Code, abi, allocator, Constant, Type, MachineReg, RegSet, RegBank, REGS};
+use std::collections::HashMap;
+
+use super::{Code, abi, allocator, ValueSlot, Constant, Type, MachineReg, RegSet, RegBank, RelativeTo, REGS};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -8,10 +10,10 @@ use crate::core::Span;
 
 pub(super) enum Operand {
     Reg(u8),
-    PooledF64(usize),
+    PooledF64(usize, RelativeTo),
     ImmU16(u16),
     Offset(i32),
-    Function(usize),
+    Function(usize, RelativeTo),
 }
 
 pub(super) struct Offset(pub(super) i32);
@@ -19,9 +21,9 @@ impl From<Offset> for Operand {
     fn from(o: Offset) -> Self { Self::Offset(o.0) }
 }
 
-struct PooledF64(usize);
+struct PooledF64(usize, RelativeTo);
 impl From<PooledF64> for Operand {
-    fn from(p: PooledF64) -> Self { Self::PooledF64(p.0) }
+    fn from(p: PooledF64) -> Self { Self::PooledF64(p.0, p.1) }
 }
 
 impl From<MachineReg> for Operand {
@@ -32,11 +34,10 @@ impl From<MachineReg> for Operand {
 macro_rules! assemble_expr {
     ($instrs:expr, $op:expr $(, $($operand:expr),*)?) => {
         $instrs.push(Instr {
-            code: $op,
-            operands: vec![$($($operand.into()),*)?],
-
+            code:                   $op,
+            operands:               vec![$($($operand.into()),*)?],
             #[cfg(feature = "dogfood")]
-            span: None,
+            span:                   None,
         })
     }
 }
@@ -56,7 +57,6 @@ pub(super) use assemble;
 pub(super) struct Instr<OP> {
     pub(super) code:                &'static Code,
     pub(super) operands:            Vec<OP>,
-
     #[cfg(feature = "dogfood")]
     pub(super) span:                Option<Span>,
 }
@@ -106,13 +106,13 @@ pub(super) fn run(
     written_regs:                   RegSet,
 ) -> Block{
     let mut instrs = Vec::new();
-    emit_function(allocated, &mut instrs, functions, written_regs);
+    let slots_to_instrs = emit_function(allocated, &mut instrs, functions, written_regs);
     let glue_start_words = instrs.len();
     abi::emit_glue(&argument_types, &return_types, &mut instrs);
 
     let layout = Layout::new(glue_start_words, instrs.len(), constants.len(), functions.len());
 
-    let resolved = resolve(instrs, &layout);
+    let resolved = resolve(instrs, &layout, &slots_to_instrs);
 
     Block{ layout, instrs: resolved, constants: constants.into(), functions: functions.to_vec(),
         argument_types, return_types }
@@ -124,7 +124,9 @@ fn emit_function(
     instrs:                         &mut Vec<Instr<Operand>>,
     functions:                      &[String],
     written_regs:                   RegSet,
-) {
+) -> HashMap<ValueSlot, usize> {
+    let mut slots_to_instrs = HashMap::new();
+
     let regs_to_save = REGS.regs_to_save(written_regs);
     abi::emit_save_regs(instrs, regs_to_save);
 
@@ -140,21 +142,23 @@ fn emit_function(
             .into_iter()
             .chain(ai.operands.iter().map(|op| match op {
                 super::operand::Operand::Reg(r)             => (*r).into(),
-                super::operand::Operand::PooledF64(i)       => PooledF64(*i).into(),
+                super::operand::Operand::PooledF64(i, r)    => PooledF64(*i, *r).into(),
                 super::operand::Operand::ImmU16(v)          => Operand::ImmU16(*v),
-                super::operand::Operand::Function(name) => {
+                super::operand::Operand::Function(name, r) => {
                     let index = functions.iter().position(|s| s == name)
                         .expect("internal compiler error: unknown function name");
-                    Operand::Function(index)
+                    Operand::Function(index, *r)
                 }
             }))
         .collect();
 
+        slots_to_instrs.insert(ai.value_slot, instrs.len());
         instrs.push(Instr{ code: ai.code, operands,
         #[cfg(feature = "dogfood")]
             span: Some(ai.span)
         });
     }
+    slots_to_instrs
 }
 
 
@@ -166,9 +170,32 @@ pub(super) fn split_regs_by_bank(regs: RegSet) -> (Vec<MachineReg>, Vec<MachineR
 
 //-------------------------------------------------------------------------------------------------
 
+fn compute_offset(
+    slots_to_instrs:                        &HashMap<ValueSlot, usize>,
+    table_start_words:                      usize,
+    entry_index:                            usize,
+    instr_index:                            usize,
+    relative_to:                            RelativeTo,
+) -> i32 {
+    let from_index = match relative_to {
+        RelativeTo::ThisInstr               => instr_index,
+        RelativeTo::InstrOf(slot) => {
+            *slots_to_instrs.get(&slot)
+                .expect("internal compiler error: InstrOf names a value with no instruction")
+        }
+    };
+    i32::try_from((table_start_words - from_index) * 4 + (entry_index * 8))
+        .expect("internal compiler error: pool offset too large")
+}
+
+
 /// Once we have ALL the instructions, resolve offsets to constants and functions into simple
 /// offsets.
-fn resolve(instrs: Vec<Instr<Operand>>, layout: &Layout) -> Vec<Instr<i32>> {
+fn resolve(
+    instrs:                                 Vec<Instr<Operand>>,
+    layout:                                 &Layout,
+    slots_to_instrs:                        &HashMap<ValueSlot, usize>,
+) -> Vec<Instr<i32>> {
     use Operand::*;
 
     instrs.into_iter().enumerate()
@@ -177,10 +204,10 @@ fn resolve(instrs: Vec<Instr<Operand>>, layout: &Layout) -> Vec<Instr<i32>> {
                 match op {
                     Reg(i)                  => i32::from(i),
                     ImmU16(v)               => i32::from(v),
-                    PooledF64(i)            => i32::try_from((layout.constant_start_words - word_index) * 4 + (i * 8))
-                                                .expect("internal compiler error: constant offset too large"),
-                    Function(i)             => i32::try_from((layout.function_start_words - word_index) * 4 + (i * 8))
-                                                .expect("internal compiler error: function offset too large"),
+                    PooledF64(i, r)         => compute_offset(slots_to_instrs, layout.constant_start_words,
+                                                    i, word_index, r),
+                    Function(i, r)          => compute_offset(slots_to_instrs, layout.function_start_words,
+                                                    i, word_index, r),
                     Offset(o)               => o,
                 }
             }).collect();

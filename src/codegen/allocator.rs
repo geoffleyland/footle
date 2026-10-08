@@ -44,7 +44,7 @@ struct SlotInstr {
     fixed_inputs:                       Vec<(AllocatorSlot, MachineReg)>,
     fixed_output:                       Option<MachineReg>,
     slot_moves:                         Vec<(AllocatorSlot, AllocatorSlot)>,
-
+    value_slot:                         ValueSlot,
     #[cfg(feature = "dogfood")]
     span:                               Span,
 }
@@ -139,6 +139,7 @@ fn lower_to_slots_and_split(
             operands, code, slot_moves, fixed_inputs,
             slot:                           new_slot,
             fixed_output:                   value.fixed_output,
+            value_slot:                     value.slot,
 
             #[cfg(feature = "dogfood")]
             span:                           value.span,
@@ -272,6 +273,7 @@ pub(super) struct Instr {
     pub(super) result_reg:              Option<MachineReg>,
     pub(super) operands:                Vec<Operand>,
     pub(super) moves:                   Vec<(MachineReg, MachineReg)>,
+    pub(super) value_slot:              ValueSlot,
 
     #[cfg(feature = "dogfood")]
     pub(super) span:                    Span,
@@ -329,7 +331,7 @@ fn lower_to_regs(
             operands, moves,
             code:                       instr.code,
             result_reg:                 regs[instr.slot],
-
+            value_slot:                 instr.value_slot,
             #[cfg(feature = "dogfood")]
             span:                       instr.span,
         });
