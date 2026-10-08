@@ -47,8 +47,10 @@ case $1 in
 
     watch)
         shift
-        export NO_TTY=1
-        watchexec -w src -w test-cases -w Cargo.toml -c -- ./admin "$@"
+        export NO_TTY=1 CARGO_TERM_COLOR=always       # colour survives the pipe to tee
+        log="target/watch-$(echo "$*" | tr ' /' '__').log"
+        watchexec -w src -w test-cases -w Cargo.toml -c -- \
+            "{ echo \"# $(date '+%F %T')  ./admin $*\"; ./admin $*; echo \"# exit \$?\"; } 2>&1 | tee $log"
         ;;
 
     linux)  shift; launch_in_docker aarch64 "$@" ;;
