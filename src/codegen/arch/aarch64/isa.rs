@@ -149,10 +149,10 @@ macro_rules! _code {
             is_return:          is_return!($mnemonic),
             has_output:         $( has_output!($mnemonic, $reg) ||)* false,
 
-            encode: |operands: &[u32]| -> u32 {
+            encode: |operands: &[i32]| -> u32 {
                 // If there's no argument (ie `ret`), _it is unused, so the _ silences a warning.
                 let mut _it = operands.iter().copied();
-                $pattern $(| { let value = _it.next().unwrap(); encode_operand!($reg, value) })*
+                $pattern $(| { let value = _it.next().unwrap().cast_unsigned(); encode_operand!($reg, value) })*
             },
 
             latency:            $latency,

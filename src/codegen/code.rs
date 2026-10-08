@@ -7,7 +7,7 @@ use crate::codegen::{MachineReg, RankSet, REGS, Unit};
 
 #[derive(Debug)]
 pub struct Code {
-    pub(super) encode:                      fn(&[u32]) -> u32,
+    pub(super) encode:                      fn(&[i32]) -> u32,
     pub(super) is_call:                     bool,
     pub(super) is_return:                   bool,
     pub(super) has_output:                  bool,
@@ -23,7 +23,7 @@ pub struct Code {
 
 
 impl Code {
-    pub fn encode(&self, args: &[u32])-> u32{ (self.encode)(args) }
+    pub fn encode(&self, args: &[i32])-> u32{ (self.encode)(args) }
 
     pub fn is_call(&self) -> bool           { self.is_call }
     pub fn is_return(&self) -> bool         { self.is_return }
