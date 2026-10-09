@@ -1,3 +1,10 @@
+#footle
+
+> 'Charlie,' said Grandma Josephine. 'I don't think I trust this gentleman very much.'  
+> 'Nor do I,' said Grandma Georgina. 'He footles around.'
+>
+> — Roald Dahl, *Charlie and the Great Glass Elevator*
+
 This started out as an attempt to learn rust, and at the same time I thought I'd try to learn
 something else I knew nothing about, but sounded fun: writing a parser.  Every now and then I work
 on it for a month or so, and then it gets lost for a year, but it comes back as an itch I have to
@@ -12,7 +19,7 @@ It has some features:
    a learning exercise.  If you look, you'll see it's *obviously* not an implementing exercise.
  * As much as it can, it eats its own dogfood - it can write intermediate representations (up to a
    point) out as valid footle code, and the test suite re-compiles that output and checks it ends
-   up the same.  It can even write out the AArch64 it thinks it's creating, and check that against
+   up the same.  It can even write out the assembly it thinks it's creating, and check that against
    an independent disassembly of what it generated.  Eating its own dogfood puts some constraints
    on the language (there have to be multiple returns from blocks) and if I ever get to loops...
    that'll be tricky.
@@ -42,6 +49,6 @@ And, if I were to dream, the list of things I'll probably never get to implement
    everywhere else.
  * Decent static checking.  I find it hard when my dynamic language runs a model for six hours and
    then dies in a type error I made in the output writing.
- * And one day a tracing JIT that runs the same compiler to compile in control flow over multiple
+ * A tracing JIT that runs the same compiler to compile in control flow over multiple
    blocks (I'm a fan of LuaJIT)
  * Multiple dispatch (I'm a fan of Julia)
