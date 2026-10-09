@@ -1,7 +1,7 @@
 argument a, b, c, d, e, f
 return b, c, a, f, d, e
 
-#( expected schedule aarch64
+#( expected schedule
 
   I0: argument
   I1: argument
@@ -103,6 +103,111 @@ return b, c, a, f, d, e
   0x105c: str d1, [x16, #0x20]
   0x1060: str d2, [x16, #0x28]
   0x1064: ret
+
+#)
+
+#( expected assembly riscv64 f64 f64 f64 f64 f64 f64
+
+  0x1000: fmv.d ft0, fa1
+  0x1004: fmv.d fa1, fa2
+  0x1008: fmv.d fa2, fa0
+  0x100c: fmv.d fa0, ft0
+  0x1010: fmv.d ft0, fa5
+  0x1014: fmv.d fa5, fa4
+  0x1018: fmv.d fa4, fa3
+  0x101c: fmv.d fa3, ft0
+  0x1020: ret
+  0x1024: mv t6, a0
+  0x1028: addi sp, sp, -0x10
+  0x102c: sd a1, 0(sp)
+  0x1030: sd ra, 8(sp)
+  0x1034: fld fa0, 0(t6)
+  0x1038: fld fa1, 8(t6)
+  0x103c: fld fa2, 0x10(t6)
+  0x1040: fld fa3, 0x18(t6)
+  0x1044: fld fa4, 0x20(t6)
+  0x1048: fld fa5, 0x28(t6)
+  0x104c: jal -0x4c
+  0x1050: ld t6, 0(sp)
+  0x1054: ld ra, 8(sp)
+  0x1058: addi sp, sp, 0x10
+  0x105c: fsd fa0, 0(t6)
+  0x1060: fsd fa1, 8(t6)
+  0x1064: fsd fa2, 0x10(t6)
+  0x1068: fsd fa3, 0x18(t6)
+  0x106c: fsd fa4, 0x20(t6)
+  0x1070: fsd fa5, 0x28(t6)
+  0x1074: ret
+
+#)
+
+#( expected assembly riscv64 f64 f64 f64 bool bool bool
+
+  0x1000: fmv.d ft0, fa1
+  0x1004: fmv.d fa1, fa2
+  0x1008: fmv.d fa2, fa0
+  0x100c: fmv.d fa0, ft0
+  0x1010: mv t0, a2
+  0x1014: mv a2, a1
+  0x1018: mv a1, a0
+  0x101c: mv a0, t0
+  0x1020: ret
+  0x1024: mv t6, a0
+  0x1028: addi sp, sp, -0x10
+  0x102c: sd a1, 0(sp)
+  0x1030: sd ra, 8(sp)
+  0x1034: fld fa0, 0(t6)
+  0x1038: fld fa1, 8(t6)
+  0x103c: fld fa2, 0x10(t6)
+  0x1040: ld a0, 0x18(t6)
+  0x1044: ld a1, 0x20(t6)
+  0x1048: ld a2, 0x28(t6)
+  0x104c: jal -0x4c
+  0x1050: ld t6, 0(sp)
+  0x1054: ld ra, 8(sp)
+  0x1058: addi sp, sp, 0x10
+  0x105c: fsd fa0, 0(t6)
+  0x1060: fsd fa1, 8(t6)
+  0x1064: fsd fa2, 0x10(t6)
+  0x1068: sd a0, 0x18(t6)
+  0x106c: sd a1, 0x20(t6)
+  0x1070: sd a2, 0x28(t6)
+  0x1074: ret
+
+#)
+
+#( expected assembly riscv64 bool bool bool f64 f64 f64
+
+  0x1000: mv t0, a1
+  0x1004: mv a1, a2
+  0x1008: mv a2, a0
+  0x100c: mv a0, t0
+  0x1010: fmv.d ft0, fa2
+  0x1014: fmv.d fa2, fa1
+  0x1018: fmv.d fa1, fa0
+  0x101c: fmv.d fa0, ft0
+  0x1020: ret
+  0x1024: mv t6, a0
+  0x1028: addi sp, sp, -0x10
+  0x102c: sd a1, 0(sp)
+  0x1030: sd ra, 8(sp)
+  0x1034: ld a0, 0(t6)
+  0x1038: ld a1, 8(t6)
+  0x103c: ld a2, 0x10(t6)
+  0x1040: fld fa0, 0x18(t6)
+  0x1044: fld fa1, 0x20(t6)
+  0x1048: fld fa2, 0x28(t6)
+  0x104c: jal -0x4c
+  0x1050: ld t6, 0(sp)
+  0x1054: ld ra, 8(sp)
+  0x1058: addi sp, sp, 0x10
+  0x105c: sd a0, 0(t6)
+  0x1060: sd a1, 8(t6)
+  0x1064: sd a2, 0x10(t6)
+  0x1068: fsd fa0, 0x18(t6)
+  0x106c: fsd fa1, 0x20(t6)
+  0x1070: fsd fa2, 0x28(t6)
+  0x1074: ret
 
 #)
 

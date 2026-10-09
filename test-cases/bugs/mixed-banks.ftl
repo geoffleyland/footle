@@ -18,6 +18,23 @@ return s, u, true, b
 
 #)
 
+#( expected schedule riscv64
+
+  I0: argument
+  I1: argument
+  I5: auipc K0
+  I2: auipc sin
+  I9: li #1
+  I6: fld I5 K0
+  I3: ld I2 sin
+  I7: fadd.d I1 I6
+  I4: jalr I3 I1
+  I8: jalr I3 I7
+  I10: ret I4 I8 I9 I0
+  K0: 1.0
+
+#)
+
 #( expected assembly aarch64 bool f64
 
   0x1000: stp x19, x20, [sp, #-0x10]!
@@ -94,6 +111,109 @@ return s, u, true, b
   0x1080: ret
   0x1088: 1.0
   0x1090: sin
+
+#)
+
+#( expected assembly riscv64 bool f64
+
+  0x1000: addi sp, sp, -0x30
+  0x1004: sd ra, 0(sp)
+  0x1008: sd s1, 8(sp)
+  0x100c: sd s2, 0x10(sp)
+  0x1010: sd s3, 0x18(sp)
+  0x1014: fsd fs0, 0x20(sp)
+  0x1018: auipc t0, 0
+  0x101c: auipc t1, 0
+  0x1020: addi s1, zero, 1
+  0x1024: fld ft0, 0x98(t0)
+  0x1028: ld s3, 0x9c(t1)
+  0x102c: fadd.d fs0, fa0, ft0
+  0x1030: mv s2, a0
+  0x1034: jalr s3
+  0x1038: fmv.d ft0, fs0
+  0x103c: fmv.d fs0, fa0
+  0x1040: fmv.d fa0, ft0
+  0x1044: jalr s3
+  0x1048: fmv.d fa1, fa0
+  0x104c: fmv.d fa0, fs0
+  0x1050: mv a0, s1
+  0x1054: mv a1, s2
+  0x1058: ld ra, 0(sp)
+  0x105c: ld s1, 8(sp)
+  0x1060: ld s2, 0x10(sp)
+  0x1064: ld s3, 0x18(sp)
+  0x1068: fld fs0, 0x20(sp)
+  0x106c: addi sp, sp, 0x30
+  0x1070: ret
+  0x1074: mv t6, a0
+  0x1078: addi sp, sp, -0x10
+  0x107c: sd a1, 0(sp)
+  0x1080: sd ra, 8(sp)
+  0x1084: ld a0, 0(t6)
+  0x1088: fld fa0, 8(t6)
+  0x108c: jal -0x8c
+  0x1090: ld t6, 0(sp)
+  0x1094: ld ra, 8(sp)
+  0x1098: addi sp, sp, 0x10
+  0x109c: fsd fa0, 0(t6)
+  0x10a0: fsd fa1, 8(t6)
+  0x10a4: sd a0, 0x10(t6)
+  0x10a8: sd a1, 0x18(t6)
+  0x10ac: ret
+  0x10b0: 1.0
+  0x10b8: sin
+
+#)
+
+#( expected assembly riscv64 f64 f64
+
+  0x1000: addi sp, sp, -0x30
+  0x1004: sd ra, 0(sp)
+  0x1008: sd s1, 8(sp)
+  0x100c: sd s2, 0x10(sp)
+  0x1010: fsd fs0, 0x18(sp)
+  0x1014: fsd fs1, 0x20(sp)
+  0x1018: auipc t0, 0
+  0x101c: auipc t1, 0
+  0x1020: addi s1, zero, 1
+  0x1024: fld ft0, 0xa0(t0)
+  0x1028: ld s2, 0xa4(t1)
+  0x102c: fadd.d fs0, fa1, ft0
+  0x1030: fmv.d fs1, fa0
+  0x1034: fmv.d fa0, fa1
+  0x1038: jalr s2
+  0x103c: fmv.d ft0, fs0
+  0x1040: fmv.d fs0, fa0
+  0x1044: fmv.d fa0, ft0
+  0x1048: jalr s2
+  0x104c: fmv.d fa1, fa0
+  0x1050: fmv.d fa0, fs0
+  0x1054: mv a0, s1
+  0x1058: fmv.d fa2, fs1
+  0x105c: ld ra, 0(sp)
+  0x1060: ld s1, 8(sp)
+  0x1064: ld s2, 0x10(sp)
+  0x1068: fld fs0, 0x18(sp)
+  0x106c: fld fs1, 0x20(sp)
+  0x1070: addi sp, sp, 0x30
+  0x1074: ret
+  0x1078: mv t6, a0
+  0x107c: addi sp, sp, -0x10
+  0x1080: sd a1, 0(sp)
+  0x1084: sd ra, 8(sp)
+  0x1088: fld fa0, 0(t6)
+  0x108c: fld fa1, 8(t6)
+  0x1090: jal -0x90
+  0x1094: ld t6, 0(sp)
+  0x1098: ld ra, 8(sp)
+  0x109c: addi sp, sp, 0x10
+  0x10a0: fsd fa0, 0(t6)
+  0x10a4: fsd fa1, 8(t6)
+  0x10a8: sd a0, 0x10(t6)
+  0x10ac: fsd fa2, 0x18(t6)
+  0x10b0: ret
+  0x10b8: 1.0
+  0x10c0: sin
 
 #)
 

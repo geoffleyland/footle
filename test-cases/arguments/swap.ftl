@@ -16,7 +16,7 @@ return b, a
 
 #)
 
-#( expected schedule aarch64
+#( expected schedule
 
   I0: argument
   I1: argument
@@ -87,6 +87,88 @@ return b, a
   0x1028: str x0, [x16]
   0x102c: str x1, [x16, #8]
   0x1030: ret
+
+#)
+
+#( expected assembly riscv64 f64 f64
+
+  0x1000: fmv.d ft0, fa1
+  0x1004: fmv.d fa1, fa0
+  0x1008: fmv.d fa0, ft0
+  0x100c: ret
+  0x1010: mv t6, a0
+  0x1014: addi sp, sp, -0x10
+  0x1018: sd a1, 0(sp)
+  0x101c: sd ra, 8(sp)
+  0x1020: fld fa0, 0(t6)
+  0x1024: fld fa1, 8(t6)
+  0x1028: jal -0x28
+  0x102c: ld t6, 0(sp)
+  0x1030: ld ra, 8(sp)
+  0x1034: addi sp, sp, 0x10
+  0x1038: fsd fa0, 0(t6)
+  0x103c: fsd fa1, 8(t6)
+  0x1040: ret
+
+#)
+
+#( expected assembly riscv64 bool f64
+
+  0x1000: ret
+  0x1004: mv t6, a0
+  0x1008: addi sp, sp, -0x10
+  0x100c: sd a1, 0(sp)
+  0x1010: sd ra, 8(sp)
+  0x1014: ld a0, 0(t6)
+  0x1018: fld fa0, 8(t6)
+  0x101c: jal -0x1c
+  0x1020: ld t6, 0(sp)
+  0x1024: ld ra, 8(sp)
+  0x1028: addi sp, sp, 0x10
+  0x102c: fsd fa0, 0(t6)
+  0x1030: sd a0, 8(t6)
+  0x1034: ret
+
+#)
+
+#( expected assembly riscv64 f64 bool
+
+  0x1000: ret
+  0x1004: mv t6, a0
+  0x1008: addi sp, sp, -0x10
+  0x100c: sd a1, 0(sp)
+  0x1010: sd ra, 8(sp)
+  0x1014: fld fa0, 0(t6)
+  0x1018: ld a0, 8(t6)
+  0x101c: jal -0x1c
+  0x1020: ld t6, 0(sp)
+  0x1024: ld ra, 8(sp)
+  0x1028: addi sp, sp, 0x10
+  0x102c: sd a0, 0(t6)
+  0x1030: fsd fa0, 8(t6)
+  0x1034: ret
+
+#)
+
+#( expected assembly riscv64 bool bool
+
+  0x1000: mv t0, a1
+  0x1004: mv a1, a0
+  0x1008: mv a0, t0
+  0x100c: ret
+  0x1010: mv t6, a0
+  0x1014: addi sp, sp, -0x10
+  0x1018: sd a1, 0(sp)
+  0x101c: sd ra, 8(sp)
+  0x1020: ld a0, 0(t6)
+  0x1024: ld a1, 8(t6)
+  0x1028: jal -0x28
+  0x102c: ld t6, 0(sp)
+  0x1030: ld ra, 8(sp)
+  0x1034: addi sp, sp, 0x10
+  0x1038: sd a0, 0(t6)
+  0x103c: sd a1, 8(t6)
+  0x1040: ret
 
 #)
 

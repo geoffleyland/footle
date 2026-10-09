@@ -4,7 +4,7 @@ on it for a month or so, and then it gets lost for a year, but it comes back as 
 scratch.
 
 A loooong time later, and it's not got very far (there's no control flow), but it does compile
-very simple programs to AArch64 on macOS and Linux.
+very simple programs to AArch64 and 64-bit RISC-V on macOS and Linux.
 
 It has some features:
  * It doesn't use many libraries.  The results would be better and my life would be easier if I
@@ -28,7 +28,7 @@ It has some features:
    working register set.
  * It can compile in calls to (two) library functions (`pow` and `sin`)
  * And, if your program is as simple as, say, a + 2 or a^2.5 or even sin(a), it can compile it to
-   AArch64!
+   AArch64 or 64-bit RISC-V!
 
  It has some big holes:
   * No control flow is pretty significant

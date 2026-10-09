@@ -5,6 +5,8 @@ use super::CompiledFn;
 pub fn disassemble(func: &CompiledFn) -> Vec<String> {
     #[cfg(target_arch = "aarch64")]
     let builder = Capstone::new().arm64().mode(capstone::arch::arm64::ArchMode::Arm);
+    #[cfg(target_arch = "riscv64")]
+    let builder = Capstone::new().riscv().mode(capstone::arch::riscv::ArchMode::RiscV64);
 
     builder
         .build()
