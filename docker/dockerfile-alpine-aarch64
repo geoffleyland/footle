@@ -6,7 +6,8 @@ FROM --platform=linux/arm64 rust:alpine
 
 # musl-dev and gcc: capstone-sys compiles capstone's C source with the cc crate.
 # git: the git-version crate runs `git describe` at compile time.
-RUN apk add --no-cache musl-dev gcc git \
+# ncurses-terminfo-base: libtest only colours its output if it can look up $TERM.
+RUN apk add --no-cache musl-dev gcc git ncurses-terminfo-base \
  && rustup component add clippy
 
 # rustup's musl target links statically by default, and musl's dlsym can't find anything in a

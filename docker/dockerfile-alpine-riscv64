@@ -10,7 +10,8 @@ FROM --platform=linux/riscv64 alpine:latest
 
 # musl-dev and gcc: capstone-sys compiles capstone's C source with the cc crate.
 # git: the git-version crate runs `git describe` at compile time.
-RUN apk add --no-cache rust cargo rust-clippy musl-dev gcc git
+# ncurses-terminfo-base: libtest only colours its output if it can look up $TERM.
+RUN apk add --no-cache rust cargo rust-clippy musl-dev gcc git ncurses-terminfo-base
 
 # Alpine links rustc with the Scudo allocator, which expects riscv64's 39-bit address space.
 # QEMU's user-mode emulation hands out the host's much higher addresses, and Scudo aborts

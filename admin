@@ -30,7 +30,8 @@ launch_in_docker() {
     if [ -t 0 ] && [ -z "$NO_TTY" ]; then
         docker compose run --rm     -e LESS_CLIPPY=${LESS_CLIPPY-1} $service ./admin "$@"
     else
-        docker compose run --rm -T  -e LESS_CLIPPY=${LESS_CLIPPY-1} -e CARGO_TERM_COLOR=$colour \
+        # TERM too: libtest won't colour without a terminal description, even with --color always.
+        docker compose run --rm -T  -e LESS_CLIPPY=${LESS_CLIPPY-1} -e CARGO_TERM_COLOR=$colour -e TERM \
             $service ./admin "$@" < /dev/null
     fi
 }
@@ -40,7 +41,7 @@ case $1 in
 
     test)
         export RUST_BACKTRACE=1
-        cargo test \
+        cargo test -- --color "${CARGO_TERM_COLOR:-auto}" \
             && cargo run -q --features dogfood -- -t ${2:-$TEST_DIR} \
             && clippy_all
         ;;
