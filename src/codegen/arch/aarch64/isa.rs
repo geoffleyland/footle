@@ -44,131 +44,6 @@ pub enum Unit {
 
 
 //-------------------------------------------------------------------------------------------------
-
-macro_rules! encode_operand {
-    (dd, $it:expr)    => { $it };
-    (dn, $it:expr)    => { $it << 5 };
-    (dm, $it:expr)    => { $it << 16 };
-    (da, $it:expr)    => { $it << 10 };
-    (dt, $it:expr)    => { $it };
-    (dt1, $it:expr)   => { $it };
-    (dt2, $it:expr)   => { $it << 10 };
-    (xd, $it:expr)    => { $it };
-    (xn, $it:expr)    => { $it << 5 };
-    (xm, $it:expr)    => { $it << 16 };
-    (xa, $it:expr)    => { $it << 10 };
-    (xt, $it:expr)    => { $it };
-    (xt1, $it:expr)   => { $it };
-    (xt2, $it:expr)   => { $it << 10 };
-    (imm7, $it:expr)  => { (($it >> 3) & 0x7F) << 15 };
-    (imm9, $it:expr)  => { ($it & 0x01FF) << 12 };
-    (imm12, $it:expr) => { (($it >> 3) & 0x0FFF) << 10 };
-    (imm16, $it:expr) => { ($it & 0xFFFF) << 5 };
-    (imm19, $it:expr) => { (($it >> 2) & 0x7_FFFF) << 5 };
-    (imm26, $it:expr) => { ($it >> 2) & 0x03FF_FFFF };
-}
-
-macro_rules! output_reg {
-    (dd)    => { true };
-    (dt)    => { true };
-    (dt1)   => { true };
-    (xd)    => { true };
-    (xt)    => { true };
-    (xt1)   => { true };
-    ($other:tt) => { false };
-}
-
-macro_rules! is_call {
-    (bl)                    => { true };
-    (blr)                   => { true };
-    ($other:ident)          => { false };
-}
-macro_rules! is_return {
-    (ret)                   => { true };
-    ($other:ident)          => { false };
-}
-
-macro_rules! has_output {
-    (str, $($reg:ident),*)  => { false };
-    (stp, $($reg:ident),*)  => { false };
-    ($mnemonic:ident, $($reg:ident),*) => { $( output_reg!($reg) ||)* false };
-}
-
-
-// Cover the instruction operand patterns to try to figure out the addressing mode (if there is one)
-macro_rules! code {
-    ($mnemonic:ident => $($rest:tt)*) => {
-        find_reg_bank!(nothing, None, $mnemonic, (), $($rest)*);
-    };
-    ($mnemonic:ident $rd:ident, #$imm:ident => $($rest:tt)*) => {
-        find_reg_bank!($rd, @mode_suffix:_imm, None, $mnemonic, ($rd, $imm), $($rest)*);
-    };
-    ($mnemonic:ident $rd:ident, imm19 => $($rest:tt)*) => {
-        find_reg_bank!($rd, @mode_suffix:_literal, None, $mnemonic, ($rd, imm19), $($rest)*);
-    };
-    ($mnemonic:ident $($rt:ident)? $(, $operands:ident)* => $($rest:tt)*) => {
-        find_reg_bank!($($rt,)? None, $mnemonic, ($($rt,)? $($operands),*), $($rest)*);
-    };
-    ($mnemonic:ident $rt1:ident, $($rt2:ident,)? [$xn:ident, # $imm:ident]! => $($rest:tt)*) => {
-        find_reg_bank!($rt1, @mode_suffix:_pre, Pre, $mnemonic, ($rt1, $($rt2,)? $xn, $imm), $($rest)*);
-    };
-    ($mnemonic:ident $rt1:ident, $($rt2:ident,)? [$xn:ident], # $imm:ident => $($rest:tt)*) => {
-        find_reg_bank!($rt1, @mode_suffix:_post, Post, $mnemonic, ($rt1, $($rt2,)? $xn, $imm), $($rest)*);
-    };
-    ($mnemonic:ident $rt1:ident, $($rt2:ident,)? [$xn:ident, # $imm:ident] => $($rest:tt)*) => {
-        find_reg_bank!($rt1, @mode_suffix:_offset, Offset, $mnemonic, ($rt1, $($rt2,)? $xn, $imm), $($rest)*);
-    };
-}
-
-
-// Try to figure out if our destination is a x or d register.
-macro_rules! find_reg_bank {
-    (xd,    $($rest:tt)*)   => { _code!(@reg_bank:_x, $($rest)*); };
-    (xt,    $($rest:tt)*)   => { _code!(@reg_bank:_x, $($rest)*); };
-    (xt1,   $($rest:tt)*)   => { _code!(@reg_bank:_x, $($rest)*); };
-    (dd,    $($rest:tt)*)   => { _code!(@reg_bank:_d, $($rest)*); };
-    (dt,    $($rest:tt)*)   => { _code!(@reg_bank:_d, $($rest)*); };
-    (dt1,   $($rest:tt)*)   => { _code!(@reg_bank:_d, $($rest)*); };
-    ($other:ident, $($rest:tt)*) => { _code!($($rest)*); };
-}
-
-
-macro_rules! _code {
-    (
-        $(@reg_bank:$reg_bank:ident,)?
-        $(@mode_suffix:$mode_suffix:ident,)?
-        $addressing_mode:ident,
-        $mnemonic:ident,
-        ($($reg:ident),* $(,)?),
-        $pattern:literal,
-        $latency:literal,
-        [$($unit:ident)|+ $(|)?]
-    ) => {
-        paste!(pub static [<$mnemonic $($reg_bank)? $($mode_suffix)?>]: Code = Code {
-            is_call:            is_call!($mnemonic),
-            is_return:          is_return!($mnemonic),
-            has_output:         $( has_output!($mnemonic, $reg) ||)* false,
-
-            encode: |operands: &[i32]| -> u32 {
-                // If there's no argument (ie `ret`), _it is unused, so the _ silences a warning.
-                let mut _it = operands.iter().copied();
-                $pattern $(| { let value = _it.next().unwrap().cast_unsigned(); encode_operand!($reg, value) })*
-            },
-
-            latency:            $latency,
-            units:              enum_set!($(Unit::$unit)|*),
-
-            #[cfg(any(feature = "dogfood", test))]
-            mnemonic:           stringify!($mnemonic),
-            #[cfg(feature = "dogfood")]
-            format_assembly: |mnemonic, operands, address|
-                format_assembly(mnemonic, AddressingMode::$addressing_mode, operands, address, &[$(format_operand!($reg)),*]),
-            };);
-    }
-}
-
-
-//-------------------------------------------------------------------------------------------------
 // The instructions!
 
 code!(fadd dd, dn, dm               => 0b0_0_0_11110_01_1_00000_0010_10_00000_00000,    1, [FP11 | FP12 | FP13 | FP14]);
@@ -204,6 +79,138 @@ code!(stp dt1, dt2, [xn, #imm7]!    => 0b01_101_1_011_0_0000000_00000_00000_0000
 code!(bl imm26                      => 0b1_00_101_00000000000000000000000000,           1, [LS8 | L9 | L10]);
 code!(blr xn                        => 0b110_101_1_0_0_01_11111_0000_0_0_00000_00000,   1, [LS8 | L9 | L10]);
 code!(ret                           => 0b110_101_1_0_0_10_11111_0000_0_0_11110_00000,   1, [LS8 | L9 | L10]);
+
+//-------------------------------------------------------------------------------------------------
+
+// Cover the instruction operand patterns to try to figure out the addressing mode (if there is one)
+macro_rules! code {
+    ($mnemonic:ident => $($rest:tt)*) => {
+        find_reg_bank!(nothing, None, $mnemonic, (), $($rest)*);
+    };
+    ($mnemonic:ident $rd:ident, #$imm:ident => $($rest:tt)*) => {
+        find_reg_bank!($rd, @mode_suffix:_imm, None, $mnemonic, ($rd, $imm), $($rest)*);
+    };
+    ($mnemonic:ident $rd:ident, imm19 => $($rest:tt)*) => {
+        find_reg_bank!($rd, @mode_suffix:_literal, None, $mnemonic, ($rd, imm19), $($rest)*);
+    };
+    ($mnemonic:ident $($rt:ident)? $(, $operands:ident)* => $($rest:tt)*) => {
+        find_reg_bank!($($rt,)? None, $mnemonic, ($($rt,)? $($operands),*), $($rest)*);
+    };
+    ($mnemonic:ident $rt1:ident, $($rt2:ident,)? [$xn:ident, # $imm:ident]! => $($rest:tt)*) => {
+        find_reg_bank!($rt1, @mode_suffix:_pre, Pre, $mnemonic, ($rt1, $($rt2,)? $xn, $imm), $($rest)*);
+    };
+    ($mnemonic:ident $rt1:ident, $($rt2:ident,)? [$xn:ident], # $imm:ident => $($rest:tt)*) => {
+        find_reg_bank!($rt1, @mode_suffix:_post, Post, $mnemonic, ($rt1, $($rt2,)? $xn, $imm), $($rest)*);
+    };
+    ($mnemonic:ident $rt1:ident, $($rt2:ident,)? [$xn:ident, # $imm:ident] => $($rest:tt)*) => {
+        find_reg_bank!($rt1, @mode_suffix:_offset, Offset, $mnemonic, ($rt1, $($rt2,)? $xn, $imm), $($rest)*);
+    };
+}
+pub(super) use code;
+
+macro_rules! _code {
+    (
+        $(@reg_bank:$reg_bank:ident,)?
+        $(@mode_suffix:$mode_suffix:ident,)?
+        $addressing_mode:ident,
+        $mnemonic:ident,
+        ($($reg:ident),* $(,)?),
+        $pattern:literal,
+        $latency:literal,
+        [$($unit:ident)|+ $(|)?]
+    ) => {
+        paste!(pub static [<$mnemonic $($reg_bank)? $($mode_suffix)?>]: Code = Code {
+            is_call:            is_call!($mnemonic),
+            is_return:          is_return!($mnemonic),
+            has_output:         $( has_output!($mnemonic, $reg) ||)* false,
+
+            encode: |operands: &[i32]| -> u32 {
+                // If there's no argument (ie `ret`), _it is unused, so the _ silences a warning.
+                let mut _it = operands.iter().copied();
+                $pattern $(| { let value = _it.next().unwrap().cast_unsigned(); encode_operand!($reg, value) })*
+            },
+
+            latency:            $latency,
+            units:              enum_set!($(Unit::$unit)|*),
+
+            #[cfg(any(feature = "dogfood", test))]
+            mnemonic:           stringify!($mnemonic),
+            #[cfg(feature = "dogfood")]
+            format_assembly: |mnemonic, operands, address|
+                format_assembly(mnemonic, AddressingMode::$addressing_mode, operands, address, &[$(format_operand!($reg)),*]),
+            };);
+    }
+}
+pub(super) use _code;
+
+macro_rules! encode_operand {
+    (dd, $it:expr)    => { $it };
+    (dn, $it:expr)    => { $it << 5 };
+    (dm, $it:expr)    => { $it << 16 };
+    (da, $it:expr)    => { $it << 10 };
+    (dt, $it:expr)    => { $it };
+    (dt1, $it:expr)   => { $it };
+    (dt2, $it:expr)   => { $it << 10 };
+    (xd, $it:expr)    => { $it };
+    (xn, $it:expr)    => { $it << 5 };
+    (xm, $it:expr)    => { $it << 16 };
+    (xa, $it:expr)    => { $it << 10 };
+    (xt, $it:expr)    => { $it };
+    (xt1, $it:expr)   => { $it };
+    (xt2, $it:expr)   => { $it << 10 };
+    (imm7, $it:expr)  => { (($it >> 3) & 0x7F) << 15 };
+    (imm9, $it:expr)  => { ($it & 0x01FF) << 12 };
+    (imm12, $it:expr) => { (($it >> 3) & 0x0FFF) << 10 };
+    (imm16, $it:expr) => { ($it & 0xFFFF) << 5 };
+    (imm19, $it:expr) => { (($it >> 2) & 0x7_FFFF) << 5 };
+    (imm26, $it:expr) => { ($it >> 2) & 0x03FF_FFFF };
+}
+pub(super) use encode_operand;
+
+macro_rules! output_reg {
+    (dd)    => { true };
+    (dt)    => { true };
+    (dt1)   => { true };
+    (xd)    => { true };
+    (xt)    => { true };
+    (xt1)   => { true };
+    ($other:tt) => { false };
+}
+pub(super) use output_reg;
+
+macro_rules! is_call {
+    (bl)                    => { true };
+    (blr)                   => { true };
+    ($other:ident)          => { false };
+}
+pub(super) use is_call;
+
+macro_rules! is_return {
+    (ret)                   => { true };
+    ($other:ident)          => { false };
+}
+pub(super) use is_return;
+
+macro_rules! has_output {
+    (str, $($reg:ident),*)  => { false };
+    (stp, $($reg:ident),*)  => { false };
+    ($mnemonic:ident, $($reg:ident),*) => { $( output_reg!($reg) ||)* false };
+}
+pub(super) use has_output;
+
+
+// Try to figure out if our destination is a x or d register.
+macro_rules! find_reg_bank {
+    (xd,    $($rest:tt)*)   => { _code!(@reg_bank:_x, $($rest)*); };
+    (xt,    $($rest:tt)*)   => { _code!(@reg_bank:_x, $($rest)*); };
+    (xt1,   $($rest:tt)*)   => { _code!(@reg_bank:_x, $($rest)*); };
+    (dd,    $($rest:tt)*)   => { _code!(@reg_bank:_d, $($rest)*); };
+    (dt,    $($rest:tt)*)   => { _code!(@reg_bank:_d, $($rest)*); };
+    (dt1,   $($rest:tt)*)   => { _code!(@reg_bank:_d, $($rest)*); };
+    ($other:ident, $($rest:tt)*) => { _code!($($rest)*); };
+}
+pub(super) use find_reg_bank;
+
 
 //-------------------------------------------------------------------------------------------------
 
