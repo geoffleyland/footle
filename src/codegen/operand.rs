@@ -34,7 +34,7 @@ impl<REG> Operand<REG> {
     }
 }
 
-#[cfg(any(feature = "dogfood", test))]
+#[cfg(feature = "dogfood")]
 pub mod display {
     use std::fmt;
     use super::*;

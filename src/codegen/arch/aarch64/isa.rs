@@ -133,7 +133,7 @@ macro_rules! _code {
             latency:            $latency,
             units:              enum_set!($(Unit::$unit)|*),
 
-            #[cfg(any(feature = "dogfood", test))]
+            #[cfg(feature = "dogfood")]
             mnemonic:           stringify!($mnemonic),
             #[cfg(feature = "dogfood")]
             format_assembly: |mnemonic, operands, address|

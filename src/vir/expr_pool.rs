@@ -61,14 +61,8 @@ impl ExprPool {
         &mut                    self,
         index:                  usize,
         span:                   Span,
-        #[cfg(any(feature = "dogfood", test))]
-        name:                   &str,
     ) -> Expr {
-        #[cfg(any(feature = "dogfood", test))]
-        let e = self.intern(ExprKind::Argument(index, name.to_string()), span);
-        #[cfg(not(any(feature = "dogfood", test)))]
-        let e = self.intern(ExprKind::Argument(index), span);
-        e
+        self.intern(ExprKind::Argument(index), span)
     }
 }
 

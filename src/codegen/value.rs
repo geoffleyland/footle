@@ -13,9 +13,6 @@ use crate::core::Span;
 #[derive(Debug, Clone)]
 pub(super) enum ValueDef {
     Instr(&'static Code),
-    #[cfg(any(feature = "dogfood", test))]
-    Argument(usize, String),
-    #[cfg(not(any(feature = "dogfood", test)))]
     Argument,
 }
 
@@ -64,7 +61,7 @@ impl<'arena> Operand<'arena> {
 
 /// The index of a `Value` in `Builder`'s `values` `TiVec`
 ///
-/// `Values` are stored in the order they come out of `lower_vir`.
+/// `Values` are stored in the order they come out of `select_instrs`.
 /// Scheduling re-orders the list of instructions and we use the indexes into `values` to create
 /// side info arrays like list of users of the `Value` or critical path depths.
 /// Only use `TiVec`s, not `TiSlice`s (even when passing references to `TiVec`s) - `TiSlices` risk
@@ -123,7 +120,6 @@ impl<'arena> Value<'arena> {
 #[derive(Debug, Copy, Clone)]
 pub(super) struct Constant {
     pub(super) value:                       f64,
-
     #[cfg(feature = "dogfood")]
     pub(super) span:                        Span
 }
@@ -131,7 +127,7 @@ pub(super) struct Constant {
 
 //-------------------------------------------------------------------------------------------------
 
-#[cfg(any(feature = "dogfood", test))]
+#[cfg(feature = "dogfood")]
 mod display {
     use super::*;
 
@@ -140,29 +136,7 @@ mod display {
             write!(f, "I{}", self.slot)
         }
     }
-
-
-    impl fmt::Display for ValueDef {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            use ValueDef::*;
-            match self {
-                Instr(code)                     => write!(f, "{}", code.mnemonic()),
-                Argument(i, name)               => write!(f, "ARGUMENT r{i} ({name})"),
-            }
-        }
-    }
-
-
-    impl fmt::Display for Value<'_> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "I{}: {} {}", self.slot, self.def,
-                self.operands
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join(" "))
-        }
-    }
 }
+
 
 //-------------------------------------------------------------------------------------------------

@@ -87,11 +87,7 @@ impl Pass {
         match &stmt.kind {
             ast::StmtKind::Arguments(names) => {
                 for (name, span) in names {
-                    #[cfg(any(feature = "dogfood", test))]
-                    let expr = self.exprs.argument(self.arguments.len(), *span, name);
-                    #[cfg(not(any(feature = "dogfood", test)))]
                     let expr = self.exprs.argument(self.arguments.len(), *span);
-
                     self.symbols.insert(false, name, *span, nev![expr.clone()]);
                     self.arguments.push(expr);
                 }

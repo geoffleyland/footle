@@ -11,13 +11,6 @@ impl<'arena> Builder<'arena> {
         for expr in &input.instrs {
             let ty = Type::from(types[expr.pool_index()]);
             match expr.kind() {
-                #[cfg(any(feature = "dogfood", test))]
-                vir::ExprKind::Argument(index, name) => {
-                    let value = self.lower_value(ty, ValueDef::Argument(*index, name.clone()),
-                        vec![], vec![], None, expr);
-                    self.arguments.push(value);
-                }
-                #[cfg(not(any(feature = "dogfood", test)))]
                 vir::ExprKind::Argument(..) => {
                     let value = self.lower_value(ty, ValueDef::Argument,
                         vec![], vec![], None, expr);

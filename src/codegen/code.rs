@@ -15,7 +15,7 @@ pub(super) struct Code {
     pub(super) latency:                     u8,
     pub(super) units:                       EnumSet<Unit>,
 
-    #[cfg(any(feature = "dogfood", test))]
+    #[cfg(feature = "dogfood")]
     pub(super) mnemonic:                    &'static str,
     #[cfg(feature = "dogfood")]
     pub(super) format_assembly:             fn(&str, &[Resolved], i32) -> String,
@@ -43,7 +43,7 @@ impl Code {
         (self.units & free_units).iter().next()
     }
 
-    #[cfg(any(feature = "dogfood", test))]
+    #[cfg(feature = "dogfood")]
     pub(super) fn mnemonic(&self) -> &str           { self.mnemonic }
 
     #[cfg(feature = "dogfood")]

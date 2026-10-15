@@ -12,10 +12,6 @@ pub enum ExprKind {
     Number(f64),
     Bool(bool),
     Call(String, Vec<Expr>),
-
-    #[cfg(any(feature = "dogfood", test))]
-    Argument(usize, String),
-    #[cfg(not(any(feature = "dogfood", test)))]
     Argument(usize),
 }
 
