@@ -2,7 +2,7 @@ use enumset::EnumSet;
 use derive_more::{From, Into, Display};
 use typed_index_collections::TiVec;
 
-use super::{isa, lower, Value, ValueSlot, Type, Constant};
+use super::{isa, lower, Value, ValueSlot, Type, Constant, Code};
 
 
 //-------------------------------------------------------------------------------------------------
@@ -83,9 +83,8 @@ fn schedule<'arena>(values: &TiVec<ValueSlot, &'arena Value<'arena>>
 
     let mut scheduled: TiVec<SchedulePosition, _> = TiVec::new();
 
-    let mut ready_instrs: Vec<&Value> = values.iter()
-        .filter(|v| v.code().is_some() && unresolved_operand_count[v.slot] == 0)
-        .copied()
+    let mut ready_instrs: Vec<(&Value, &Code)> = values.iter()
+        .filter_map(|v| if let Some(code) = v.code() && unresolved_operand_count[v.slot] == 0 { Some((*v, code)) } else { None } )
         .collect();
 
     while scheduled.len() < expected_length {
@@ -99,9 +98,9 @@ fn schedule<'arena>(values: &TiVec<ValueSlot, &'arena Value<'arena>>
         //  * that are deepest on the critical path (as in, if none are ON the critical path, and
         //  *   more than one retires the most registers, pick the one deepest on the critical
         //      path)
-        while let Some(&best_instr) = ready_instrs.iter()
-            .filter(|i| i.code().expect("internal compiler error: instruction without opcode").try_pick_unit(free_units).is_some())
-            .max_by_key(|i| {
+        while let Some(&(best_instr, code)) = ready_instrs.iter()
+            .filter(|(_, code)| code.try_pick_unit(free_units).is_some())
+            .max_by_key(|(i, _)| {
                 let critical_path_depth = depths[i.slot];
                 let on_critical_path = critical_path_depth >= current_critical_path_depth;
                 let retiring_count = i.predecessors().filter(|p| remaining_use_count[p.slot] == 1).count();
@@ -110,11 +109,11 @@ fn schedule<'arena>(values: &TiVec<ValueSlot, &'arena Value<'arena>>
 
             // Add this instr to the code and remove it from the list of ready instructions
             scheduled.push(best_instr);
-            ready_instrs.retain(|&i| std::ptr::from_ref(i) != std::ptr::from_ref(best_instr));
+            ready_instrs.retain(|&(i, _)| std::ptr::from_ref(i) != std::ptr::from_ref(best_instr));
 
             // Pick a unit we think is going to run this instruction and reserve it.
-            free_units -= best_instr.code().expect("internal compiler error: instruction without opcode")
-                .try_pick_unit(free_units).expect("internal compiler error: no free unit");
+            free_units -= code.try_pick_unit(free_units)
+                .expect("internal compiler error: no free unit");
 
             // Mark that the results of this instruction will be ready in the appropriate cycle.
             let ready_cycle = cycle + usize::from(best_instr.latency());
@@ -141,7 +140,9 @@ fn schedule<'arena>(values: &TiVec<ValueSlot, &'arena Value<'arena>>
             for &user_slot in &users[completed.slot] {
                 unresolved_operand_count[user_slot] -= 1;
                 if unresolved_operand_count[user_slot] == 0 {
-                    ready_instrs.push(values[user_slot]);
+                    let v = values[user_slot];
+                    ready_instrs.push((v, v.code()
+                        .expect("internal compiler error: a value with operands isn't executable")));
                 }
             }
         }
