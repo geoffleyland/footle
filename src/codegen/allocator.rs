@@ -11,7 +11,6 @@ use crate::core::Span;
 
 
 //-------------------------------------------------------------------------------------------------
-// Register Allocation
 
 pub(super) fn run(
     slot_count:                         usize,
@@ -51,7 +50,7 @@ struct SlotInstr {
 
 
 impl SlotInstr {
-    pub(super) fn predecessors(&self) -> impl Iterator<Item = AllocatorSlot> {
+    fn predecessors(&self) -> impl Iterator<Item = AllocatorSlot> {
         let operands = self.operands.iter().filter_map(|op| {
             if let SlotOperand::Reg(s) = op { Some(*s) } else { None }
         });
@@ -68,7 +67,7 @@ struct SlotBlock {
 }
 
 
-/// Lower the Scheduler's Values to Instrs, and split any live ranges that cross calls.
+/// Lower the Scheduler's Values to `SlotInstr`s, and split any live ranges that cross calls.
 fn lower_to_slots_and_split(
     slot_count:                         usize,
     arguments:                          &[&Value<'_>],
@@ -133,7 +132,7 @@ fn lower_to_slots_and_split(
             fixed_reg_slots[fixed_output] = Some(value.slot);
         }
 
-        let code = value.code().expect("internal compiler error: expected an excutable instruction");
+        let code = value.code().expect("internal compiler error: expected an executable instruction");
         let new_slot = slot_types.push_and_get_key(value.ty);
         new_schedule.push(SlotInstr{
             operands, code, slot_moves, fixed_inputs,
@@ -151,11 +150,11 @@ fn lower_to_slots_and_split(
 
 
 //-------------------------------------------------------------------------------------------------
-// Register Allocation
+// Allocate Registers to Slots
 
 /// A `BitSet` of `AllocatorSlot` indexes.
 ///
-/// We need to keep track of which slots are are live at each instruction, and which slots
+/// We need to keep track of which slots are live at each instruction, and which slots
 /// interfere with each other.  We do that with a `BitSet` and try to keep things clean by using
 /// the right type for indexing the right kind of slots.
 #[derive(Clone, Default)]
