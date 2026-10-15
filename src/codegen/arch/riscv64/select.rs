@@ -1,5 +1,5 @@
 use crate::{vir, core::BinaryOperator};
-use crate::codegen::{isa, RelativeTo, Constant, Value, ValueDef, Type, MachineReg, REGS,
+use crate::codegen::{isa, RelativeTo, Constant, Value, Type, MachineReg, REGS,
     lower::{Builder, operands}, value::Operand};
 
 
@@ -11,11 +11,8 @@ impl<'arena> Builder<'arena> {
         for expr in &input.instrs {
             let ty = Type::from(types[expr.pool_index()]);
             match expr.kind() {
-                vir::ExprKind::Argument(..) => {
-                    let value = self.lower_value(ty, ValueDef::Argument,
-                        vec![], vec![], None, expr);
-                    self.arguments.push(value);
-                }
+                vir::ExprKind::Argument(..) =>
+                    unreachable!("internal compiler error: argument in instruction list"),
                 vir::ExprKind::Number(value) => {
                     self.constants.push(Constant{ value: *value,
                     #[cfg(feature = "dogfood")]

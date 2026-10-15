@@ -210,8 +210,6 @@ impl Pass {
         let mut instrs = vec![];
         let mut emitted = HashSet::<usize>::new();
 
-        for expr in &self.arguments { emit_expr(expr, &mut instrs, &mut emitted); }
-
         #[cfg(any(feature = "dogfood", test))]
         let (return_values, return_span) = match self.stmts.last() {
             Some(vir::Stmt{ span, kind: vir::StmtKind::Return(exprs)}) => {
@@ -294,6 +292,7 @@ fn fold_call(name: &str, def: &FunctionDef, exprs: Vec<vir::Expr>) -> ExprKind {
 fn emit_expr(expr: &vir::Expr, instrs: &mut Vec<vir::Expr>, emitted: &mut HashSet<usize>) {
     if !emitted.contains(&expr.pool_index()) {
         match expr.kind() {
+            vir::ExprKind::Argument(..) => return,
             vir::ExprKind::Binary(_, lhs, rhs) => {
                 emit_expr(lhs, instrs, emitted);
                 emit_expr(rhs, instrs, emitted);
@@ -323,7 +322,7 @@ mod display {
     impl Styleable for Block {
         fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
             let mut address_map = HashMap::<usize, usize>::new();
-            for (address, expr) in self.instrs.iter().enumerate() {
+            for (address, expr) in self.arguments.iter().chain(self.instrs.iter()).enumerate() {
                 use ExprKind::*;
                 address_map.insert(expr.pool_index(), address);
                 let line = match &expr.kind() {

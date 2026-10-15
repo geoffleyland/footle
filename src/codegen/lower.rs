@@ -27,6 +27,7 @@ pub(super) fn run<'arena>(
     types:                                  &[vir::TypeInfo],
 ) -> Block<'arena> {
     let mut builder = Builder::new(arena);
+    builder.lower_arguments(input, types);
     // Call arch-specific instruction selection.
     builder.select_instrs(input, types);
 
@@ -104,6 +105,17 @@ impl<'arena> Builder<'arena> {
             constants: vec![], operand_map: HashMap::new(), functions: vec![] }
     }
 
+
+    fn lower_arguments(&mut self, input: &vir::Block, types: &[vir::TypeInfo]) {
+        for expr in &input.arguments {
+            let vir::ExprKind::Argument(..) = expr.kind() else {
+                unreachable!("internal compiler error: instruction in argument list");
+            };
+            let ty = Type::from(types[expr.pool_index()]);
+            let value = self.lower_value(ty, ValueDef::Argument, vec![], vec![], None, expr);
+            self.arguments.push(value);
+        }
+    }
 
     pub(super) fn lower_instr(
         &mut self,
