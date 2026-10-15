@@ -106,7 +106,7 @@ macro_rules! code {
         find_reg_bank!($rt1, @mode_suffix:_offset, Offset, $mnemonic, ($rt1, $($rt2,)? $xn, $imm), $($rest)*);
     };
 }
-pub(super) use code;
+use code;
 
 macro_rules! _code {
     (
@@ -141,7 +141,7 @@ macro_rules! _code {
             };);
     }
 }
-pub(super) use _code;
+use _code;
 
 macro_rules! encode_operand {
     (dd, $it:expr)    => { $it };
@@ -165,7 +165,7 @@ macro_rules! encode_operand {
     (imm19, $it:expr) => { (($it >> 2) & 0x7_FFFF) << 5 };
     (imm26, $it:expr) => { ($it >> 2) & 0x03FF_FFFF };
 }
-pub(super) use encode_operand;
+use encode_operand;
 
 macro_rules! output_reg {
     (dd)    => { true };
@@ -176,27 +176,27 @@ macro_rules! output_reg {
     (xt1)   => { true };
     ($other:tt) => { false };
 }
-pub(super) use output_reg;
+use output_reg;
 
 macro_rules! is_call {
     (bl)                    => { true };
     (blr)                   => { true };
     ($other:ident)          => { false };
 }
-pub(super) use is_call;
+use is_call;
 
 macro_rules! is_return {
     (ret)                   => { true };
     ($other:ident)          => { false };
 }
-pub(super) use is_return;
+use is_return;
 
 macro_rules! has_output {
     (str, $($reg:ident),*)  => { false };
     (stp, $($reg:ident),*)  => { false };
     ($mnemonic:ident, $($reg:ident),*) => { $( output_reg!($reg) ||)* false };
 }
-pub(super) use has_output;
+use has_output;
 
 
 // Try to figure out if our destination is a x or d register.
@@ -209,7 +209,7 @@ macro_rules! find_reg_bank {
     (dt1,   $($rest:tt)*)   => { _code!(@reg_bank:_d, $($rest)*); };
     ($other:ident, $($rest:tt)*) => { _code!($($rest)*); };
 }
-pub(super) use find_reg_bank;
+use find_reg_bank;
 
 
 //-------------------------------------------------------------------------------------------------

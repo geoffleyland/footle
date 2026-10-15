@@ -85,7 +85,7 @@ macro_rules! code {
         _code!(Offset, ($mnemonic $($suffix)*), ($rd, $rs1, $imm), $($rest)*);
     };
 }
-pub(super) use code;
+use code;
 
 
 macro_rules! _code {
@@ -119,7 +119,7 @@ macro_rules! _code {
             };);
     }
 }
-pub(super) use _code;
+use _code;
 
 
 macro_rules! encode_operand {
@@ -147,27 +147,27 @@ macro_rules! encode_operand {
     // low 12 bits, sign-extended, so round the upper 20 bits to make up for a negative low part.
     (imm_u, $it:expr) => { $it.wrapping_add(0x800) & 0xFFFF_F000 };     // 31:12 = imm[31:12]
 }
-pub(super) use encode_operand;
+use encode_operand;
 
 macro_rules! output_reg {
     (xd)                    => { true };
     (fd)                    => { true };
     ($other:tt)             => { false };
 }
-pub(super) use output_reg;
+use output_reg;
 
 macro_rules! is_call {
     (jal)                   => { true };
     (jalr)                  => { true };
     ($other:ident)          => { false };
 }
-pub(super) use is_call;
+use is_call;
 
 macro_rules! is_return {
     (ret)                   => { true };
     ($other:ident)          => { false };
 }
-pub(super) use is_return;
+use is_return;
 
 
 //-------------------------------------------------------------------------------------------------
