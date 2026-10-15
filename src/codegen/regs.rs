@@ -2,7 +2,11 @@ use super::Type;
 
 //-------------------------------------------------------------------------------------------------
 
-/// Representation of a machine register - just a number from 0-63.
+/// Representation of a machine register.
+///
+/// 0-31 are integer registers
+/// 32-63 are float registers
+/// (at least so far on AArch64 and RISC-V)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct MachineReg(u8);
 
@@ -11,7 +15,7 @@ impl MachineReg {
         debug_assert!((index as usize) < RegFile::REG_COUNT);
         Self(index)
     }
-    pub(super) fn encoding(self) -> u8 { self.0 & 0x1F }
+    pub(super) fn encoding(self) -> u8 { self.0 % RegBank::SIZE }
 }
 
 impl From<MachineReg> for usize { fn from(m: MachineReg) -> Self    { m.0.into() } }
@@ -28,7 +32,7 @@ impl From<usize> for MachineReg {
 
 type SetBits = u64;
 
-/// A set of register ranks.
+/// A set of registers.
 #[derive(Debug, Copy, Clone)]
 pub(super) struct RegSet(SetBits);
 
@@ -62,9 +66,9 @@ impl RegSet {
 
 //-------------------------------------------------------------------------------------------------
 
-/// The "rank" of a register - again, a number from 1-64.
+/// The "rank" of a register - again, a number from 0-63.
 ///
-/// The is the order in which we wish to use registers - lowest first
+/// The rank is the order in which we wish to use registers - lowest rank first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct RegRank(u8);
 
@@ -101,8 +105,15 @@ pub(super) enum RegBank { Int = 0, Float = 1 }
 
 impl RegBank {
     const COUNT: usize = Self::Float as usize + 1;
+    const SIZE: u8 = 32;
 
-    pub(super) const fn of_reg(reg: MachineReg) -> Self { if reg.0 < 32 { Self::Int } else { Self::Float } }
+    pub(super) const fn of_reg(reg: MachineReg) -> Self {
+        match reg.0 / Self::SIZE {
+            0 => Self::Int,
+            1 => Self::Float,
+            _ => unreachable!(),
+        }
+    }
     pub(super) const fn of_type(ty: Type) -> Option<Self> {
         match ty {
             Type::I64 | Type::Pointer       => Some(Self::Int),
@@ -112,10 +123,8 @@ impl RegBank {
     }
     pub(super) const fn index(self) -> usize { self as usize }
     pub(super) const fn regs(self) -> RegSet {
-        match self {
-            Self::Int                       => RegSet(0x0000_0000_FFFF_FFFF),
-            Self::Float                     => RegSet(0xFFFF_FFFF_0000_0000),
-        }
+        // The left part is 0xFF...       and the right part is 0 or 32.
+        RegSet(((1 << Self::SIZE) - 1) << (Self::SIZE as usize * self.index()))
     }
 }
 
@@ -225,6 +234,10 @@ impl RegFile {
         })
     }
 }
+
+
+/// Check the number of registers in `SetBits` matches the number of registers in the banks.
+const _: () = assert!(RegFile::REG_COUNT == (RegBank::SIZE as usize) * RegBank::COUNT);
 
 
 //-------------------------------------------------------------------------------------------------

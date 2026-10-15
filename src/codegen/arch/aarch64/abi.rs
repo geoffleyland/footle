@@ -1,19 +1,13 @@
-use seq_macro::seq;
-
 use crate::codegen::{isa, Code, Type, RegBank, MachineReg, RegSet, REGS,
     assembler::{assemble, assemble_expr, split_regs_by_bank, Instr, Offset, Operand}};
 
 
 //-------------------------------------------------------------------------------------------------
 
-seq!(N in 0..32 {
-    #[allow(non_upper_case_globals, dead_code)]
-    const x~N: MachineReg = MachineReg::new(N);
-    // N = 0 expands to 0 + 32 and clippy doesn't like that - hence the identity_op.
-    #[allow(non_upper_case_globals, dead_code, clippy::identity_op)]
-    const d~N: MachineReg = MachineReg::new(N + 32);
-});
-
+#[allow(non_upper_case_globals)]
+const x0: MachineReg = MachineReg::new(0);      // glue: the arguments pointer arrives here
+#[allow(non_upper_case_globals)]
+const x1: MachineReg = MachineReg::new(1);      // glue: the results pointer arrives here
 
 //-------------------------------------------------------------------------------------------------
 
