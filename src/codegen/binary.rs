@@ -2,7 +2,7 @@ use std::mem;
 
 use anyhow::{bail, Result};
 
-use super::{assembler, sys, Constant, Type, Layout};
+use super::{assembler, sys, Constant, Type, Layout, Resolved};
 use crate::runtime::Value;
 
 
@@ -90,7 +90,7 @@ pub fn emit(block: &assembler::Block) -> CompiledFn {
 
 
 fn encode_instrs(
-    instrs:                         &[assembler::Instr<i32>],
+    instrs:                         &[assembler::Instr<Resolved>],
     words:                          &mut [u32]) {
     for (word_index, instr) in instrs.iter().enumerate() {
         words[word_index] = instr.code.encode(&instr.operands);

@@ -15,17 +15,7 @@ impl MachineReg {
 }
 
 impl From<MachineReg> for u8    { fn from(m: MachineReg) -> Self  { m.0 } }
-impl From<MachineReg> for u32   { fn from(m: MachineReg) -> Self  { m.0.into() } }
-impl From<MachineReg> for i32   { fn from(m: MachineReg) -> Self  { m.0.into() } }
 impl From<MachineReg> for usize { fn from(m: MachineReg) -> Self  { m.0.into() } }
-
-
-impl TryFrom<u8> for MachineReg {
-    type Error = ();
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        if (value as usize) < RegFile::REG_COUNT { Ok(Self(value)) } else { Err(()) }
-    }
-}
 
 impl TryFrom<usize> for MachineReg {
     type Error = ();

@@ -1,13 +1,13 @@
 use enumset::EnumSet;
 
-use crate::codegen::{MachineReg, RankSet, REGS, Unit};
+use crate::codegen::{MachineReg, RankSet, REGS, Unit, Resolved};
 
 
 //-------------------------------------------------------------------------------------------------
 
 #[derive(Debug)]
 pub struct Code {
-    pub(super) encode:                      fn(&[i32]) -> u32,
+    pub(super) encode:                      fn(&[Resolved]) -> u32,
     pub(super) is_call:                     bool,
     pub(super) is_return:                   bool,
     pub(super) has_output:                  bool,
@@ -18,12 +18,12 @@ pub struct Code {
     #[cfg(any(feature = "dogfood", test))]
     pub(super) mnemonic:                    &'static str,
     #[cfg(feature = "dogfood")]
-    pub(super) format_assembly:             fn(&str, &[i32], i32) -> String,
+    pub(super) format_assembly:             fn(&str, &[Resolved], i32) -> String,
 }
 
 
 impl Code {
-    pub fn encode(&self, args: &[i32])-> u32{ (self.encode)(args) }
+    pub fn encode(&self, args: &[Resolved])-> u32   { (self.encode)(args) }
 
     pub fn is_call(&self) -> bool           { self.is_call }
     pub fn is_return(&self) -> bool         { self.is_return }
@@ -47,7 +47,7 @@ impl Code {
     pub fn mnemonic(&self) -> &str      { self.mnemonic }
 
     #[cfg(feature = "dogfood")]
-    pub fn format_assembly(&self, operands: &[i32], address: i32) -> String {
+    pub fn format_assembly(&self, operands: &[Resolved], address: i32) -> String {
         (self.format_assembly)(self.mnemonic, operands, address)
     }
 }

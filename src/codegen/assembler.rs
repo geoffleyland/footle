@@ -9,7 +9,7 @@ use crate::core::Span;
 //-------------------------------------------------------------------------------------------------
 
 pub(super) enum Operand {
-    Reg(u8),
+    Reg(MachineReg),
     PooledF64(usize, RelativeTo),
     ImmU16(u16),
     Offset(i32),
@@ -21,13 +21,8 @@ impl From<Offset> for Operand {
     fn from(o: Offset) -> Self { Self::Offset(o.0) }
 }
 
-struct PooledF64(usize, RelativeTo);
-impl From<PooledF64> for Operand {
-    fn from(p: PooledF64) -> Self { Self::PooledF64(p.0, p.1) }
-}
-
 impl From<MachineReg> for Operand {
-    fn from(r: MachineReg) -> Self { Self::Reg(r.encoding()) }
+    fn from(r: MachineReg) -> Self { Self::Reg(r) }
 }
 
 
@@ -85,9 +80,37 @@ impl Layout {
     }
 }
 
+
+/// Resolved instructions have arguments that are either register numbers or immediates/offsets.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub(super) enum Resolved {
+    Reg(MachineReg),
+    Imm(i32),
+}
+
+impl Resolved {
+    pub(super) fn reg(self) -> MachineReg {
+        if let Self::Reg(r) = self { r } else {
+            panic!("internal compiler error: immediate passed as register argument")
+        }
+    }
+    pub(super) fn imm(self) -> i32 {
+        if let Self::Imm(i) = self { i } else {
+            panic!("internal compiler error: register passed as immediate argument")
+        }
+    }
+    pub(super) fn imm_bits(self) -> u32 { self.imm().cast_unsigned() }
+    pub(super) fn reg_field(self, bank: RegBank) -> u32 {
+        let reg = self.reg();
+        assert_eq!(RegBank::of_reg(reg), bank, "internal compiler error: {reg:?} is in the wrong register bank");
+        u32::from(reg.encoding())
+    }
+}
+
+
 pub struct Block {
     pub(super) layout:              Layout,
-    pub(super) instrs:              Vec<Instr<i32>>,
+    pub(super) instrs:              Vec<Instr<Resolved>>,
     pub(super) constants:           Vec<Constant>,
     pub(super) functions:           Vec<String>,
     pub(super) argument_types:      Vec<Type>,
@@ -142,7 +165,7 @@ fn emit_function(
             .into_iter()
             .chain(ai.operands.iter().map(|op| match op {
                 super::operand::Operand::Reg(r)             => (*r).into(),
-                super::operand::Operand::PooledF64(i, r)    => PooledF64(*i, *r).into(),
+                super::operand::Operand::PooledF64(i, r)    => Operand::PooledF64(*i, *r),
                 super::operand::Operand::ImmU16(v)          => Operand::ImmU16(*v),
                 super::operand::Operand::Function(name, r) => {
                     let index = functions.iter().position(|s| s == name)
@@ -195,20 +218,22 @@ fn resolve(
     instrs:                                 Vec<Instr<Operand>>,
     layout:                                 &Layout,
     slots_to_instrs:                        &HashMap<ValueSlot, usize>,
-) -> Vec<Instr<i32>> {
+) -> Vec<Instr<Resolved>> {
     use Operand::*;
 
     instrs.into_iter().enumerate()
         .map(|(word_index, instr)| {
-            let operands: Vec<i32> = instr.operands.into_iter().map(|op| {
+            let operands: Vec<_> = instr.operands.into_iter().map(|op| {
                 match op {
-                    Reg(i)                  => i32::from(i),
-                    ImmU16(v)               => i32::from(v),
-                    PooledF64(i, r)         => compute_offset(slots_to_instrs, layout.constant_start_words,
-                                                    i, word_index, r),
-                    Function(i, r)          => compute_offset(slots_to_instrs, layout.function_start_words,
-                                                    i, word_index, r),
-                    Offset(o)               => o,
+                    Reg(r)                  => Resolved::Reg(r),
+                    ImmU16(v)               => Resolved::Imm(v.into()),
+                    PooledF64(i, r)         => Resolved::Imm(compute_offset(
+                                                    slots_to_instrs, layout.constant_start_words,
+                                                    i, word_index, r)),
+                    Function(i, r)          => Resolved::Imm(compute_offset(
+                                                    slots_to_instrs, layout.function_start_words,
+                                                    i, word_index, r)),
+                    Offset(o)               => Resolved::Imm(o),
                 }
             }).collect();
             Instr{ operands, code: instr.code,

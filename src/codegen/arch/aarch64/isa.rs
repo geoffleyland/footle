@@ -3,7 +3,7 @@
 use enumset::{EnumSetType, enum_set};
 use paste::paste;
 
-use crate::codegen::{regs, Code, RegFile, RegSet};
+use crate::codegen::{regs, Code, RegBank, RegFile, RegSet, Resolved};
 
 #[cfg(feature = "dogfood")]
 use display::*;
@@ -124,10 +124,10 @@ macro_rules! _code {
             is_return:          is_return!($mnemonic),
             has_output:         $( has_output!($mnemonic, $reg) ||)* false,
 
-            encode: |operands: &[i32]| -> u32 {
+            encode: |operands: &[Resolved]| -> u32 {
                 // If there's no argument (ie `ret`), _it is unused, so the _ silences a warning.
                 let mut _it = operands.iter().copied();
-                $pattern $(| { let value = _it.next().unwrap().cast_unsigned(); encode_operand!($reg, value) })*
+                $pattern $(| { let value = _it.next().unwrap(); encode_operand!($reg, value) })*
             },
 
             latency:            $latency,
@@ -144,26 +144,28 @@ macro_rules! _code {
 use _code;
 
 macro_rules! encode_operand {
-    (dd, $it:expr)    => { $it };
-    (dn, $it:expr)    => { $it << 5 };
-    (dm, $it:expr)    => { $it << 16 };
-    (da, $it:expr)    => { $it << 10 };
-    (dt, $it:expr)    => { $it };
-    (dt1, $it:expr)   => { $it };
-    (dt2, $it:expr)   => { $it << 10 };
-    (xd, $it:expr)    => { $it };
-    (xn, $it:expr)    => { $it << 5 };
-    (xm, $it:expr)    => { $it << 16 };
-    (xa, $it:expr)    => { $it << 10 };
-    (xt, $it:expr)    => { $it };
-    (xt1, $it:expr)   => { $it };
-    (xt2, $it:expr)   => { $it << 10 };
-    (imm7, $it:expr)  => { (($it >> 3) & 0x7F) << 15 };
-    (imm9, $it:expr)  => { ($it & 0x01FF) << 12 };
-    (imm12, $it:expr) => { (($it >> 3) & 0x0FFF) << 10 };
-    (imm16, $it:expr) => { ($it & 0xFFFF) << 5 };
-    (imm19, $it:expr) => { (($it >> 2) & 0x7_FFFF) << 5 };
-    (imm26, $it:expr) => { ($it >> 2) & 0x03FF_FFFF };
+    (xd, $it:expr)    => { $it.reg_field(RegBank::Int) << 0 };
+    (xn, $it:expr)    => { $it.reg_field(RegBank::Int) << 5 };
+    (xa, $it:expr)    => { $it.reg_field(RegBank::Int) << 10 };
+    (xm, $it:expr)    => { $it.reg_field(RegBank::Int) << 16 };
+    (xt, $it:expr)    => { $it.reg_field(RegBank::Int) << 0 };
+    (xt1, $it:expr)    => { $it.reg_field(RegBank::Int) << 0 };
+    (xt2, $it:expr)   => { $it.reg_field(RegBank::Int) << 10 };
+
+    (dd, $it:expr)    => { $it.reg_field(RegBank::Float) << 0 };
+    (dn, $it:expr)    => { $it.reg_field(RegBank::Float) << 5 };
+    (da, $it:expr)    => { $it.reg_field(RegBank::Float) << 10 };
+    (dm, $it:expr)    => { $it.reg_field(RegBank::Float) << 16 };
+    (dt, $it:expr)    => { $it.reg_field(RegBank::Float) << 0 };
+    (dt1, $it:expr)   => { $it.reg_field(RegBank::Float) << 0 };
+    (dt2, $it:expr)   => { $it.reg_field(RegBank::Float) << 10 };
+
+    (imm7, $it:expr)  => { (($it.imm_bits() >> 3) & 0x7F) << 15 };
+    (imm9, $it:expr)  => { ($it.imm_bits() & 0x01FF) << 12 };
+    (imm12, $it:expr) => { (($it.imm_bits() >> 3) & 0x0FFF) << 10 };
+    (imm16, $it:expr) => { ($it.imm_bits() & 0xFFFF) << 5 };
+    (imm19, $it:expr) => { (($it.imm_bits() >> 2) & 0x7_FFFF) << 5 };
+    (imm26, $it:expr) => { ($it.imm_bits() >> 2) & 0x03FF_FFFF };
 }
 use encode_operand;
 
@@ -198,7 +200,6 @@ macro_rules! has_output {
 }
 use has_output;
 
-
 // Try to figure out if our destination is a x or d register.
 macro_rules! find_reg_bank {
     (xd,    $($rest:tt)*)   => { _code!(@reg_bank:_x, $($rest)*); };
@@ -216,6 +217,8 @@ use find_reg_bank;
 
 #[cfg(feature = "dogfood")]
 mod display {
+    use crate::codegen::Resolved;
+
     #[derive(Debug, Clone, Copy)]
     pub(super) enum AddressingMode {
         None,
@@ -227,9 +230,9 @@ mod display {
     pub(super) fn format_assembly(
         mnemonic:           &str,
         mode:               AddressingMode,
-        operands:           &[i32],
+        operands:           &[Resolved],
         address:            i32,
-        formatters:         &[fn(i32, i32) -> String]
+        formatters:         &[fn(Resolved, i32) -> String]
     ) -> String {
         use AddressingMode::*;
         if operands.is_empty() { return mnemonic.to_string() }
@@ -240,7 +243,7 @@ mod display {
             .collect();
 
         let operand_string = match (mode, operand_strings.as_slice()) {
-            (Offset,    [head @ .., base, _]) if operands.last() == Some(&0)
+            (Offset,    [head @ .., base, _]) if operands.last() == Some(&Resolved::Imm(0))
                                                     => format!("{}, [{base}]", head.join(", ")),
             (Offset,    [head @ .., base, offset])  => format!("{}, [{base}, {offset}]", head.join(", ")),
             (Pre,       [head @ .., base, offset])  => format!("{}, [{base}, {offset}]!", head.join(", ")),
@@ -252,13 +255,6 @@ mod display {
     }
 
     macro_rules! format_operand {
-        (dd)    => { format_d_reg };
-        (dn)    => { format_d_reg };
-        (dm)    => { format_d_reg };
-        (da)    => { format_d_reg };
-        (dt)    => { format_d_reg };
-        (dt1)   => { format_d_reg };
-        (dt2)   => { format_d_reg };
         (xd)    => { format_x_reg };
         (xn)    => { format_x_reg };
         (xm)    => { format_x_reg };
@@ -266,6 +262,15 @@ mod display {
         (xt)    => { format_x_reg };
         (xt1)   => { format_x_reg };
         (xt2)   => { format_x_reg };
+
+        (dd)    => { format_d_reg };
+        (dn)    => { format_d_reg };
+        (dm)    => { format_d_reg };
+        (da)    => { format_d_reg };
+        (dt)    => { format_d_reg };
+        (dt1)   => { format_d_reg };
+        (dt2)   => { format_d_reg };
+
         (imm7)  => { format_imm };
         (imm9)  => { format_imm };
         (imm12) => { format_imm };
@@ -276,17 +281,22 @@ mod display {
     pub(super) use format_operand;
 
 
-    pub(super) fn format_d_reg(n: i32, _address: i32) -> String { format!("d{n}") }
-    pub(super) fn format_address(n: i32, address: i32) -> String  { format!("#{:#x}", address + n) }
-    pub(super) fn format_x_reg(n: i32, _address: i32) -> String {
-        match n {
+    pub(super) fn format_x_reg(reg: Resolved, _address: i32) -> String {
+        match reg.reg().encoding() {
             31 => "sp".into(),
             n  => format!("x{n}"),
         }
     }
-    pub(super) fn format_imm(n: i32, _address: i32) -> String {
+    pub(super) fn format_d_reg(reg: Resolved, _address: i32) -> String {
+        format!("d{}", reg.reg().encoding())
+    }
+    pub(super) fn format_imm(imm: Resolved, _address: i32) -> String {
+        let n = imm.imm();
         if (-9..=9).contains(&n) { format!("#{n}") }
         else { format!("#{}{:#x}", if n < 0 { "-" } else { "" }, n.unsigned_abs()) }
+    }
+    pub(super) fn format_address(addr: Resolved, address: i32) -> String {
+        format!("#{:#x}", address + addr.imm())
     }
 }
 

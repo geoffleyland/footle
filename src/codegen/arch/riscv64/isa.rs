@@ -3,7 +3,7 @@
 use enumset::{EnumSetType, enum_set};
 use paste::paste;
 
-use crate::codegen::{regs, Code, RegFile, RegSet};
+use crate::codegen::{regs, Code, RegBank, RegFile, RegSet, Resolved};
 
 #[cfg(feature = "dogfood")]
 use display::*;
@@ -102,10 +102,10 @@ macro_rules! _code {
             is_return:          is_return!($mnemonic),
             has_output:         $( output_reg!($reg) ||)* false,
 
-            encode: |operands: &[i32]| -> u32 {
+            encode: |operands: &[Resolved]| -> u32 {
                 // If there's no argument (ie `ret`), _it is unused, so the _ silences a warning.
                 let mut _it = operands.iter().copied();
-                $pattern $(| { let value = _it.next().unwrap().cast_unsigned(); encode_operand!($reg, value) })*
+                $pattern $(| { let value = _it.next().unwrap(); encode_operand!($reg, value) })*
             },
 
             latency:            $latency,
@@ -123,29 +123,33 @@ use _code;
 
 
 macro_rules! encode_operand {
-    (xd, $it:expr)    => { $it << 7 };
-    (xs1, $it:expr)   => { $it << 15 };
-    (xs2, $it:expr)   => { $it << 20 };
+    (xd, $it:expr)    => { $it.reg_field(RegBank::Int) << 7 };
+    (xs1, $it:expr)   => { $it.reg_field(RegBank::Int) << 15 };
+    (xs2, $it:expr)   => { $it.reg_field(RegBank::Int) << 20 };
 
-    (fd, $it:expr)    => { $it << 7 };
-    (fs1, $it:expr)   => { $it << 15 };
-    (fs2, $it:expr)   => { $it << 20 };
-    (fs12, $it:expr)  => { $it << 15 | $it << 20 };
+    (fd, $it:expr)    => { $it.reg_field(RegBank::Float) << 7 };
+    (fs1, $it:expr)   => { $it.reg_field(RegBank::Float) << 15 };
+    (fs2, $it:expr)   => { $it.reg_field(RegBank::Float) << 20 };
+    (fs12, $it:expr)  => {{ let r = $it.reg_field(RegBank::Float); r << 15 | r << 20 }};
 
-    (imm_i, $it:expr) => { ($it & 0xFFF) << 20 };                       // 31:20 = imm[11:0]
-    (imm_j, $it:expr) => {
-        ($it >> 20 & 0x1)   << 31 |                                     // 31    = imm[20]
-        ($it >> 1  & 0x3FF) << 21 |                                     // 30:21 = imm[10:1]
-        ($it >> 11 & 0x1)   << 20 |                                     // 20    = imm[11]
-        ($it >> 12 & 0xFF)  << 12                                       // 19:12 = imm[19:12]
-    };
-    (imm_s, $it:expr) => {
-        ($it >> 5 & 0x7F) << 25 |                                       // 31:25 = imm[11:5]
-        ($it      & 0x1F) << 7                                          // 11:7  = imm[4:0]
-    };
+    (imm_i, $it:expr) => { ($it.imm_bits() & 0xFFF) << 20 };            // 31:20 = imm[11:0]
+    (imm_j, $it:expr) => {{
+        let i = $it.imm_bits();
+        (i >> 20 & 0x1)   << 31 |                                       // 31    = imm[20]
+        (i >>  1 & 0x3FF) << 21 |                                       // 30:21 = imm[10:1]
+        (i >> 11 & 0x1)   << 20 |                                       // 20    = imm[11]
+        (i >> 12 & 0xFF)  << 12                                         // 19:12 = imm[19:12]
+    }};
+    (imm_s, $it:expr) => {{
+        let i = $it.imm_bits();
+        (i >>  5 & 0x7F)  << 25 |                                       // 31:25 = imm[11:5]
+        (i       & 0x1F)  <<  7                                         // 11:7  = imm[4:0]
+    }};
     // The operand is the whole PC-relative distance; the instruction after the auipc takes its
     // low 12 bits, sign-extended, so round the upper 20 bits to make up for a negative low part.
-    (imm_u, $it:expr) => { $it.wrapping_add(0x800) & 0xFFFF_F000 };     // 31:12 = imm[31:12]
+    (imm_u, $it:expr) => {{
+        $it.imm_bits().wrapping_add(0x800) & 0xFFFF_F000                // 31:12 = imm[31:12]
+    }};
 }
 use encode_operand;
 
@@ -174,6 +178,8 @@ use is_return;
 
 #[cfg(feature = "dogfood")]
 mod display {
+    use crate::codegen::Resolved;
+
     #[derive(Debug, Clone, Copy)]
     pub(super) enum AddressingMode {
         None,
@@ -183,9 +189,9 @@ mod display {
     pub(super) fn format_assembly(
         mnemonic:           &str,
         mode:               AddressingMode,
-        operands:           &[i32],
+        operands:           &[Resolved],
         address:            i32,
-        formatters:         &[fn(i32, i32) -> String]
+        formatters:         &[fn(Resolved, i32) -> String]
     ) -> String {
         use AddressingMode::*;
 
@@ -198,7 +204,7 @@ mod display {
             .collect();
 
         if mnemonic == "li" {
-            if operands[1] == 0 { return format!("mv {}, zero", operand_strings[0]) }
+            if operands[1].imm() == 0 { return format!("mv {}, zero", operand_strings[0]) }
             return format!("addi {}, zero, {}", operand_strings[0], operand_strings[1])
         }
 
@@ -229,20 +235,20 @@ mod display {
     }
     pub(super) use format_operand;
 
-    pub(super) fn format_f_reg(n: i32, _address: i32) -> String { f_reg(n).into() }
-    pub(super) fn format_x_reg(n: i32, _address: i32) -> String  { x_reg(n).into() }
-    pub(super) fn format_imm(n: i32, _address: i32) -> String {
+    pub(super) fn format_imm(imm: Resolved, _address: i32) -> String {
+        let n = imm.imm();
         if (-9..=9).contains(&n) { format!("{n}") }
         else { format!("{}{:#x}", if n < 0 { "-" } else { "" }, n.unsigned_abs()) }
     }
     // auipc's operand is the whole distance, but it shows the 20-bit field it actually encodes.
-    pub(super) fn format_imm_u(n: i32, _address: i32) -> String {
+    pub(super) fn format_imm_u(imm: Resolved, _address: i32) -> String {
+        let n = imm.imm();
         let field = n.cast_unsigned().wrapping_add(0x800) >> 12;
         if field <= 9 { format!("{field}") } else { format!("{field:#x}") }
     }
 
-    pub(super) fn x_reg(n: i32) -> &'static str {
-        match n {
+    pub(super) fn format_x_reg(reg: Resolved, _address: i32) -> String {
+        match reg.reg().encoding() {
              0 => "zero",  1 => "ra",   2 => "sp",   3 => "gp",
              4 => "tp",    5 => "t0",   6 => "t1",   7 => "t2",
              8 => "s0",    9 => "s1",  10 => "a0",  11 => "a1",
@@ -251,12 +257,12 @@ mod display {
             20 => "s4",   21 => "s5",  22 => "s6",  23 => "s7",
             24 => "s8",   25 => "s9",  26 => "s10", 27 => "s11",
             28 => "t3",   29 => "t4",  30 => "t5",  31 => "t6",
-            _  => unreachable!("internal compiler error: integer register {n}"),
-        }
+            n  => unreachable!("internal compiler error: integer register {n}"),
+        }.into()
     }
 
-    pub(super) fn f_reg(n: i32) -> &'static str {
-        match n {
+    pub(super) fn format_f_reg(reg: Resolved, _address: i32) -> String {
+        match reg.reg().encoding() {
              0 => "ft0",   1 => "ft1",   2 => "ft2",   3 => "ft3",
              4 => "ft4",   5 => "ft5",   6 => "ft6",   7 => "ft7",
              8 => "fs0",   9 => "fs1",  10 => "fa0",  11 => "fa1",
@@ -265,8 +271,8 @@ mod display {
             20 => "fs4",  21 => "fs5",  22 => "fs6",  23 => "fs7",
             24 => "fs8",  25 => "fs9",  26 => "fs10", 27 => "fs11",
             28 => "ft8",  29 => "ft9",  30 => "ft10", 31 => "ft11",
-            _  => unreachable!("internal compiler error: float register {n}"),
-        }
+            n  => unreachable!("internal compiler error: float register {n}"),
+        }.into()
     }
 }
 
