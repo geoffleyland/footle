@@ -129,13 +129,13 @@ pub(super) fn run(
     written_regs:                   RegSet,
 ) -> Block{
     let mut instrs = Vec::new();
-    let slots_to_instrs = emit_function(allocated, &mut instrs, functions, written_regs);
+    let value_words = emit_function(allocated, &mut instrs, functions, written_regs);
     let glue_start_words = instrs.len();
     abi::emit_glue(&argument_types, &return_types, &mut instrs);
 
     let layout = Layout::new(glue_start_words, instrs.len(), constants.len(), functions.len());
 
-    let resolved = resolve(instrs, &layout, &slots_to_instrs);
+    let resolved = resolve(instrs, &layout, &value_words);
 
     Block{ layout, instrs: resolved, constants: constants.into(), functions: functions.to_vec(),
         argument_types, return_types }
@@ -148,26 +148,26 @@ fn emit_function(
     functions:                      &[String],
     written_regs:                   RegSet,
 ) -> HashMap<ValueSlot, usize> {
-    let mut slots_to_instrs = HashMap::new();
+    let mut value_words = HashMap::new();
 
     let regs_to_save = REGS.regs_to_save(written_regs);
     abi::emit_save_regs(instrs, regs_to_save);
 
-    for ai in allocated {
-        abi::emit_moves(instrs, &ai.moves);
+    for instr in allocated {
+        abi::emit_moves(instrs, &instr.moves);
 
         // Restore callee saved registers before a `ret`.
-        if ai.code.is_return() { abi::emit_restore_regs(instrs, regs_to_save); }
+        if instr.code.is_return() { abi::emit_restore_regs(instrs, regs_to_save); }
 
-        let operands = ai.code.has_output()
-            .then(|| Operand::from(ai.result_reg
+        let operands = instr.code.has_output()
+            .then(|| Operand::from(instr.result_reg
                 .expect("internal compiler error: no register allocated for instruction result")))
             .into_iter()
-            .chain(ai.operands.iter().map(|op| match op {
-                super::operand::Operand::Reg(r)             => (*r).into(),
-                super::operand::Operand::PooledF64(i, r)    => Operand::PooledF64(*i, *r),
-                super::operand::Operand::ImmU16(v)          => Operand::ImmU16(*v),
-                super::operand::Operand::Function(name, r) => {
+            .chain(instr.operands.iter().map(|op| match op {
+                allocator::Operand::Reg(r)              => (*r).into(),
+                allocator::Operand::PooledF64(i, r)     => Operand::PooledF64(*i, *r),
+                allocator::Operand::ImmU16(v)           => Operand::ImmU16(*v),
+                allocator::Operand::Function(name, r)   => {
                     let index = functions.iter().position(|s| s == name)
                         .expect("internal compiler error: unknown function name");
                     Operand::Function(index, *r)
@@ -175,13 +175,13 @@ fn emit_function(
             }))
         .collect();
 
-        slots_to_instrs.insert(ai.value_slot, instrs.len());
-        instrs.push(Instr{ code: ai.code, operands,
+        value_words.insert(instr.value_slot, instrs.len());
+        instrs.push(Instr{ code: instr.code, operands,
         #[cfg(feature = "dogfood")]
-            span: Some(ai.span)
+            span: Some(instr.span)
         });
     }
-    slots_to_instrs
+    value_words
 }
 
 
@@ -194,20 +194,20 @@ pub(super) fn split_regs_by_bank(regs: RegSet) -> (Vec<MachineReg>, Vec<MachineR
 //-------------------------------------------------------------------------------------------------
 
 fn compute_offset(
-    slots_to_instrs:                        &HashMap<ValueSlot, usize>,
+    value_words:                            &HashMap<ValueSlot, usize>,
     table_start_words:                      usize,
     entry_index:                            usize,
-    instr_index:                            usize,
+    word_index:                             usize,
     relative_to:                            RelativeTo,
 ) -> i32 {
-    let from_index = match relative_to {
-        RelativeTo::ThisInstr               => instr_index,
+    let from_word = match relative_to {
+        RelativeTo::ThisInstr               => word_index,
         RelativeTo::InstrOf(slot) => {
-            *slots_to_instrs.get(&slot)
+            *value_words.get(&slot)
                 .expect("internal compiler error: InstrOf names a value with no instruction")
         }
     };
-    i32::try_from((table_start_words - from_index) * 4 + (entry_index * 8))
+    i32::try_from((table_start_words - from_word) * 4 + (entry_index * 8))
         .expect("internal compiler error: pool offset too large")
 }
 
@@ -217,7 +217,7 @@ fn compute_offset(
 fn resolve(
     instrs:                                 Vec<Instr<Operand>>,
     layout:                                 &Layout,
-    slots_to_instrs:                        &HashMap<ValueSlot, usize>,
+    value_words:                            &HashMap<ValueSlot, usize>,
 ) -> Vec<Instr<Resolved>> {
     use Operand::*;
 
@@ -228,10 +228,10 @@ fn resolve(
                     Reg(r)                  => Resolved::Reg(r),
                     ImmU16(v)               => Resolved::Imm(v.into()),
                     PooledF64(i, r)         => Resolved::Imm(compute_offset(
-                                                    slots_to_instrs, layout.constant_start_words,
+                                                    value_words, layout.constant_start_words,
                                                     i, word_index, r)),
                     Function(i, r)          => Resolved::Imm(compute_offset(
-                                                    slots_to_instrs, layout.function_start_words,
+                                                    value_words, layout.function_start_words,
                                                     i, word_index, r)),
                     Offset(o)               => Resolved::Imm(o),
                 }

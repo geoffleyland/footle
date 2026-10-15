@@ -265,7 +265,7 @@ fn set_reg(
 //-------------------------------------------------------------------------------------------------
 // Lowering to Instrs with registers and register swaps.
 
-type Operand = super::operand::Operand<MachineReg>;
+pub(super) type Operand = super::operand::Operand<MachineReg>;
 
 #[derive(Debug)]
 pub(super) struct Instr {
