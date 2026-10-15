@@ -14,14 +14,12 @@ impl MachineReg {
     pub(super) fn encoding(self) -> u8 { self.0 & 0x1F }
 }
 
-impl From<MachineReg> for u8    { fn from(m: MachineReg) -> Self  { m.0 } }
-impl From<MachineReg> for usize { fn from(m: MachineReg) -> Self  { m.0.into() } }
-
-impl TryFrom<usize> for MachineReg {
-    type Error = ();
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        let v = u8::try_from(value).map_err(|_| ())?;
-        if value < RegFile::REG_COUNT { Ok(Self(v)) } else { Err(()) }
+impl From<MachineReg> for usize { fn from(m: MachineReg) -> Self    { m.0.into() } }
+impl From<usize> for MachineReg {
+    fn from(index: usize) -> Self {
+        debug_assert!(index < RegFile::REG_COUNT);
+        #[allow(clippy::cast_possible_truncation)]  // We just checked it's under REG_COUNT.
+        Self::new(index as u8)
     }
 }
 
@@ -53,8 +51,8 @@ impl RegSet {
         let mut bits = self.0;
         std::iter::from_fn(move || {
             if bits == 0 { return None }
-            let reg = MachineReg::try_from(bits.trailing_zeros() as usize)
-                .expect("internal compiler error: register out of range");
+            #[allow(clippy::cast_possible_truncation)]      // trailing_zeros can't be more than 64
+            let reg = MachineReg::new(bits.trailing_zeros() as u8);
             bits &= bits - 1;                           // clear the lowest set bit
             Some(reg)
         })

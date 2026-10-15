@@ -82,7 +82,7 @@ fn lower_to_slots_and_split(
 
     // We're just keeping track of the slots (like arguments) that are given to us in a fixed
     // register - our arguments and fixed function outputs
-    let mut fixed_reg_slots: [Option<ValueSlot>; RegFile::REG_COUNT] = [None; RegFile::REG_COUNT];
+    let mut fixed_reg_slots: TiVec<MachineReg, Option<ValueSlot>> = vec![None; RegFile::REG_COUNT].into();
     // We're creating new AllocatorSlots, so we need to keep track of the renumbering from
     // ValueSlots to AllocatorSlots.  Start with `None` - we work through the slots in dependency
     // order so we should always write to `slot_map` before we read from it.
@@ -93,7 +93,7 @@ fn lower_to_slots_and_split(
 
     for (value, reg) in arguments.iter()
         .zip(REGS.abi_regs(arguments.iter().map(|v| v.ty))) {
-        fixed_reg_slots[usize::from(reg)] = Some(value.slot);
+        fixed_reg_slots[reg] = Some(value.slot);
         let new_slot = slot_types.push_and_get_key(value.ty);
         argument_regs.push((new_slot, reg));
         slot_map[value.slot] = Some(new_slot);
@@ -115,9 +115,9 @@ fn lower_to_slots_and_split(
         // we need to move them.
         let mut slot_moves: Vec<(AllocatorSlot, AllocatorSlot)> = vec![];
         if let Some(c) = value.code() && c.clobbers_anything() {
-            for (reg, maybe_slot) in fixed_reg_slots.iter_mut().enumerate() {
+            for (reg, maybe_slot) in fixed_reg_slots.iter_mut_enumerated() {
                 if let Some(slot) = *maybe_slot &&
-                    c.clobbers(MachineReg::try_from(reg).unwrap()) {
+                    c.clobbers(reg) {
                     if retirements[slot].is_some_and(|r| r > i) {
                         let old_slot = slot_map[slot].unwrap();
                         let new_slot = slot_types.push_and_get_key(slot_types[old_slot]);
@@ -130,7 +130,7 @@ fn lower_to_slots_and_split(
         }
 
         if let Some(fixed_output) = value.fixed_output {
-            fixed_reg_slots[usize::from(fixed_output)] = Some(value.slot);
+            fixed_reg_slots[fixed_output] = Some(value.slot);
         }
 
         let code = value.code().expect("internal compiler error: expected an excutable instruction");
@@ -359,32 +359,32 @@ fn move_regs(
     moves:                              &[(AllocatorSlot, MachineReg, MachineReg)],
     temp_reg_pool:                      RankSet,
 ) -> Vec<(MachineReg, MachineReg)> {
-    let mut sources = [None; RegFile::REG_COUNT];
-    let mut destination_counts = [0u8; RegFile::REG_COUNT];
+    let mut sources: TiVec<MachineReg, _> = vec![None; RegFile::REG_COUNT].into();
+    let mut destination_counts: TiVec<MachineReg, _> = vec![0u8; RegFile::REG_COUNT].into();
     for (_, source, destination) in moves {
-        sources[usize::from(*destination)] = Some(*source);
-        destination_counts[usize::from(*source)] += 1;
+        sources[*destination] = Some(*source);
+        destination_counts[*source] += 1;
     }
 
     let mut new_moves = vec![];
     // Keep track of any copies we make of a value as we move them - they could be useful later
     // if we have to resolve a cycle including the value, where we could avoid using a temporary
     // register.
-    let mut copies = [None; RegFile::REG_COUNT];
+    let mut copies: TiVec<MachineReg, _> = vec![None; RegFile::REG_COUNT].into();
     // Handle all the chains by starting from their ends
     for (.., destination) in moves {
-        if let Some(source) = sources[usize::from(*destination)] &&
-            destination_counts[usize::from(*destination)] == 0 {
+        if let Some(source) = sources[*destination] &&
+            destination_counts[*destination] == 0 {
             move_regs_backwards(*destination, &mut sources, &mut destination_counts, &mut new_moves);
-            copies[usize::from(source)] = Some(*destination);
+            copies[source] = Some(*destination);
         }
     }
     // All the remaining moves are cycles.  Do the ones where we've already got a copy and don't
     // need a temp
     for (.., destination) in moves {
-    if let Some(source) = sources[usize::from(*destination)] &&
-        let Some(copy) = copies[usize::from(source)] {
-            sources[usize::from(*destination)] = None;
+        if let Some(source) = sources[*destination] &&
+            let Some(copy) = copies[source] {
+            sources[*destination] = None;
             move_regs_backwards(source, &mut sources, &mut destination_counts, &mut new_moves);
             new_moves.push((copy, *destination));
         }
@@ -392,10 +392,10 @@ fn move_regs(
 
     // Now do the ones where there's no other copy and we need a temp.
     for (.., destination) in moves {
-        let Some(source) = sources[usize::from(*destination)] else { continue };
+        let Some(source) = sources[*destination] else { continue };
         let temp_reg = REGS.best_reg(temp_reg_pool.intersection(REGS.ranks_for_reg(source)), None);
         new_moves.push((source, temp_reg));
-        sources[usize::from(*destination)] = None;
+        sources[*destination] = None;
         move_regs_backwards(source, &mut sources, &mut destination_counts, &mut new_moves);
         new_moves.push((temp_reg, *destination));
     }
@@ -406,15 +406,15 @@ fn move_regs(
 
 fn move_regs_backwards(
     mut destination:                    MachineReg,
-    sources:                            &mut[Option<MachineReg>],
-    destination_counts:                 &mut[u8],
+    sources:                            &mut TiVec<MachineReg, Option<MachineReg>>,
+    destination_counts:                 &mut TiVec<MachineReg, u8>,
     new_moves:                          &mut Vec<(MachineReg, MachineReg)>) {
     loop {
-        let Some(source) = sources[usize::from(destination)] else { return };
+        let Some(source) = sources[destination] else { return };
         new_moves.push((source, destination));
-        sources[usize::from(destination)] = None;
-        destination_counts[usize::from(source)] -= 1;
-        if destination_counts[usize::from(source)] > 0 { return }
+        sources[destination] = None;
+        destination_counts[source] -= 1;
+        if destination_counts[source] > 0 { return }
         destination = source;
     }
 }
