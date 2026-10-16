@@ -7,33 +7,25 @@ use crate::core::{BinaryOperator, Span};
 //-------------------------------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
-pub enum ExprKind {
-    Binary(BinaryOperator, Expr, Expr),
+pub enum InstrKind {
     Number(f64),
     Bool(bool),
+    Binary(BinaryOperator, Expr, Expr),
     Call(String, Vec<Expr>),
-    Argument(usize),
 }
 
-
-impl Hash for ExprKind {
+impl Hash for InstrKind {
     fn hash<H: Hasher>(&self, state: &mut H) {
+        use InstrKind::*;
         match self {
-            Self::Binary(op, lhs, rhs) => {
+            Number(value)               => { value.to_bits().hash(state); }
+            Bool(value)                 => { value.hash(state); }
+            Binary(op, lhs, rhs) => {
                 op.hash(state);
                 Rc::as_ptr(&lhs.entry).hash(state);
                 Rc::as_ptr(&rhs.entry).hash(state);
             }
-            Self::Number(value) => {
-                value.to_bits().hash(state);
-            }
-            Self::Bool(value) => {
-                value.hash(state);
-            }
-            Self::Argument(index, ..) => {
-                index.hash(state);
-            }
-            Self::Call(name, exprs) => {
+            Call(name, exprs) => {
                 name.hash(state);
                 for e in exprs { Rc::as_ptr(&e.entry).hash(state); }
             }
@@ -41,30 +33,48 @@ impl Hash for ExprKind {
     }
 }
 
-
-impl PartialEq for ExprKind {
+impl PartialEq for InstrKind {
     fn eq(&self, other: &Self) -> bool {
+        use InstrKind::*;
         match (self, other) {
-            (Self::Binary(op1, lhs1, rhs1), Self::Binary(op2, lhs2, rhs2)) => {
+            (Number(a), Number(b))      => { a.to_bits() == b.to_bits() }
+            (Bool(a), Bool(b))          => { a == b }
+            (Binary(op1, lhs1, rhs1), Binary(op2, lhs2, rhs2)) => {
                 op1 == op2 &&
                 Rc::ptr_eq(&lhs1.entry, &lhs2.entry) &&
                 Rc::ptr_eq(&rhs1.entry, &rhs2.entry)
             }
-            (Self::Number(value1), Self::Number(value2)) => { value1 == value2 }
-            (Self::Bool(value1), Self::Bool(value2)) => { value1 == value2 }
-            (Self::Argument(index1, ..), Self::Argument(index2, ..)) => { index1 == index2 }
             // We don't do CSE on calls (until we can work out if functions are pure)
             _ => false
         }
     }
 }
-impl Eq for ExprKind {}
+impl Eq for InstrKind {}
 
-impl ExprKind {
+impl InstrKind {
     fn is_constant(&self) -> bool {
         matches!(self, Self::Number(..) | Self::Bool(..))
     }
 }
+
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub enum ExprKind {
+    Argument(usize),
+    Instr(InstrKind),
+}
+
+impl ExprKind {
+    pub(super) fn instr(&self) -> Option<&InstrKind> {
+        if let Self::Instr(i) = self { Some(i) } else { None }
+    }
+
+    fn is_constant(&self) -> bool {
+        self.instr().is_some_and(InstrKind::is_constant)
+    }
+}
+
+impl From<InstrKind> for ExprKind { fn from(i: InstrKind) -> Self { Self::Instr(i) } }
 
 
 //-------------------------------------------------------------------------------------------------
@@ -95,7 +105,7 @@ impl ExprEntry {
     pub fn kind(&self) -> &ExprKind         { &self.kind }
     pub fn pool_index(&self) -> usize       { self.pool_index }
 
-    pub fn span(&self) -> &Span             { &self.span }
+    pub fn span(&self) -> Span              { self.span }
 }
 
 
@@ -116,9 +126,24 @@ impl Expr {
     pub fn pool_index(&self) -> usize       { self.entry.pool_index() }
     pub fn is_constant(&self) -> bool       { self.entry.kind().is_constant() }
 
-    pub fn use_span(&self) -> &Span         { &self.use_span }
-    pub fn definition_span(&self) -> &Span  { self.entry.span() }
+    pub fn use_span(&self) -> Span          { self.use_span }
+    pub fn definition_span(&self) -> Span   { self.entry.span() }
 }
 
+
+//-------------------------------------------------------------------------------------------------
+
+/// What we pass to codegen as instrs.
+///
+/// We don't pass arguments as instrs (since codegen wants to treat arguments and instructions
+/// differently) so we flatten the exprs into instrs and remove the `ExprKind` wrapper that holds
+/// Arguments.
+#[derive(Debug)]
+pub struct Instr {
+    pub kind:                               InstrKind,
+    pub pool_index:                         usize,
+    #[cfg(any(feature = "dogfood", test))]
+    pub definition_span:                    Span,
+}
 
 //-------------------------------------------------------------------------------------------------

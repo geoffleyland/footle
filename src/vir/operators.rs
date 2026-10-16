@@ -1,30 +1,31 @@
 use crate::core::BinaryOperator;
-use super::expr::ExprKind;
+use super::expr::InstrKind;
 
 #[allow(clippy::float_cmp)]
-pub fn fold_constants(op: BinaryOperator, lhs_expr: &ExprKind, rhs_expr: &ExprKind) -> Option<ExprKind> {
+pub fn fold_constants(op: BinaryOperator, lhs_i: &InstrKind, rhs_i: &InstrKind) -> Option<InstrKind> {
     use BinaryOperator::*;
-    match (lhs_expr, rhs_expr) {
-        (ExprKind::Number(lhs), ExprKind::Number(rhs)) => Some(match op {
+    use InstrKind::*;
+    match (lhs_i, rhs_i) {
+        (Number(lhs), Number(rhs)) => Some(match op {
             // Math operators
-            Add                             => ExprKind::Number(lhs + rhs),
-            Subtract                        => ExprKind::Number(lhs - rhs),
-            Multiply                        => ExprKind::Number(lhs * rhs),
-            Divide                          => ExprKind::Number(lhs / rhs),
-            Power                           => ExprKind::Number(f64::powf(*lhs, *rhs)),
-            Modulo                          => ExprKind::Number(lhs % rhs),
+            Add                             => Number(lhs + rhs),
+            Subtract                        => Number(lhs - rhs),
+            Multiply                        => Number(lhs * rhs),
+            Divide                          => Number(lhs / rhs),
+            Power                           => Number(f64::powf(*lhs, *rhs)),
+            Modulo                          => Number(lhs % rhs),
 
             // Comparison operators
-            Equal                           => ExprKind::Bool(lhs == rhs),
-            NotEqual                        => ExprKind::Bool(lhs != rhs),
-            LessThan                        => ExprKind::Bool(lhs < rhs),
-            LessEqual                       => ExprKind::Bool(lhs <= rhs),
-            GreaterThan                     => ExprKind::Bool(lhs > rhs),
-            GreaterEqual                    => ExprKind::Bool(lhs >= rhs),
+            Equal                           => Bool(lhs == rhs),
+            NotEqual                        => Bool(lhs != rhs),
+            LessThan                        => Bool(lhs < rhs),
+            LessEqual                       => Bool(lhs <= rhs),
+            GreaterThan                     => Bool(lhs > rhs),
+            GreaterEqual                    => Bool(lhs >= rhs),
         }),
-        (ExprKind::Bool(l), ExprKind::Bool(r)) => match op {
-            Equal    => Some(ExprKind::Bool(l == r)),
-            NotEqual => Some(ExprKind::Bool(l != r)),
+        (Bool(l), Bool(r)) => match op {
+            Equal    => Some(Bool(l == r)),
+            NotEqual => Some(Bool(l != r)),
             _        => None,
         },
         _ => None,
@@ -43,8 +44,8 @@ mod test {
     fn test_fold_constants() {
         use BinaryOperator::*;
 
-        let n = ExprKind::Number;
-        let b = ExprKind::Bool;
+        let n = InstrKind::Number;
+        let b = InstrKind::Bool;
 
         // Math operators
         assert_eq!(fold_constants(Add, &n(3.0), &n(4.0)),      Some(n(7.0)));

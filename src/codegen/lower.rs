@@ -108,11 +108,13 @@ impl<'arena> Builder<'arena> {
 
     fn lower_arguments(&mut self, input: &vir::Block, types: &[vir::TypeInfo]) {
         for expr in &input.arguments {
-            let vir::ExprKind::Argument(..) = expr.kind() else {
-                unreachable!("internal compiler error: instruction in argument list");
-            };
             let ty = Type::from(types[expr.pool_index()]);
-            let value = self.lower_value(ty, ValueDef::Argument, vec![], vec![], None, expr);
+            let value = self.make_value(ty, ValueDef::Argument, vec![], vec![], None,
+                #[cfg(feature = "dogfood")]
+                expr.definition_span(),
+            );
+            let operand = value.into_operand(self);
+            self.operand_map.insert(expr.pool_index(), operand);
             self.arguments.push(value);
         }
     }
@@ -122,11 +124,10 @@ impl<'arena> Builder<'arena> {
         ty:                                     Type,
         code:                                   &'static Code,
         operands:                               Vec<Operand<'arena>>,
-        expr:                                   &vir::Expr,
+        instr:                                  &vir::Instr,
     ) -> &'arena Value<'arena> {
-        self.lower_value(ty, code, operands, vec![], None, expr)
+        self.lower_value(ty, code, operands, vec![], None, instr)
     }
-
 
     pub(super) fn lower_value<VD: IntoValueDef>(
         &mut self,
@@ -135,14 +136,14 @@ impl<'arena> Builder<'arena> {
         operands:                               Vec<Operand<'arena>>,
         fixed_inputs:                           Vec<(&'arena Value<'arena>, MachineReg)>,
         fixed_output:                           Option<MachineReg>,
-        expr:                                   &vir::Expr,
+        instr:                                  &vir::Instr,
     ) -> &'arena Value<'arena> {
         let value = self.make_value(ty, def, operands, fixed_inputs, fixed_output,
             #[cfg(feature = "dogfood")]
-            *expr.definition_span()
+            instr.definition_span
         );
         let operand = value.into_operand(self);
-        self.operand_map.insert(expr.pool_index(), operand.clone());
+        self.operand_map.insert(instr.pool_index, operand);
         value
     }
 

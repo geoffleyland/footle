@@ -3,7 +3,7 @@ use std::fmt;
 use crate::core::{BinaryOperator, ParseError};
 use crate::env::Env;
 use crate::vir;
-use super::expr::ExprKind;
+use super::expr::InstrKind;
 use crate::parse_error;
 use crate::core::Span;
 
@@ -54,10 +54,10 @@ fn infer(
 
     for expr in &block.exprs {
         if let Err(TypeConflict{expected, expected_span, found, found_span}) =
-            typer.type_instr(expr, env) {
+            typer.type_expr(expr, env) {
             parse_error!(errors,
                 format!("Expected `{expected}`, got `{found}`"),
-                *expr.definition_span(),
+                expr.definition_span(),
                 format!("`{expected}` was set here:"),
                 expected_span,
                 format!("`{found}` was set here:"),
@@ -68,7 +68,7 @@ fn infer(
 
     for (name, old, new, span) in &block.reassignments {
         if let Err(TypeConflict{expected, expected_span, found, found_span}) =
-            typer.type_union(old.pool_index(), new.pool_index(), span) {
+            typer.type_union(old.pool_index(), new.pool_index(), *span) {
             parse_error!(errors,
                 format!("Reassignment of `{name}` from `{expected}` to `{found}`"),
                 *span,
@@ -151,14 +151,14 @@ impl Typer {
         }).collect()
     }
 
-    fn type_instr(&mut self,  instr: &vir::Expr, env: &Env) -> Result<(), TypeConflict> {
-        let pool_index = instr.pool_index();
-        let span = instr.definition_span();
-        match instr.kind() {
-            ExprKind::Number(..)            => self.set_type(pool_index, TypeInfo::F64, span)?,
-            ExprKind::Bool(..)              => self.set_type(pool_index, TypeInfo::Bool, span)?,
-            ExprKind::Argument(..)          => {}
-            ExprKind::Call(name, exprs)=> {
+    fn type_expr(&mut self,  expr: &vir::Expr, env: &Env) -> Result<(), TypeConflict> {
+        let pool_index = expr.pool_index();
+        let span = expr.definition_span();
+        let Some(instr) = expr.kind().instr() else { return Ok(()) };
+        match instr {
+            InstrKind::Number(..)   => self.set_type(pool_index, TypeInfo::F64, span)?,
+            InstrKind::Bool(..)     => self.set_type(pool_index, TypeInfo::Bool, span)?,
+            InstrKind::Call(name, exprs) => {
                 // vir already checked the function exists and the arguments list is the right
                 // length
                 let Some(def) = env.module.functions.get(name) else {
@@ -171,7 +171,7 @@ impl Typer {
                 assert_eq!(def.result_types.len(), 1);
                 self.set_type(pool_index, def.result_types[0], span)?;
             },
-            ExprKind::Binary(op, lhs, rhs)  => {
+            InstrKind::Binary(op, lhs, rhs)  => {
                 match op {
                     BinaryOperator::Add | BinaryOperator::Subtract |
                     BinaryOperator::Multiply | BinaryOperator::Divide |
@@ -200,10 +200,10 @@ impl Typer {
     }
 
 
-    fn type_union(&mut self, index_1: usize, index_2: usize, span: &Span) -> Result<(), TypeConflict> {
+    fn type_union(&mut self, index_1: usize, index_2: usize, span: Span) -> Result<(), TypeConflict> {
         use TypeNode::*;
-        self.records[index_1].first_span.get_or_insert(*span);
-        self.records[index_2].first_span.get_or_insert(*span);
+        self.records[index_1].first_span.get_or_insert(span);
+        self.records[index_2].first_span.get_or_insert(span);
         let root_1 = self.find_root(index_1);
         let root_2 = self.find_root(index_2);
         if root_1 == root_2 { return Ok(()) }
@@ -239,9 +239,9 @@ impl Typer {
         &mut self,
         index:          usize,
         the_type:       TypeInfo,
-        span:           &Span
+        span:           Span
     ) -> Result<(), TypeConflict> {
-        self.records[index].first_span.get_or_insert(*span);
+        self.records[index].first_span.get_or_insert(span);
         let root = self.find_root(index);
         let current_type_node = self.records[root].node;
         match current_type_node {
@@ -253,7 +253,7 @@ impl Typer {
                 if current_type != the_type {
                     return Err(TypeConflict::new(
                         current_type, self.records[index].first_span.expect("internal compiler error"),
-                        the_type, *span))
+                        the_type, span))
                 }
             }
         }

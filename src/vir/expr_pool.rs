@@ -2,7 +2,7 @@ use std::collections::{HashMap, hash_map::Entry};
 use std::rc::Rc;
 
 use crate::core::Span;
-use super::expr::{ExprKind, ExprEntry, Expr};
+use super::expr::{InstrKind, ExprKind, ExprEntry, Expr};
 
 
 //-------------------------------------------------------------------------------------------------
@@ -46,7 +46,7 @@ impl ExprPool {
         value:                  f64,
         span:                   Span
     ) -> Expr {
-        self.intern(ExprKind::Number(value), span)
+        self.intern(InstrKind::Number(value).into(), span)
     }
 
     pub(super) fn bool(
@@ -54,7 +54,7 @@ impl ExprPool {
         value:                  bool,
         span:                   Span
     ) -> Expr {
-        self.intern(ExprKind::Bool(value), span)
+        self.intern(InstrKind::Bool(value).into(), span)
     }
 
     pub(super) fn argument(

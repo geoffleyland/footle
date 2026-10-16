@@ -5,7 +5,7 @@ use crate::core::{BinaryOperator, ParseError};
 use crate::{ast, vir, nev};
 use super::symbol_table::{AssignmentError, SymbolTable};
 use super::expr_pool::ExprPool;
-use super::expr::ExprKind;
+use super::expr::{InstrKind, ExprKind, Instr};
 use super::operators::fold_constants;
 use crate::parse_error;
 use crate::core::Span;
@@ -40,7 +40,7 @@ pub fn run(env: &Env, stmts: &[ast::Stmt]) -> Result<Block, Vec<ParseError>> {
 pub struct Block {
     pub exprs:              Vec<vir::Expr>,
     pub arguments:          Vec<vir::Expr>,
-    pub instrs:             Vec<vir::Expr>,
+    pub instrs:             Vec<Instr>,
     pub return_values:      Vec<vir::Expr>,
     pub reassignments:      Vec<(String, vir::Expr, vir::Expr, Span)>,
 
@@ -62,7 +62,7 @@ struct Pass {
 
 
 struct Flattened {
-    instrs:                              Vec<vir::Expr>,
+    instrs:                              Vec<Instr>,
     return_values:                       Vec<vir::Expr>,
     #[cfg(any(feature = "dogfood", test))]
     return_span:                         Span,
@@ -248,7 +248,11 @@ impl Pass {
 ///    * if they're both expressions, put the one with the lower index on the left.
 fn fold_binary(op: BinaryOperator, lhs: vir::Expr, rhs: vir::Expr) -> ExprKind {
     // See if we can fold to a constant
-    if let Some(value) = fold_constants(op, lhs.kind(), rhs.kind()) { return value }
+    if let Some(lhs_instr) = lhs.kind().instr()
+        && let Some(rhs_instr) = rhs.kind().instr()
+        && let Some(value) = fold_constants(op, lhs_instr, rhs_instr) {
+        return value.into()
+    }
 
     // Get comparison operators the standard way around.
     let (op, mut reverse) = op.should_reverse().map_or(
@@ -264,14 +268,14 @@ fn fold_binary(op: BinaryOperator, lhs: vir::Expr, rhs: vir::Expr) -> ExprKind {
         reverse = !reverse;
     }
     // Turns out it's quite hard to swap lhs and rhs, so just do it this way.
-    if reverse  { ExprKind::Binary(op, rhs, lhs) }
-    else        { ExprKind::Binary(op, lhs, rhs) }
+    if reverse  { InstrKind::Binary(op, rhs, lhs).into() }
+    else        { InstrKind::Binary(op, lhs, rhs).into() }
 }
 
 
 fn all_constants(exprs: &[vir::Expr]) -> Option<Vec<f64>> {
     exprs.iter()
-        .map(|e| if let ExprKind::Number(v) = e.kind() { Some(*v) } else { None })
+        .map(|e| if let Some(InstrKind::Number(v)) = e.kind().instr() { Some(*v) } else { None })
         .collect()
 }
 
@@ -279,9 +283,9 @@ fn all_constants(exprs: &[vir::Expr]) -> Option<Vec<f64>> {
 fn fold_call(name: &str, def: &FunctionDef, exprs: Vec<vir::Expr>) -> ExprKind {
     if let Some(fold) = def.const_fold &&
         let Some(args) = all_constants(&exprs) {
-        ExprKind::Number((fold)(&args))
+        InstrKind::Number((fold)(&args)).into()
     } else {
-        ExprKind::Call(name.to_string(), exprs)
+        InstrKind::Call(name.to_string(), exprs).into()
     }
 }
 
@@ -289,21 +293,23 @@ fn fold_call(name: &str, def: &FunctionDef, exprs: Vec<vir::Expr>) -> ExprKind {
 //-------------------------------------------------------------------------------------------------
 // Emit expressions for flattening
 
-fn emit_expr(expr: &vir::Expr, instrs: &mut Vec<vir::Expr>, emitted: &mut HashSet<usize>) {
-    if !emitted.contains(&expr.pool_index()) {
-        match expr.kind() {
-            vir::ExprKind::Argument(..) => return,
-            vir::ExprKind::Binary(_, lhs, rhs) => {
+fn emit_expr(expr: &vir::Expr, instrs: &mut Vec<Instr>, emitted: &mut HashSet<usize>) {
+    if let Some(instr) = expr.kind().instr() && !emitted.contains(&expr.pool_index()) {
+        match instr {
+            InstrKind::Binary(_, lhs, rhs) => {
                 emit_expr(lhs, instrs, emitted);
                 emit_expr(rhs, instrs, emitted);
             }
-            vir::ExprKind::Call(_, exprs) => {
+            InstrKind::Call(_, exprs) => {
                 for e in exprs { emit_expr(e, instrs, emitted); }
             }
             _ => {}
         }
         emitted.insert(expr.pool_index());
-        instrs.push(expr.clone());
+        instrs.push(Instr{ kind: instr.clone(), pool_index: expr.pool_index(),
+            #[cfg(any(feature = "dogfood", test))]
+            definition_span: expr.definition_span()
+        });
     }
 }
 
@@ -321,20 +327,28 @@ mod display {
 
     impl Styleable for Block {
         fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
+            let mut address = 0;
             let mut address_map = HashMap::<usize, usize>::new();
-            for (address, expr) in self.arguments.iter().chain(self.instrs.iter()).enumerate() {
-                use ExprKind::*;
-                address_map.insert(expr.pool_index(), address);
-                let line = match &expr.kind() {
-                    Argument(..)                    => format!("{} I{address}", Token::Argument),
-                    Number(value)                   => format!("{} I{address} = {value}", Token::Local),
-                    Bool(value)                     => format!("{} I{address} = {value}", Token::Local),
-                    Binary(op, lhs, rhs)            => format!("{} I{address} = I{} {op} I{}",
-                        Token::Local, address_map[&lhs.pool_index()], address_map[&rhs.pool_index()]),
-                    Call(name, exprs)               => format!("{} I{address} = {name}({})", Token::Local,
-                        exprs.iter().map(|e| format!("I{}", address_map[&e.pool_index()])).collect::<Vec<_>>().join(", ")),
+            for argument in &self.arguments {
+                address_map.insert(argument.pool_index(), address);
+                let line = format!("{} I{address}", Token::Argument);
+                writer.writeln(f, indent, Some(argument.definition_span()), &line)?;
+                address += 1;
+            }
+            for instr in &self.instrs {
+                address_map.insert(instr.pool_index, address);
+                let line = match &instr.kind {
+                    InstrKind::Number(value)    => format!("{} I{address} = {value}", Token::Local),
+                    InstrKind::Bool(value)      => format!("{} I{address} = {value}", Token::Local),
+                    InstrKind::Binary(op, lhs, rhs) =>
+                        format!("{} I{address} = I{} {op} I{}",
+                            Token::Local, address_map[&lhs.pool_index()], address_map[&rhs.pool_index()]),
+                    InstrKind::Call(name, exprs) =>
+                        format!("{} I{address} = {name}({})", Token::Local,
+                             exprs.iter().map(|e| format!("I{}", address_map[&e.pool_index()])).collect::<Vec<_>>().join(", ")),
                 };
-                writer.writeln(f, indent, Some(*expr.definition_span()), &line)?;
+                writer.writeln(f, indent, Some(instr.definition_span), &line)?;
+                address += 1;
             }
             let line = format!("{} {}", Token::Return,
                 self.return_values.iter().map(|e| format!("I{}", address_map[&e.pool_index()])).collect::<Vec<_>>().join(", "));
