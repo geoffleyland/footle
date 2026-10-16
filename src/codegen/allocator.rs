@@ -14,7 +14,7 @@ use crate::core::Span;
 
 pub(super) fn run(
     slot_count:                         usize,
-    arguments:                          &[&value::Instr<'_>],
+    arguments:                          &[&value::Argument],
     scheduled:                          &TiVec<SchedulePosition, &value::Instr<'_>>,
 ) -> (Vec<Instr>, RegSet) {
     let slot_block = lower_to_slots_and_split(slot_count, arguments, scheduled);
@@ -67,16 +67,16 @@ struct SlotBlock {
 }
 
 
-/// Lower the Scheduler's Values to `SlotInstr`s, and split any live ranges that cross calls.
+/// Lower the Scheduler's `Instr`s to `SlotInstr`s, and split any live ranges that cross calls.
 fn lower_to_slots_and_split(
     slot_count:                         usize,
-    arguments:                          &[&value::Instr<'_>],
+    arguments:                          &[&value::Argument],
     scheduled:                          &TiVec<SchedulePosition, &value::Instr<'_>>,
 ) -> SlotBlock {
-    // Walk through the scheduled instructions finding out when values retire.
+    // Walk through the scheduled instructions finding out when they retire.
     let mut retirements: TiVec<ValueSlot, _> = vec![None; slot_count].into();
-    for (i, value) in scheduled.iter_enumerated() {
-        for predecessor in value.predecessors() { retirements[predecessor.slot] = Some(i); }
+    for (i, instr) in scheduled.iter_enumerated() {
+        for slot in instr.predecessor_slots() { retirements[slot] = Some(i); }
     }
 
     // We're just keeping track of the slots (like arguments) that are given to us in a fixed
@@ -100,23 +100,23 @@ fn lower_to_slots_and_split(
 
     let mut new_schedule = vec![];
 
-    for (i, value) in scheduled.iter_enumerated() {
-        let operands = value.operands.iter().cloned()
-            .map(|o| o.map_reg::<AllocatorSlot>(|v| slot_map[v.slot].unwrap())).collect();
+    for (i, instr) in scheduled.iter_enumerated() {
+        let operands = instr.operands.iter().cloned()
+            .map(|o| o.map_reg::<AllocatorSlot>(|v| slot_map[v.slot()].unwrap())).collect();
 
         // Renumber any fixed inputs
-        let fixed_inputs = value.fixed_inputs.iter()
-            .map(|(v, reg)| (slot_map[v.slot].unwrap(), *reg))
+        let fixed_inputs = instr.fixed_inputs.iter()
+            .map(|(v, reg)| (slot_map[v.slot()].unwrap(), *reg))
             .collect();
 
         // If this instruction clobbers anything, check it against what we've got sitting in
         // fixed_reg_slots (our arguments or results from functions).  If they're live after this
         // we need to move them.
         let mut slot_moves: Vec<(AllocatorSlot, AllocatorSlot)> = vec![];
-        if let Some(c) = value.code() && c.clobbers_anything() {
+        if instr.code.clobbers_anything() {
             for (reg, maybe_slot) in fixed_reg_slots.iter_mut_enumerated() {
                 if let Some(slot) = *maybe_slot &&
-                    c.clobbers(reg) {
+                    instr.code.clobbers(reg) {
                     if retirements[slot].is_some_and(|r| r > i) {
                         let old_slot = slot_map[slot].unwrap();
                         let new_slot = slot_types.push_and_get_key(slot_types[old_slot]);
@@ -128,22 +128,22 @@ fn lower_to_slots_and_split(
             }
         }
 
-        if let Some(fixed_output) = value.fixed_output {
-            fixed_reg_slots[fixed_output] = Some(value.slot);
+        if let Some(fixed_output) = instr.fixed_output {
+            fixed_reg_slots[fixed_output] = Some(instr.slot);
         }
 
-        let code = value.code().expect("internal compiler error: expected an executable instruction");
-        let new_slot = slot_types.push_and_get_key(value.ty);
+        let new_slot = slot_types.push_and_get_key(instr.ty);
         new_schedule.push(SlotInstr{
-            operands, code, slot_moves, fixed_inputs,
+            operands, slot_moves, fixed_inputs,
+            code:                           instr.code,
             slot:                           new_slot,
-            fixed_output:                   value.fixed_output,
-            value_slot:                     value.slot,
+            fixed_output:                   instr.fixed_output,
+            value_slot:                     instr.slot,
 
             #[cfg(feature = "dogfood")]
-            span:                           value.span,
+            span:                           instr.span,
         });
-        slot_map[value.slot] = Some(new_slot);
+        slot_map[instr.slot] = Some(new_slot);
     }
     SlotBlock{ arguments: argument_regs, instrs: new_schedule, slot_types }
 }

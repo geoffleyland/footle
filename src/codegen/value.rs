@@ -10,15 +10,6 @@ use crate::core::Span;
 
 //-------------------------------------------------------------------------------------------------
 
-#[derive(Debug, Clone)]
-pub(super) enum ValueDef {
-    Instr(&'static Code),
-    Argument,
-}
-
-
-//-------------------------------------------------------------------------------------------------
-
 #[derive(Debug, Copy, Clone)]
 pub(super) enum Type {
     NoValue,
@@ -52,18 +43,42 @@ impl fmt::Display for Type {
 
 //-------------------------------------------------------------------------------------------------
 
-pub(super) type Operand<'arena> = super::operand::Operand<&'arena Instr<'arena>>;
-impl<'arena> Operand<'arena> {
-    fn value(&self) -> Option<&'arena Instr<'arena>> {
-        if let Self::Reg(v) = self { Some(v) } else { None }
+#[derive(Debug, Copy, Clone)]
+pub(super) enum Value<'arena> {
+    Instr(&'arena Instr<'arena>),
+    Argument(&'arena Argument)
+}
+impl Value<'_> {
+    fn needs_scheduling(&self) -> bool { matches!(self, Value::Instr(..)) }
+    pub(super) fn slot(&self) -> ValueSlot {
+        match self {
+            Value::Instr(v)     => v.slot,
+            Value::Argument(a)  => a.slot,
+        }
+    }
+    pub(super) fn ty(&self) -> Type {
+        match self {
+            Value::Instr(v)     => v.ty,
+            Value::Argument(a)  => a.ty,
+        }
     }
 }
 
-/// The index of a `Value` in `Builder`'s `values` `TiVec`
+
+pub(super) type Operand<'arena> = super::operand::Operand<Value<'arena>>;
+impl<'arena> Operand<'arena> {
+    fn value(&self) -> Option<Value<'arena>> {
+        if let Self::Reg(v) = self { Some(*v) } else { None }
+    }
+}
+
+/// The number of an `Instr` or `Argument` handed out by `Builder` in lowering order.
 ///
-/// `Values` are stored in the order they come out of `select_instrs`.
-/// Scheduling re-orders the list of instructions and we use the indexes into `values` to create
-/// side info arrays like list of users of the `Value` or critical path depths.
+/// `Argument`s are stored in order and `Instr`s are stored in the order they come out of
+/// `select_instrs`.  Scheduling re-orders the list of instructions and we use `ValueSlot`s
+/// to create side-info arrays like lists of users of the `Instr`s or critical path depths.
+/// The info arrays contain slots for `Argument`s too, since `Instr`'s operands will reference
+/// them.
 /// Only use `TiVec`s, not `TiSlice`s (even when passing references to `TiVec`s) - `TiSlices` risk
 /// re-setting the zero on a slice and the numbering going out the window.
 #[derive(Debug, Copy, Clone, From, Into, Display, PartialEq, Eq, Hash)]
@@ -73,9 +88,9 @@ pub(super) struct ValueSlot(usize);
 pub(super) struct Instr<'arena> {
     pub(super) slot:                        ValueSlot,
     pub(super) ty:                          Type,
-    pub(super) def:                         ValueDef,
+    pub(super) code:                        &'static Code,
     pub(super) operands:                    Vec<Operand<'arena>>,
-    pub(super) fixed_inputs:                Vec<(&'arena Self, MachineReg)>,
+    pub(super) fixed_inputs:                Vec<(Value<'arena>, MachineReg)>,
     pub(super) fixed_output:                Option<MachineReg>,
     #[cfg(feature = "dogfood")]
     pub(super) span:                        Span,
@@ -85,33 +100,42 @@ impl<'arena> Instr<'arena> {
     pub(super) fn new(
         slot:                               ValueSlot,
         ty:                                 Type,
-        def:                                ValueDef,
+        code:                               &'static Code,
         operands:                           Vec<Operand<'arena>>,
-        fixed_inputs:                       Vec<(&'arena Self, MachineReg)>,
+        fixed_inputs:                       Vec<(Value<'arena>, MachineReg)>,
         fixed_output:                       Option<MachineReg>,
         #[cfg(feature = "dogfood")]
         span:                               Span
     ) -> Self {
-        Self { slot, ty, def, operands, fixed_inputs, fixed_output,
+        Self { slot, ty, code, operands, fixed_inputs, fixed_output,
         #[cfg(feature = "dogfood")]
             span
         }
     }
 
+    pub(super) fn latency(&self) -> u8                 { self.code.latency() }
 
-    pub(super) fn code(&self) -> Option<&'static Code> {
-        if let ValueDef::Instr(code) = &self.def { Some(code) } else { None }
+    fn predecessors(&self) -> impl Iterator<Item = Value<'arena>> {
+        self.operands.iter().filter_map(Operand::value)
+            .chain(self.fixed_inputs.iter().map(|(v, _)| *v))
     }
-
-    pub(super) fn latency(&self) -> u8                 { self.code().map_or(0, Code::latency) }
-
-    pub(super) fn predecessors(&self) -> impl Iterator<Item = &'arena Instr<'arena>> {
-        let operands = self.operands.iter().filter_map(Operand::value);
-        let fixed_inputs = self.fixed_inputs.iter().map(|(v, _)| *v);
-        operands.chain(fixed_inputs)
+    pub(super) fn predecessor_instr_count(&self) -> usize {
+        self.predecessors().filter(Value::needs_scheduling).count()
     }
+    pub(super) fn predecessor_slots(&self) -> impl Iterator<Item = ValueSlot> {
+        self.predecessors().map(|p| p.slot())
+    }
+}
 
-    pub(super) fn needs_scheduling(&self) -> bool      { matches!(self.def, ValueDef::Instr(..)) }
+
+//-------------------------------------------------------------------------------------------------
+
+#[derive(Debug)]
+pub(super) struct Argument {
+    pub(super) slot:                        ValueSlot,
+    pub(super) ty:                          Type,
+    #[cfg(feature = "dogfood")]
+    pub(super) span:                        Span,
 }
 
 
@@ -131,9 +155,9 @@ pub(super) struct Constant {
 mod display {
     use super::*;
 
-    impl super::super::operand::display::OperandDisplay for &'_ Instr<'_> {
+    impl super::super::operand::display::OperandDisplay for Value<'_> {
         fn fmt_operand(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "I{}", self.slot)
+            write!(f, "I{}", self.slot())
         }
     }
 }

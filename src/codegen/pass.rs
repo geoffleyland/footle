@@ -1,7 +1,7 @@
 use typed_arena::Arena;
 
 use crate::{vir, runtime::Observer};
-use super::{lower, scheduler, allocator, assembler, binary, Instr};
+use super::{lower, scheduler, allocator, assembler, binary, Instr, Argument};
 
 
 //-------------------------------------------------------------------------------------------------
@@ -11,16 +11,17 @@ pub fn run<O:Observer>(
     types:              &[vir::TypeInfo],
     observer:           &mut O,
 ) -> binary::CompiledFn {
-    let arena = Arena::<Instr>::new();
+    let argument_arena = Arena::<Argument>::new();
+    let instr_arena = Arena::<Instr>::new();
 
-    let lowered_block = lower::run(&arena, vir_block, types);
+    let lowered_block = lower::run(&argument_arena, &instr_arena, vir_block, types);
 
     let scheduled_block = scheduler::run(lowered_block);
     observer.schedule(&scheduled_block);
     let argument_types = scheduled_block.arguments.iter().map(|a| a.ty).collect();
 
     let (allocated, written_regs) =
-        allocator::run(scheduled_block.value_count, &scheduled_block.arguments,
+        allocator::run(scheduled_block.slot_count, &scheduled_block.arguments,
             &scheduled_block.instrs);
     let assembly =
         assembler::run(allocated, &scheduled_block.constants, &scheduled_block.functions,

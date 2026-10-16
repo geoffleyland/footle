@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 
 use typed_arena::Arena;
-use typed_index_collections::TiVec;
 
 use crate::vir;
-use super::{Code, Instr, ValueDef, ValueSlot, value::Operand, Type, Constant, MachineReg, REGS};
+use super::{Code, Instr, Argument, Value, ValueSlot, value::Operand, Type, Constant, MachineReg, REGS};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -13,8 +12,9 @@ use crate::core::Span;
 //-------------------------------------------------------------------------------------------------
 
 pub struct Block<'arena> {
-    pub(super) arguments:                   Vec<&'arena Instr<'arena>>,
-    pub(super) values:                      TiVec<ValueSlot, &'arena Instr<'arena>>,
+    pub(super) arguments:                   Vec<&'arena Argument>,
+    pub(super) instrs:                      Vec<&'arena Instr<'arena>>,
+    pub(super) slot_count:                  usize,
     pub(super) return_types :               Vec<Type>,
     pub(super) constants:                   Vec<Constant>,
     pub(super) functions:                   Vec<String>,
@@ -22,18 +22,20 @@ pub struct Block<'arena> {
 
 
 pub(super) fn run<'arena>(
-    arena:                                  &'arena Arena<Instr<'arena>>,
+    argument_arena:                         &'arena Arena<Argument>,
+    instr_arena:                            &'arena Arena<Instr<'arena>>,
     input:                                  &vir::Block,
     types:                                  &[vir::TypeInfo],
 ) -> Block<'arena> {
-    let mut builder = Builder::new(arena);
+    let mut builder = Builder::new(argument_arena, instr_arena);
     builder.lower_arguments(input, types);
     // Call arch-specific instruction selection.
     builder.select_instrs(input, types);
 
     Block {
         arguments:                          builder.arguments,
-        values:                             builder.values,
+        instrs:                             builder.instrs,
+        slot_count:                         builder.slot_count,
         return_types:                       builder.return_types,
         constants:                          builder.constants,
         functions:                          builder.functions.into_iter().map(|(n, _)| n).collect()
@@ -55,7 +57,7 @@ impl<'arena> IntoOperand<'arena> for Operand<'arena> {
 
 impl<'arena> IntoOperand<'arena> for &'arena Instr<'arena> {
     fn into_operand(self, _: &Builder<'arena>) -> Operand<'arena> {
-        Operand::Reg(self)
+        Operand::Reg(Value::Instr(self))
     }
 }
 
@@ -65,7 +67,6 @@ impl<'arena> IntoOperand<'arena> for &vir::Expr {
     }
 }
 
-
 macro_rules! operands {
     ($builder:expr, $( $op:expr ),* $(,)?) => {
         vec![$( $crate::codegen::lower::IntoOperand::into_operand($op, $builder) ),*]
@@ -74,25 +75,14 @@ macro_rules! operands {
 pub(super) use operands;
 
 
-pub(super) trait IntoValueDef {
-    fn into_value_def(self) -> ValueDef;
-}
-
-impl IntoValueDef for ValueDef {
-    fn into_value_def(self) -> ValueDef     { self }
-}
-
-impl IntoValueDef for &'static Code {
-    fn into_value_def(self) -> ValueDef     { ValueDef::Instr(self) }
-}
-
-
 //-------------------------------------------------------------------------------------------------
 
 pub struct Builder<'arena> {
-    arena:                                  &'arena Arena<Instr<'arena>>,
-    pub(super) arguments:                   Vec<&'arena Instr<'arena>>,
-    values:                                 TiVec<ValueSlot, &'arena Instr<'arena>>,
+    argument_arena:                         &'arena Arena<Argument>,
+    instr_arena:                            &'arena Arena<Instr<'arena>>,
+    arguments:                              Vec<&'arena Argument>,
+    instrs:                                 Vec<&'arena Instr<'arena>>,
+    slot_count:                             usize,
     pub(super) return_types:                Vec<Type>,
     pub(super) constants:                   Vec<Constant>,
     operand_map:                            HashMap<usize, Operand<'arena>>,
@@ -100,22 +90,32 @@ pub struct Builder<'arena> {
 }
 
 impl<'arena> Builder<'arena> {
-    fn new(arena: &'arena Arena<Instr<'arena>>) -> Self {
-        Self { arena, arguments: vec![], values: TiVec::new(), return_types: vec![],
+    fn new(
+        argument_arena:                     &'arena Arena<Argument>,
+        instr_arena:                        &'arena Arena<Instr<'arena>>
+    ) -> Self {
+        Self { argument_arena, instr_arena,
+            arguments: vec![], instrs: vec![], slot_count: 0, return_types: vec![],
             constants: vec![], operand_map: HashMap::new(), functions: vec![] }
+    }
+
+    fn new_slot(&mut self) -> ValueSlot {
+        let slot = ValueSlot::from(self.slot_count);
+        self.slot_count += 1;
+        slot
     }
 
 
     fn lower_arguments(&mut self, input: &vir::Block, types: &[vir::TypeInfo]) {
-        for argument in &input.arguments {
-            let ty = Type::from(types[argument.pool_index]);
-            let value = self.make_value(ty, ValueDef::Argument, vec![], vec![], None,
+        for vir_argument in &input.arguments {
+            let ty = Type::from(types[vir_argument.pool_index]);
+            let argument = self.argument_arena.alloc(Argument{ slot: self.new_slot(), ty,
                 #[cfg(feature = "dogfood")]
-                argument.definition_span,
-            );
-            let operand = value.into_operand(self);
-            self.operand_map.insert(argument.pool_index, operand);
-            self.arguments.push(value);
+                span: vir_argument.definition_span,
+            });
+            self.arguments.push(argument);
+            let operand = Operand::Reg(Value::Argument(argument));
+            self.operand_map.insert(vir_argument.pool_index, operand);
         }
     }
 
@@ -126,25 +126,25 @@ impl<'arena> Builder<'arena> {
         operands:                               Vec<Operand<'arena>>,
         instr:                                  &vir::Instr,
     ) -> &'arena Instr<'arena> {
-        self.lower_value(ty, code, operands, vec![], None, instr)
+        self.lower_fixed_instr(ty, code, operands, vec![], None, instr)
     }
 
-    pub(super) fn lower_value<VD: IntoValueDef>(
+    pub(super) fn lower_fixed_instr(
         &mut self,
         ty:                                     Type,
-        def:                                    VD,
+        code:                                   &'static Code,
         operands:                               Vec<Operand<'arena>>,
-        fixed_inputs:                           Vec<(&'arena Instr<'arena>, MachineReg)>,
+        fixed_inputs:                           Vec<(Value<'arena>, MachineReg)>,
         fixed_output:                           Option<MachineReg>,
-        instr:                                  &vir::Instr,
+        vir_instr:                              &vir::Instr,
     ) -> &'arena Instr<'arena> {
-        let value = self.make_value(ty, def, operands, fixed_inputs, fixed_output,
+        let instr = self.make_fixed_instr(ty, code, operands, fixed_inputs, fixed_output,
             #[cfg(feature = "dogfood")]
-            instr.definition_span
+            vir_instr.definition_span
         );
-        let operand = value.into_operand(self);
-        self.operand_map.insert(instr.pool_index, operand);
-        value
+        let operand = instr.into_operand(self);
+        self.operand_map.insert(vir_instr.pool_index, operand);
+        instr
     }
 
     pub(super) fn make_instr(
@@ -155,30 +155,29 @@ impl<'arena> Builder<'arena> {
         #[cfg(feature = "dogfood")]
         span:                                   Span,
     ) -> &'arena Instr<'arena>  {
-        self.make_value(ty, code, operands, vec![], None,
+        self.make_fixed_instr(ty, code, operands, vec![], None,
             #[cfg(feature = "dogfood")]
             span
         )
     }
 
-    pub(super) fn make_value<VD: IntoValueDef>(
+    pub(super) fn make_fixed_instr(
         &mut self,
         ty:                                     Type,
-        def:                                    VD,
+        code:                                   &'static Code,
         operands:                               Vec<Operand<'arena>>,
-        fixed_inputs:                           Vec<(&'arena Instr<'arena>, MachineReg)>,
+        fixed_inputs:                           Vec<(Value<'arena>, MachineReg)>,
         fixed_output:                           Option<MachineReg>,
         #[cfg(feature = "dogfood")]
         span:                                   Span,
     ) -> &'arena Instr<'arena>  {
-        let def = def.into_value_def();
-        let value = self.arena.alloc(Instr::new(self.values.next_key(), ty, def,
+        let instr = self.instr_arena.alloc(Instr::new(self.new_slot(), ty, code,
             operands, fixed_inputs, fixed_output,
             #[cfg(feature = "dogfood")]
             span
         ));
-        self.values.push(value);
-        value
+        self.instrs.push(instr);
+        instr
     }
 
 
@@ -186,7 +185,7 @@ impl<'arena> Builder<'arena> {
         &self,
         exprs:                                  &[vir::Expr],
         types:                                  &[vir::TypeInfo],
-    ) -> Vec<(&'arena Instr<'arena>, MachineReg)> {
+    ) -> Vec<(Value<'arena>, MachineReg)> {
         exprs.iter()
             .zip(REGS.abi_regs(exprs.iter().map(|expr| Type::from(types[expr.pool_index()]))))
             .map(|(expr, reg)| (

@@ -53,8 +53,8 @@ impl<'arena> Builder<'arena> {
         }
 
         let return_values = self.exprs_to_fixed_inputs(&input.return_values, types);
-        self.return_types = return_values.iter().map(|(v, _)| v.ty).collect();
-        self.make_value(Type::NoValue, &isa::ret, vec![], return_values, None,
+        self.return_types = return_values.iter().map(|(v, _)| v.ty()).collect();
+        self.make_fixed_instr(Type::NoValue, &isa::ret, vec![], return_values, None,
             #[cfg(feature = "dogfood")]
             input.return_span
         );
@@ -84,7 +84,7 @@ impl<'arena> Builder<'arena> {
             v
         };
 
-        self.lower_value(ty,
+        self.lower_fixed_instr(ty,
             &isa::blr, operands!(self, function_value), fixed_inputs, Some(fixed_output), instr)
     }
 }

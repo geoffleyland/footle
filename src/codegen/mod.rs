@@ -14,7 +14,7 @@ mod sys;
 pub use pass::run;
 pub use binary::CompiledFn;
 
-use value::{Instr, ValueDef, ValueSlot, Type, Constant};
+use value::{Argument, Instr, Value, ValueSlot, Type, Constant};
 use regs::{MachineReg, RegBank, RegFile, RegSet, RankSet};
 use arch::{isa, isa::REGS, isa::Unit, abi};
 use code::Code;
