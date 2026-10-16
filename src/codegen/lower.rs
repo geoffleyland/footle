@@ -4,7 +4,7 @@ use typed_arena::Arena;
 use typed_index_collections::TiVec;
 
 use crate::vir;
-use super::{Code, Value, ValueDef, ValueSlot, value::Operand, Type, Constant, MachineReg, REGS};
+use super::{Code, Instr, ValueDef, ValueSlot, value::Operand, Type, Constant, MachineReg, REGS};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -13,8 +13,8 @@ use crate::core::Span;
 //-------------------------------------------------------------------------------------------------
 
 pub struct Block<'arena> {
-    pub(super) arguments:                   Vec<&'arena Value<'arena>>,
-    pub(super) values:                      TiVec<ValueSlot, &'arena Value<'arena>>,
+    pub(super) arguments:                   Vec<&'arena Instr<'arena>>,
+    pub(super) values:                      TiVec<ValueSlot, &'arena Instr<'arena>>,
     pub(super) return_types :               Vec<Type>,
     pub(super) constants:                   Vec<Constant>,
     pub(super) functions:                   Vec<String>,
@@ -22,7 +22,7 @@ pub struct Block<'arena> {
 
 
 pub(super) fn run<'arena>(
-    arena:                                  &'arena Arena<Value<'arena>>,
+    arena:                                  &'arena Arena<Instr<'arena>>,
     input:                                  &vir::Block,
     types:                                  &[vir::TypeInfo],
 ) -> Block<'arena> {
@@ -53,7 +53,7 @@ impl<'arena> IntoOperand<'arena> for Operand<'arena> {
     }
 }
 
-impl<'arena> IntoOperand<'arena> for &'arena Value<'arena> {
+impl<'arena> IntoOperand<'arena> for &'arena Instr<'arena> {
     fn into_operand(self, _: &Builder<'arena>) -> Operand<'arena> {
         Operand::Reg(self)
     }
@@ -90,17 +90,17 @@ impl IntoValueDef for &'static Code {
 //-------------------------------------------------------------------------------------------------
 
 pub struct Builder<'arena> {
-    arena:                                  &'arena Arena<Value<'arena>>,
-    pub(super) arguments:                   Vec<&'arena Value<'arena>>,
-    values:                                 TiVec<ValueSlot, &'arena Value<'arena>>,
+    arena:                                  &'arena Arena<Instr<'arena>>,
+    pub(super) arguments:                   Vec<&'arena Instr<'arena>>,
+    values:                                 TiVec<ValueSlot, &'arena Instr<'arena>>,
     pub(super) return_types:                Vec<Type>,
     pub(super) constants:                   Vec<Constant>,
     operand_map:                            HashMap<usize, Operand<'arena>>,
-    pub(super) functions:                   Vec<(String, &'arena Value<'arena>)>,
+    pub(super) functions:                   Vec<(String, &'arena Instr<'arena>)>,
 }
 
 impl<'arena> Builder<'arena> {
-    fn new(arena: &'arena Arena<Value<'arena>>) -> Self {
+    fn new(arena: &'arena Arena<Instr<'arena>>) -> Self {
         Self { arena, arguments: vec![], values: TiVec::new(), return_types: vec![],
             constants: vec![], operand_map: HashMap::new(), functions: vec![] }
     }
@@ -125,7 +125,7 @@ impl<'arena> Builder<'arena> {
         code:                                   &'static Code,
         operands:                               Vec<Operand<'arena>>,
         instr:                                  &vir::Instr,
-    ) -> &'arena Value<'arena> {
+    ) -> &'arena Instr<'arena> {
         self.lower_value(ty, code, operands, vec![], None, instr)
     }
 
@@ -134,10 +134,10 @@ impl<'arena> Builder<'arena> {
         ty:                                     Type,
         def:                                    VD,
         operands:                               Vec<Operand<'arena>>,
-        fixed_inputs:                           Vec<(&'arena Value<'arena>, MachineReg)>,
+        fixed_inputs:                           Vec<(&'arena Instr<'arena>, MachineReg)>,
         fixed_output:                           Option<MachineReg>,
         instr:                                  &vir::Instr,
-    ) -> &'arena Value<'arena> {
+    ) -> &'arena Instr<'arena> {
         let value = self.make_value(ty, def, operands, fixed_inputs, fixed_output,
             #[cfg(feature = "dogfood")]
             instr.definition_span
@@ -154,7 +154,7 @@ impl<'arena> Builder<'arena> {
         operands:                               Vec<Operand<'arena>>,
         #[cfg(feature = "dogfood")]
         span:                                   Span,
-    ) -> &'arena Value<'arena>  {
+    ) -> &'arena Instr<'arena>  {
         self.make_value(ty, code, operands, vec![], None,
             #[cfg(feature = "dogfood")]
             span
@@ -166,13 +166,13 @@ impl<'arena> Builder<'arena> {
         ty:                                     Type,
         def:                                    VD,
         operands:                               Vec<Operand<'arena>>,
-        fixed_inputs:                           Vec<(&'arena Value<'arena>, MachineReg)>,
+        fixed_inputs:                           Vec<(&'arena Instr<'arena>, MachineReg)>,
         fixed_output:                           Option<MachineReg>,
         #[cfg(feature = "dogfood")]
         span:                                   Span,
-    ) -> &'arena Value<'arena>  {
+    ) -> &'arena Instr<'arena>  {
         let def = def.into_value_def();
-        let value = self.arena.alloc(Value::new(self.values.next_key(), ty, def,
+        let value = self.arena.alloc(Instr::new(self.values.next_key(), ty, def,
             operands, fixed_inputs, fixed_output,
             #[cfg(feature = "dogfood")]
             span
@@ -186,7 +186,7 @@ impl<'arena> Builder<'arena> {
         &self,
         exprs:                                  &[vir::Expr],
         types:                                  &[vir::TypeInfo],
-    ) -> Vec<(&'arena Value<'arena>, MachineReg)> {
+    ) -> Vec<(&'arena Instr<'arena>, MachineReg)> {
         exprs.iter()
             .zip(REGS.abi_regs(exprs.iter().map(|expr| Type::from(types[expr.pool_index()]))))
             .map(|(expr, reg)| (

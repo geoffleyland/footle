@@ -52,9 +52,9 @@ impl fmt::Display for Type {
 
 //-------------------------------------------------------------------------------------------------
 
-pub(super) type Operand<'arena> = super::operand::Operand<&'arena Value<'arena>>;
+pub(super) type Operand<'arena> = super::operand::Operand<&'arena Instr<'arena>>;
 impl<'arena> Operand<'arena> {
-    fn value(&self) -> Option<&'arena Value<'arena>> {
+    fn value(&self) -> Option<&'arena Instr<'arena>> {
         if let Self::Reg(v) = self { Some(v) } else { None }
     }
 }
@@ -70,7 +70,7 @@ impl<'arena> Operand<'arena> {
 pub(super) struct ValueSlot(usize);
 
 #[derive(Debug)]
-pub(super) struct Value<'arena> {
+pub(super) struct Instr<'arena> {
     pub(super) slot:                        ValueSlot,
     pub(super) ty:                          Type,
     pub(super) def:                         ValueDef,
@@ -81,7 +81,7 @@ pub(super) struct Value<'arena> {
     pub(super) span:                        Span,
 }
 
-impl<'arena> Value<'arena> {
+impl<'arena> Instr<'arena> {
     pub(super) fn new(
         slot:                               ValueSlot,
         ty:                                 Type,
@@ -105,7 +105,7 @@ impl<'arena> Value<'arena> {
 
     pub(super) fn latency(&self) -> u8                 { self.code().map_or(0, Code::latency) }
 
-    pub(super) fn predecessors(&self) -> impl Iterator<Item = &'arena Value<'arena>> {
+    pub(super) fn predecessors(&self) -> impl Iterator<Item = &'arena Instr<'arena>> {
         let operands = self.operands.iter().filter_map(Operand::value);
         let fixed_inputs = self.fixed_inputs.iter().map(|(v, _)| *v);
         operands.chain(fixed_inputs)
@@ -131,7 +131,7 @@ pub(super) struct Constant {
 mod display {
     use super::*;
 
-    impl super::super::operand::display::OperandDisplay for &'_ Value<'_> {
+    impl super::super::operand::display::OperandDisplay for &'_ Instr<'_> {
         fn fmt_operand(&self, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, "I{}", self.slot)
         }

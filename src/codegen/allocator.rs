@@ -4,7 +4,7 @@ use bit_set::BitSet;
 use typed_index_collections::TiVec;
 use derive_more::{From, Into};
 
-use super::{Code, Value, ValueSlot, Type, MachineReg, RegFile, RegSet, RankSet, SchedulePosition, REGS};
+use super::{value, Code, ValueSlot, Type, MachineReg, RegFile, RegSet, RankSet, SchedulePosition, REGS};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -14,8 +14,8 @@ use crate::core::Span;
 
 pub(super) fn run(
     slot_count:                         usize,
-    arguments:                          &[&Value<'_>],
-    scheduled:                          &TiVec<SchedulePosition, &Value<'_>>,
+    arguments:                          &[&value::Instr<'_>],
+    scheduled:                          &TiVec<SchedulePosition, &value::Instr<'_>>,
 ) -> (Vec<Instr>, RegSet) {
     let slot_block = lower_to_slots_and_split(slot_count, arguments, scheduled);
     let (regs, available_ranks) = allocate(&slot_block);
@@ -70,8 +70,8 @@ struct SlotBlock {
 /// Lower the Scheduler's Values to `SlotInstr`s, and split any live ranges that cross calls.
 fn lower_to_slots_and_split(
     slot_count:                         usize,
-    arguments:                          &[&Value<'_>],
-    scheduled:                          &TiVec<SchedulePosition, &Value<'_>>,
+    arguments:                          &[&value::Instr<'_>],
+    scheduled:                          &TiVec<SchedulePosition, &value::Instr<'_>>,
 ) -> SlotBlock {
     // Walk through the scheduled instructions finding out when values retire.
     let mut retirements: TiVec<ValueSlot, _> = vec![None; slot_count].into();

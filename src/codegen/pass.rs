@@ -1,7 +1,7 @@
 use typed_arena::Arena;
 
 use crate::{vir, runtime::Observer};
-use super::{lower, scheduler, allocator, assembler, binary, Value};
+use super::{lower, scheduler, allocator, assembler, binary, Instr};
 
 
 //-------------------------------------------------------------------------------------------------
@@ -11,7 +11,7 @@ pub fn run<O:Observer>(
     types:              &[vir::TypeInfo],
     observer:           &mut O,
 ) -> binary::CompiledFn {
-    let arena = Arena::<Value>::new();
+    let arena = Arena::<Instr>::new();
 
     let lowered_block = lower::run(&arena, vir_block, types);
 

@@ -2,7 +2,7 @@ use enumset::EnumSet;
 use derive_more::{From, Into, Display};
 use typed_index_collections::TiVec;
 
-use super::{isa, lower, Value, ValueSlot, Type, Constant, Code};
+use super::{isa, lower, Instr, ValueSlot, Type, Constant, Code};
 
 
 //-------------------------------------------------------------------------------------------------
@@ -16,8 +16,8 @@ pub(super) struct SchedulePosition(usize);
 
 pub struct Block<'arena> {
     pub(super) value_count:                 usize,
-    pub(super) arguments:                   Vec<&'arena Value<'arena>>,
-    pub(super) instrs:                      TiVec<SchedulePosition, &'arena Value<'arena>>,
+    pub(super) arguments:                   Vec<&'arena Instr<'arena>>,
+    pub(super) instrs:                      TiVec<SchedulePosition, &'arena Instr<'arena>>,
     pub(super) return_types :               Vec<Type>,
     pub(super) constants:                   Vec<Constant>,
     pub(super) functions:                   Vec<String>,
@@ -44,8 +44,8 @@ pub(super) fn run(
 //-------------------------------------------------------------------------------------------------
 // Instruction Scheduling
 
-fn schedule<'arena>(values: &TiVec<ValueSlot, &'arena Value<'arena>>
-) -> TiVec<SchedulePosition, &'arena Value<'arena>> {
+fn schedule<'arena>(values: &TiVec<ValueSlot, &'arena Instr<'arena>>
+) -> TiVec<SchedulePosition, &'arena Instr<'arena>> {
     // Count how many operands (that need scheduling, arguments are always available) each
     // instruction has so we can figure out when they're ready to go.
     let mut unresolved_operand_count: TiVec<ValueSlot, _> =
@@ -79,11 +79,11 @@ fn schedule<'arena>(values: &TiVec<ValueSlot, &'arena Value<'arena>>
     let expected_length = values.iter().filter(|v| v.code().is_some()).count();
 
     let mut cycle = 0usize;
-    let mut results_by_cycle: Vec<Vec<&Value>>  = vec![vec![]; current_critical_path_depth];
+    let mut results_by_cycle: Vec<Vec<&Instr>>  = vec![vec![]; current_critical_path_depth];
 
     let mut scheduled: TiVec<SchedulePosition, _> = TiVec::new();
 
-    let mut ready_instrs: Vec<(&Value, &Code)> = values.iter()
+    let mut ready_instrs: Vec<(&Instr, &Code)> = values.iter()
         .filter_map(|v| if let Some(code) = v.code() && unresolved_operand_count[v.slot] == 0 { Some((*v, code)) } else { None } )
         .collect();
 

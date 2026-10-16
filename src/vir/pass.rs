@@ -38,7 +38,7 @@ pub fn run(env: &Env, stmts: &[ast::Stmt]) -> Result<Block, Vec<ParseError>> {
 //-------------------------------------------------------------------------------------------------
 
 pub struct Block {
-    exprs:              Vec<vir::Expr>,
+    pub exprs:              Vec<vir::Expr>,
     pub arguments:          Vec<Argument>,
     pub instrs:             Vec<Instr>,
     pub return_values:      Vec<vir::Expr>,
