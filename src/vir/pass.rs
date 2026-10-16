@@ -5,7 +5,7 @@ use crate::core::{BinaryOperator, ParseError};
 use crate::{ast, vir, nev};
 use super::symbol_table::{AssignmentError, SymbolTable};
 use super::expr_pool::ExprPool;
-use super::expr::{InstrKind, ExprKind, Instr};
+use super::expr::{InstrKind, ExprKind, Instr, Argument};
 use super::operators::fold_constants;
 use crate::parse_error;
 use crate::core::Span;
@@ -38,8 +38,8 @@ pub fn run(env: &Env, stmts: &[ast::Stmt]) -> Result<Block, Vec<ParseError>> {
 //-------------------------------------------------------------------------------------------------
 
 pub struct Block {
-    pub exprs:              Vec<vir::Expr>,
-    pub arguments:          Vec<vir::Expr>,
+    exprs:              Vec<vir::Expr>,
+    pub arguments:          Vec<Argument>,
     pub instrs:             Vec<Instr>,
     pub return_values:      Vec<vir::Expr>,
     pub reassignments:      Vec<(String, vir::Expr, vir::Expr, Span)>,
@@ -52,7 +52,7 @@ pub struct Block {
 //------------------------------------------------------------------------------------------------
 
 struct Pass {
-    arguments:                  Vec<vir::Expr>, // Only contains vir::ExprKind::Arguments.
+    arguments:                  Vec<Argument>,
     stmts:                      Vec<vir::Stmt>,
     symbols:                    SymbolTable,
     exprs:                      ExprPool,
@@ -89,7 +89,8 @@ impl Pass {
                 for (name, span) in names {
                     let expr = self.exprs.argument(self.arguments.len(), *span);
                     self.symbols.insert(false, name, *span, nev![expr.clone()]);
-                    self.arguments.push(expr);
+                    self.arguments.push(Argument{pool_index: expr.pool_index(),
+                        definition_span: expr.definition_span() });
                 }
             }
             ast::StmtKind::Return(exprs) => {
@@ -330,9 +331,9 @@ mod display {
             let mut address = 0;
             let mut address_map = HashMap::<usize, usize>::new();
             for argument in &self.arguments {
-                address_map.insert(argument.pool_index(), address);
+                address_map.insert(argument.pool_index, address);
                 let line = format!("{} I{address}", Token::Argument);
-                writer.writeln(f, indent, Some(argument.definition_span()), &line)?;
+                writer.writeln(f, indent, Some(argument.definition_span), &line)?;
                 address += 1;
             }
             for instr in &self.instrs {

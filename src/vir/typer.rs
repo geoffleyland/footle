@@ -48,7 +48,7 @@ fn infer(
     for (argument, ty) in block.arguments.iter()
         .zip(argument_types)
         .filter_map(|(a, maybe_ty)| maybe_ty.map(|ty| (a, ty))) {
-        assert!(typer.set_type(argument.pool_index(), ty, argument.definition_span()).is_ok(),
+        assert!(typer.set_type(argument.pool_index, ty, argument.definition_span).is_ok(),
             "internal compiler error: type conflict setting argument type");
     }
 

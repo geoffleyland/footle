@@ -107,14 +107,14 @@ impl<'arena> Builder<'arena> {
 
 
     fn lower_arguments(&mut self, input: &vir::Block, types: &[vir::TypeInfo]) {
-        for expr in &input.arguments {
-            let ty = Type::from(types[expr.pool_index()]);
+        for argument in &input.arguments {
+            let ty = Type::from(types[argument.pool_index]);
             let value = self.make_value(ty, ValueDef::Argument, vec![], vec![], None,
                 #[cfg(feature = "dogfood")]
-                expr.definition_span(),
+                argument.definition_span,
             );
             let operand = value.into_operand(self);
-            self.operand_map.insert(expr.pool_index(), operand);
+            self.operand_map.insert(argument.pool_index, operand);
             self.arguments.push(value);
         }
     }

@@ -146,4 +146,12 @@ pub struct Instr {
     pub definition_span:                    Span,
 }
 
+
+#[derive(Debug)]
+pub struct Argument {
+    pub pool_index:                         usize,
+    pub definition_span:                    Span,
+}
+
+
 //-------------------------------------------------------------------------------------------------
