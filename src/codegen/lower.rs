@@ -61,6 +61,12 @@ impl<'arena> IntoOperand<'arena> for &vir::Expr {
     }
 }
 
+impl<'arena> IntoOperand<'arena> for Operand<'arena> {
+    fn into_operand(self, _: &Builder<'arena>) -> Self {
+        self
+    }
+}
+
 macro_rules! operands {
     ($builder:expr, $( $op:expr ),* $(,)?) => {
         vec![$( $crate::codegen::lower::IntoOperand::into_operand($op, $builder) ),*]
