@@ -49,12 +49,6 @@ pub(super) trait IntoOperand<'arena> {
     fn into_operand(self, builder: &Builder<'arena>) -> Operand<'arena>;
 }
 
-impl<'arena> IntoOperand<'arena> for Operand<'arena> {
-    fn into_operand(self, _: &Builder<'arena>) -> Self {
-        self
-    }
-}
-
 impl<'arena> IntoOperand<'arena> for &'arena Instr<'arena> {
     fn into_operand(self, _: &Builder<'arena>) -> Operand<'arena> {
         Operand::Reg(Value::Instr(self))

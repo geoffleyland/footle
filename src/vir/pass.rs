@@ -356,13 +356,6 @@ mod display {
             writer.write(f, indent, Some(self.return_span), &line)
         }
     }
-
-
-    impl std::fmt::Display for Block {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            self.fmt_styled(f)
-        }
-    }
 }
 
 
