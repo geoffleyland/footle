@@ -90,12 +90,12 @@ fn lower_to_slots_and_split(
 
     let mut arg_regs = vec![];
 
-    for (value, reg) in args.iter()
+    for (arg, reg) in args.iter()
         .zip(REGS.abi_regs(args.iter().map(|v| v.ty))) {
-        fixed_reg_slots[reg] = Some(value.slot);
-        let new_slot = slot_types.push_and_get_key(value.ty);
+        fixed_reg_slots[reg] = Some(arg.slot);
+        let new_slot = slot_types.push_and_get_key(arg.ty);
         arg_regs.push((new_slot, reg));
-        slot_map[value.slot] = Some(new_slot);
+        slot_map[arg.slot] = Some(new_slot);
     }
 
     let mut new_schedule = vec![];

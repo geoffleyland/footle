@@ -11,7 +11,7 @@ use crate::runtime::Value;
 pub struct CompiledFn {
     ptr:                            *mut u32,
     pub(super) layout:              Layout,
-    argument_types:                 Vec<Type>,
+    arg_types:                      Vec<Type>,
     return_types:                   Vec<Type>,
     func:                           fn(*const u64, *mut u64),
 }
@@ -21,24 +21,24 @@ impl CompiledFn {
     fn new(
         ptr:                        *mut u32,
         layout:                     Layout,
-        argument_types:             &[Type],
+        arg_types:                  &[Type],
         return_types:               &[Type],
     ) -> Self {
         let func = unsafe { mem::transmute::<*mut u32, fn(*const u64, *mut u64)>(ptr.add(layout.glue_start_words)) };
 
         Self { ptr, layout, func,
-            argument_types:         argument_types.to_vec(),
+            arg_types:              arg_types.to_vec(),
             return_types:           return_types.to_vec(),
         }
     }
 
     pub fn call(&self, input: &[Value]) -> Result<Vec<Value>> {
-        if self.argument_types.len() != input.len() {
+        if self.arg_types.len() != input.len() {
             bail!("wrong number of arguments: expected {}, got {}",
-                self.argument_types.len(), input.len());
+                self.arg_types.len(), input.len());
         }
         let mut lowered_input = vec![];
-        for (index, (e, i)) in self.argument_types.iter().zip(input).enumerate() {
+        for (index, (e, i)) in self.arg_types.iter().zip(input).enumerate() {
             let bits = match (e, i) {
                 (Type::F64, Value::F64(v))  => { v.to_bits() },
                 (Type::I64, Value::Bool(v)) => { (*v).into() },
@@ -85,7 +85,7 @@ pub fn emit(block: &assembler::Block) -> CompiledFn {
 
     sys::finish_jit_compile(ptr, block.layout.total_bytes);
 
-    CompiledFn::new(ptr, block.layout, &block.argument_types, &block.return_types)
+    CompiledFn::new(ptr, block.layout, &block.arg_types, &block.return_types)
 }
 
 

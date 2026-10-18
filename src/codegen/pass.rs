@@ -11,10 +11,10 @@ pub fn run<O:Observer>(
     types:              &[vir::TypeInfo],
     observer:           &mut O,
 ) -> binary::CompiledFn {
-    let arg_arean = Arena::<Arg>::new();
+    let arg_arena = Arena::<Arg>::new();
     let instr_arena = Arena::<Instr>::new();
 
-    let lowered_block = lower::run(&arg_arean, &instr_arena, vir_block, types);
+    let lowered_block = lower::run(&arg_arena, &instr_arena, vir_block, types);
 
     let scheduled_block = scheduler::run(lowered_block);
     observer.schedule(&scheduled_block);

@@ -22,13 +22,13 @@ const FOOTLE_FILE_EXTENSION: &str = "ftl";
 
 fn main() {
     show_version();
-    let args = pico_args::Arguments::from_env();
+    let command_line = pico_args::Arguments::from_env();
 
-    std::process::exit(match run(args) {
+    std::process::exit(match run(command_line) {
         Ok(()) => 0,
         Err(err) => {
-            if let Some(diags) = err.downcast_ref::<runtime::Diagnostics>() {
-                eprint!("{diags}");          // already has its own styled "error" labels
+            if let Some(diagnostics) = err.downcast_ref::<runtime::Diagnostics>() {
+                eprint!("{diagnostics}");          // already has its own styled "error" labels
             } else {
                 eprintln!("\x1b[1;31merror\x1b[0m\x1b[1m: {err:#}\x1b[0m");
             }
@@ -39,17 +39,17 @@ fn main() {
 
 
 #[cfg(not(feature = "dogfood"))]
-fn run(mut args: pico_args::Arguments) -> Result<()> {
-    if args.contains(["-h", "--help"]) {
+fn run(mut command_line: pico_args::Arguments) -> Result<()> {
+    if command_line.contains(["-h", "--help"]) {
         show_help();
         return Ok(());
     }
 
-    let Some(file_or_dir): Option<PathBuf> = args.opt_free_from_str()? else { return Ok(()); };
+    let Some(file_or_dir): Option<PathBuf> = command_line.opt_free_from_str()? else { return Ok(()); };
     if !file_or_dir.try_exists()? {
         bail!("couldn't read {}: No such file or directory", file_or_dir.display());
     }
-    run_file(&file_or_dir, &parse_arguments(args)?, &mut runtime::Silent)?;
+    run_file(&file_or_dir, &parse_args(command_line)?, &mut runtime::Silent)?;
     Ok(())
 }
 
@@ -67,26 +67,26 @@ Options:
 
 
 #[cfg(feature = "dogfood")]
-fn run(mut args: pico_args::Arguments) -> Result<()> {
-    if args.contains(["-h", "--help"]) {
+fn run(mut command_line: pico_args::Arguments) -> Result<()> {
+    if command_line.contains(["-h", "--help"]) {
         show_help();
         return Ok(());
     }
 
-    let verbose = args.contains(["-v", "--verbose"]);
-    let test = args.contains(["-t", "--test"]);
-    let Some(file_or_dir): Option<PathBuf> = args.opt_free_from_str()? else { return Ok(()); };
+    let verbose = command_line.contains(["-v", "--verbose"]);
+    let test = command_line.contains(["-t", "--test"]);
+    let Some(file_or_dir): Option<PathBuf> = command_line.opt_free_from_str()? else { return Ok(()); };
     if !file_or_dir.try_exists()? {
         bail!("couldn't read {}: No such file or directory", file_or_dir.display());
     }
     if test {
         dogfood::run_tests(&file_or_dir)?;
     } else {
-        let arguments = parse_arguments(args)?;
+        let args = parse_args(command_line)?;
         if verbose {
-            run_file(&file_or_dir, &arguments, &mut dogfood::Printer::new(2, 40, true))?;
+            run_file(&file_or_dir, &args, &mut dogfood::Printer::new(2, 40, true))?;
         } else {
-            run_file(&file_or_dir, &arguments, &mut runtime::Silent)?;
+            run_file(&file_or_dir, &args, &mut runtime::Silent)?;
         }
     }
 
@@ -120,8 +120,8 @@ fn show_version() {
 }
 
 
-fn parse_arguments(args: pico_args::Arguments) -> Result<Vec<runtime::Value>> {
-    args.finish().iter()
+fn parse_args(command_line: pico_args::Arguments) -> Result<Vec<runtime::Value>> {
+    command_line.finish().iter()
         .map(|s| {
             let s = s.to_str()
                 .with_context(|| format!("argument '{}' isn't valid UTF-8", s.display()))?;
@@ -138,7 +138,7 @@ fn parse_arguments(args: pico_args::Arguments) -> Result<Vec<runtime::Value>> {
 /// Read in the file specified, process it and show any output.
 fn run_file<O: runtime::Observer>(
     file_path:          &PathBuf,
-    arguments:          &[runtime::Value],
+    args:               &[runtime::Value],
     observer:           &mut O
 ) -> Result<()> {
     let file_name = file_path.display().to_string();
@@ -147,7 +147,7 @@ fn run_file<O: runtime::Observer>(
             .with_context(|| format!("couldn't read '{file_name}'"))?;
 
     let mut block = runtime::load(&file_name, source, observer)?;
-    let results = block.call(arguments, observer)?;
+    let results = block.call(args, observer)?;
 
     println!("{}", core::join_format(&results, " "));
 

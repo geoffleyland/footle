@@ -51,7 +51,7 @@ pub fn emit_restore_regs(instrs: &mut Vec<Instr<Operand>>, regs: RegSet) {
 
 //-------------------------------------------------------------------------------------------------
 
-pub fn emit_glue(argument_types: &[Type], return_types: &[Type], instrs: &mut Vec<Instr<Operand>>) {
+pub fn emit_glue(arg_types: &[Type], return_types: &[Type], instrs: &mut Vec<Instr<Operand>>) {
     // Move the input buffer pointer to the scratch reg  so it doesn't get clobbered by arguments
     // to our function.
     assemble!(instrs, mv, REGS.scratch_reg, a0);
@@ -64,7 +64,7 @@ pub fn emit_glue(argument_types: &[Type], return_types: &[Type], instrs: &mut Ve
 
     // Move the arguments from the input buffer into the argument registers.
     for (offset, reg) in (0i32..).step_by(8)
-        .zip(REGS.abi_regs(argument_types.iter().copied())) {
+        .zip(REGS.abi_regs(arg_types.iter().copied())) {
         match RegBank::of_reg(reg) {
             RegBank::Int        => assemble!(instrs, ld, reg, REGS.scratch_reg, Offset(offset)),
             RegBank::Float      => assemble!(instrs, fld, reg, REGS.scratch_reg, Offset(offset)),

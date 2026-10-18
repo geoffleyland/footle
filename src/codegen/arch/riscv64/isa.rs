@@ -103,7 +103,7 @@ macro_rules! _code {
             has_output:         $( output_reg!($reg) ||)* false,
 
             encode: |operands: &[Resolved]| -> u32 {
-                // If there's no argument (ie `ret`), _it is unused, so the _ silences a warning.
+                // If there's no operands (ie `ret`), _it is unused, so the _ silences a warning.
                 let mut _it = operands.iter().copied();
                 $pattern $(| { let value = _it.next().unwrap(); encode_operand!($reg, value) })*
             },

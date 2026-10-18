@@ -54,8 +54,8 @@ pub fn load<O: Observer>(
 
     // Run type inference without any argument types.
     // This way we see any errors we can find at this point nice and early.
-    let argument_types = vec![None; vir_block.args.len()];
-    match vir::check_types(&vir_block, &argument_types, &env) {
+    let arg_types = vec![None; vir_block.args.len()];
+    match vir::check_types(&vir_block, &arg_types, &env) {
         Ok(..) => {},
         Err(errors) => {
             return Err(Diagnostics { errors, source: source_map });
@@ -136,14 +136,14 @@ pub struct Block {
 impl Block {
     pub fn call<O: Observer>(
         &mut self,
-        arguments:          &[Value],
+        args:               &[Value],
         observer:           &mut O,
     ) -> anyhow::Result<Vec<Value>> {
-        if arguments.len() != self.vir.args.len() {
+        if args.len() != self.vir.args.len() {
             bail!("wrong number of arguments: expected {}, got {}",
-                self.vir.args.len(), arguments.len())
+                self.vir.args.len(), args.len())
         }
-        let signature: Vec<vir::TypeInfo> = arguments.iter().map(Into::into).collect();
+        let signature: Vec<vir::TypeInfo> = args.iter().map(Into::into).collect();
         let func = match self.funcs.entry(signature) {
             Entry::Occupied(entry)  => entry.into_mut(),
             Entry::Vacant(entry) => {
@@ -161,7 +161,7 @@ impl Block {
                 entry.insert(func)
             }
         };
-        func.call(arguments)
+        func.call(args)
     }
 }
 

@@ -23,7 +23,7 @@ pub(super) struct Code {
 
 
 impl Code {
-    pub(super) fn encode(&self, args: &[Resolved])-> u32   { (self.encode)(args) }
+    pub(super) fn encode(&self, operands: &[Resolved])-> u32   { (self.encode)(operands) }
 
     pub(super) fn is_call(&self) -> bool            { self.is_call }
     pub(super) fn is_return(&self) -> bool          { self.is_return }

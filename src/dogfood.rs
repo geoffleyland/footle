@@ -322,11 +322,11 @@ fn test_lines(
     // the expected results are present (because the compiler is being implemented bit by bit and
     // if we run something NYI, we get an NYI and a panic.)
     if section == "source" && eater.expected.contains_key("results") {
-        let all_arguments = parse_expected_results(&eater.expected["results"])?;
+        let all_args = parse_expected_results(&eater.expected["results"])?;
         eater.unchecked.retain(|e| e != "results");
         let mut obtained_lines = vec![];
-        for arguments in all_arguments {
-            let outcome = match block.call(&arguments, eater) {
+        for args in all_args {
+            let outcome = match block.call(&args, eater) {
                 Ok(results)     => join_format(&results, " "),
                 Err(e) => {
                     let error_text = e.downcast_ref::<runtime::Diagnostics>().map_or_else(
@@ -336,7 +336,7 @@ fn test_lines(
                 }
             };
 
-            obtained_lines.push(format!("{} -> {outcome}", join_format(&arguments, " ")));
+            obtained_lines.push(format!("{} -> {outcome}", join_format(&args, " ")));
         }
         if let Err(e) = compare_lines(&obtained_lines, &eater.expected["results"], section, "results") {
             eprintln!("\n{e:#}");
@@ -348,18 +348,18 @@ fn test_lines(
 
 
 fn parse_expected_results(expected: &[String]) -> Result<Vec<Vec<runtime::Value>>> {
-    let mut all_arguments = vec![];
+    let mut all_args = vec![];
     for line in expected {
-        let Some((arguments_str, _)) = line.split_once("->") else {
+        let Some((args_str, _)) = line.split_once("->") else {
             bail!("    invalid result line: {line:?}");
         };
-        let arguments = arguments_str.split_whitespace()
+        let args = args_str.split_whitespace()
             .map(str::parse::<runtime::Value>)
             .collect::<Result<Vec<_>, _>>()
             .with_context(|| format!("    invalid argument in {line:?}"))?;
-        all_arguments.push(arguments);
+        all_args.push(args);
     }
-    Ok(all_arguments)
+    Ok(all_args)
 }
 
 

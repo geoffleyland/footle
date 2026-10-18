@@ -137,7 +137,7 @@ impl Expr {
 ///
 /// We don't pass arguments as instrs (since codegen wants to treat arguments and instructions
 /// differently) so we flatten the exprs into instrs and remove the `ExprKind` wrapper that holds
-/// Args.
+/// `Arg`s.
 #[derive(Debug)]
 pub struct Instr {
     pub kind:                               InstrKind,

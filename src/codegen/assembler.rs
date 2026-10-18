@@ -81,7 +81,7 @@ impl Layout {
 }
 
 
-/// Resolved instructions have arguments that are either register numbers or immediates/offsets.
+/// Resolved instructions have operands that are either register numbers or immediates/offsets.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub(super) enum Resolved {
     Reg(MachineReg),
@@ -91,12 +91,12 @@ pub(super) enum Resolved {
 impl Resolved {
     pub(super) fn reg(self) -> MachineReg {
         if let Self::Reg(r) = self { r } else {
-            panic!("internal compiler error: immediate passed as register argument")
+            panic!("internal compiler error: immediate passed as register operand")
         }
     }
     pub(super) fn imm(self) -> i32 {
         if let Self::Imm(i) = self { i } else {
-            panic!("internal compiler error: register passed as immediate argument")
+            panic!("internal compiler error: register passed as immediate operand")
         }
     }
     pub(super) fn imm_bits(self) -> u32 { self.imm().cast_unsigned() }
@@ -113,7 +113,7 @@ pub struct Block {
     pub(super) instrs:              Vec<Instr<Resolved>>,
     pub(super) constants:           Vec<Constant>,
     pub(super) functions:           Vec<String>,
-    pub(super) argument_types:      Vec<Type>,
+    pub(super) arg_types:           Vec<Type>,
     pub(super) return_types:        Vec<Type>,
 }
 
@@ -124,21 +124,21 @@ pub(super) fn run(
     allocated:                      Vec<allocator::Instr>,
     constants:                      &[Constant],
     functions:                      &[String],
-    argument_types:                 Vec<Type>,
+    arg_types:                      Vec<Type>,
     return_types:                   Vec<Type>,
     written_regs:                   RegSet,
 ) -> Block{
     let mut instrs = Vec::new();
     let value_words = emit_function(allocated, &mut instrs, functions, written_regs);
     let glue_start_words = instrs.len();
-    abi::emit_glue(&argument_types, &return_types, &mut instrs);
+    abi::emit_glue(&arg_types, &return_types, &mut instrs);
 
     let layout = Layout::new(glue_start_words, instrs.len(), constants.len(), functions.len());
 
     let resolved = resolve(instrs, &layout, &value_words);
 
     Block{ layout, instrs: resolved, constants: constants.into(), functions: functions.to_vec(),
-        argument_types, return_types }
+        arg_types, return_types }
 }
 
 
