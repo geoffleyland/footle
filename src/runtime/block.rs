@@ -54,7 +54,7 @@ pub fn load<O: Observer>(
 
     // Run type inference without any argument types.
     // This way we see any errors we can find at this point nice and early.
-    let argument_types = vec![None; vir_block.arguments.len()];
+    let argument_types = vec![None; vir_block.args.len()];
     match vir::check_types(&vir_block, &argument_types, &env) {
         Ok(..) => {},
         Err(errors) => {
@@ -139,9 +139,9 @@ impl Block {
         arguments:          &[Value],
         observer:           &mut O,
     ) -> anyhow::Result<Vec<Value>> {
-        if arguments.len() != self.vir.arguments.len() {
+        if arguments.len() != self.vir.args.len() {
             bail!("wrong number of arguments: expected {}, got {}",
-                self.vir.arguments.len(), arguments.len())
+                self.vir.args.len(), arguments.len())
         }
         let signature: Vec<vir::TypeInfo> = arguments.iter().map(Into::into).collect();
         let func = match self.funcs.entry(signature) {

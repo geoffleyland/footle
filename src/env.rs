@@ -22,7 +22,7 @@ impl Module {
         Self {
             functions: HashMap::from(
                 FUNCTIONS.map(|(n, a, r, f)| (n.to_string(),
-                    FunctionDef{ argument_types: a.to_vec(), result_types: r.to_vec(), const_fold: f}))
+                    FunctionDef{ arg_types: a.to_vec(), result_types: r.to_vec(), const_fold: f}))
             ),
         }
     }
@@ -31,7 +31,7 @@ impl Module {
 type ConstFnFolder = fn(&[f64]) -> f64;
 
 pub struct FunctionDef {
-    pub argument_types:     Vec<TypeInfo>,
+    pub arg_types:          Vec<TypeInfo>,
     pub result_types:       Vec<TypeInfo>,
     pub const_fold:         Option<ConstFnFolder>,
 }

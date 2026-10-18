@@ -5,7 +5,7 @@ use crate::core::{BinaryOperator, ParseError};
 use crate::{ast, vir, nev};
 use super::symbol_table::{AssignmentError, SymbolTable};
 use super::expr_pool::ExprPool;
-use super::expr::{InstrKind, ExprKind, Instr, Argument};
+use super::expr::{InstrKind, ExprKind, Instr, Arg};
 use super::operators::fold_constants;
 use crate::parse_error;
 use crate::core::Span;
@@ -25,7 +25,7 @@ pub fn run(env: &Env, stmts: &[ast::Stmt]) -> Result<Block, Vec<ParseError>> {
 
      Ok(Block {
         exprs:              p.exprs.iter().cloned().collect(),
-        arguments:          p.arguments,
+        args:               p.args,
         instrs:             flattened.instrs,
         return_values:      flattened.return_values,
         reassignments:      p.reassignments,
@@ -39,7 +39,7 @@ pub fn run(env: &Env, stmts: &[ast::Stmt]) -> Result<Block, Vec<ParseError>> {
 
 pub struct Block {
     pub exprs:              Vec<vir::Expr>,
-    pub arguments:          Vec<Argument>,
+    pub args:               Vec<Arg>,
     pub instrs:             Vec<Instr>,
     pub return_values:      Vec<vir::Expr>,
     pub reassignments:      Vec<(String, vir::Expr, vir::Expr, Span)>,
@@ -52,7 +52,7 @@ pub struct Block {
 //------------------------------------------------------------------------------------------------
 
 struct Pass {
-    arguments:                  Vec<Argument>,
+    args:                       Vec<Arg>,
     stmts:                      Vec<vir::Stmt>,
     symbols:                    SymbolTable,
     exprs:                      ExprPool,
@@ -72,7 +72,7 @@ struct Flattened {
 impl Pass {
     fn new() -> Self {
         Self {
-            arguments:          vec![],
+            args:               vec![],
             stmts:              vec![],
             symbols:            SymbolTable::new(),
             exprs:              ExprPool::new(),
@@ -87,9 +87,9 @@ impl Pass {
         match &stmt.kind {
             ast::StmtKind::Arguments(names) => {
                 for (name, span) in names {
-                    let expr = self.exprs.argument(self.arguments.len(), *span);
+                    let expr = self.exprs.arg(self.args.len(), *span);
                     self.symbols.insert(false, name, *span, nev![expr.clone()]);
-                    self.arguments.push(Argument{pool_index: expr.pool_index(),
+                    self.args.push(Arg{pool_index: expr.pool_index(),
                         definition_span: expr.definition_span() });
                 }
             }
@@ -189,11 +189,11 @@ impl Pass {
                     parse_error!(self, format!("cannot find function '{name}' in this scope"), *expr.span());
                     return Err(())
                 };
-                if def.argument_types.len() != exprs.len() {
+                if def.arg_types.len() != exprs.len() {
                     parse_error!(self,
                         format!("function '{name}' called with {} arguments, expected {}",
                             exprs.len(),
-                            def.argument_types.len()
+                            def.arg_types.len()
                         ),
                         *expr.span());
                     return Err(())
@@ -330,10 +330,10 @@ mod display {
         fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
             let mut address = 0;
             let mut address_map = HashMap::<usize, usize>::new();
-            for argument in &self.arguments {
-                address_map.insert(argument.pool_index, address);
+            for arg in &self.args {
+                address_map.insert(arg.pool_index, address);
                 let line = format!("{} I{address}", Token::Argument);
-                writer.writeln(f, indent, Some(argument.definition_span), &line)?;
+                writer.writeln(f, indent, Some(arg.definition_span), &line)?;
                 address += 1;
             }
             for instr in &self.instrs {

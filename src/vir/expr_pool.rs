@@ -57,12 +57,12 @@ impl ExprPool {
         self.intern(InstrKind::Bool(value).into(), span)
     }
 
-    pub(super) fn argument(
+    pub(super) fn arg(
         &mut                    self,
         index:                  usize,
         span:                   Span,
     ) -> Expr {
-        self.intern(ExprKind::Argument(index), span)
+        self.intern(ExprKind::Arg(index), span)
     }
 }
 

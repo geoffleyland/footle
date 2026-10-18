@@ -2,7 +2,7 @@ use enumset::EnumSet;
 use derive_more::{From, Into, Display};
 use typed_index_collections::TiVec;
 
-use super::{isa, lower, Argument, Instr, ValueSlot, Type, Constant};
+use super::{isa, lower, Arg, Instr, ValueSlot, Type, Constant};
 
 
 //-------------------------------------------------------------------------------------------------
@@ -16,7 +16,7 @@ pub(super) struct SchedulePosition(usize);
 
 pub struct Block<'arena> {
     pub(super) slot_count:                  usize,
-    pub(super) arguments:                   Vec<&'arena Argument>,
+    pub(super) args:                        Vec<&'arena Arg>,
     pub(super) instrs:                      TiVec<SchedulePosition, &'arena Instr<'arena>>,
     pub(super) return_types :               Vec<Type>,
     pub(super) constants:                   Vec<Constant>,
@@ -32,7 +32,7 @@ pub(super) fn run(
     let instrs = schedule(&block.instrs, block.slot_count);
 
     Block { instrs,
-        arguments:      block.arguments,
+        args:           block.args,
         return_types:   block.return_types,
         slot_count:     block.slot_count,
         constants:      block.constants,
@@ -160,7 +160,7 @@ mod display {
 
     impl Styleable for Block<'_> {
         fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
-            for a in &self.arguments {
+            for a in &self.args {
                 writer.writeln(f, indent, Some(a.span), &format!("I{}: argument", a.slot))?;
             }
             for instr in &self.instrs {

@@ -60,7 +60,7 @@ impl InstrKind {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum ExprKind {
-    Argument(usize),
+    Arg(usize),
     Instr(InstrKind),
 }
 
@@ -137,7 +137,7 @@ impl Expr {
 ///
 /// We don't pass arguments as instrs (since codegen wants to treat arguments and instructions
 /// differently) so we flatten the exprs into instrs and remove the `ExprKind` wrapper that holds
-/// Arguments.
+/// Args.
 #[derive(Debug)]
 pub struct Instr {
     pub kind:                               InstrKind,
@@ -148,7 +148,7 @@ pub struct Instr {
 
 
 #[derive(Debug)]
-pub struct Argument {
+pub struct Arg {
     pub pool_index:                         usize,
     pub definition_span:                    Span,
 }

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use typed_arena::Arena;
 
 use crate::vir;
-use super::{Code, Instr, Argument, Value, ValueSlot, value::Operand, Type, Constant, MachineReg, REGS};
+use super::{Code, Instr, Arg, Value, ValueSlot, value::Operand, Type, Constant, MachineReg, REGS};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -12,7 +12,7 @@ use crate::core::Span;
 //-------------------------------------------------------------------------------------------------
 
 pub struct Block<'arena> {
-    pub(super) arguments:                   Vec<&'arena Argument>,
+    pub(super) args:                        Vec<&'arena Arg>,
     pub(super) instrs:                      Vec<&'arena Instr<'arena>>,
     pub(super) slot_count:                  usize,
     pub(super) return_types :               Vec<Type>,
@@ -22,18 +22,18 @@ pub struct Block<'arena> {
 
 
 pub(super) fn run<'arena>(
-    argument_arena:                         &'arena Arena<Argument>,
+    arg_arena:                              &'arena Arena<Arg>,
     instr_arena:                            &'arena Arena<Instr<'arena>>,
     input:                                  &vir::Block,
     types:                                  &[vir::TypeInfo],
 ) -> Block<'arena> {
-    let mut builder = Builder::new(argument_arena, instr_arena);
-    builder.lower_arguments(input, types);
+    let mut builder = Builder::new(arg_arena, instr_arena);
+    builder.lower_args(input, types);
     // Call arch-specific instruction selection.
     builder.select_instrs(input, types);
 
     Block {
-        arguments:                          builder.arguments,
+        args:                               builder.args,
         instrs:                             builder.instrs,
         slot_count:                         builder.slot_count,
         return_types:                       builder.return_types,
@@ -78,9 +78,9 @@ pub(super) use operands;
 //-------------------------------------------------------------------------------------------------
 
 pub struct Builder<'arena> {
-    argument_arena:                         &'arena Arena<Argument>,
+    arg_arena:                              &'arena Arena<Arg>,
     instr_arena:                            &'arena Arena<Instr<'arena>>,
-    arguments:                              Vec<&'arena Argument>,
+    args:                                   Vec<&'arena Arg>,
     instrs:                                 Vec<&'arena Instr<'arena>>,
     slot_count:                             usize,
     pub(super) return_types:                Vec<Type>,
@@ -91,11 +91,11 @@ pub struct Builder<'arena> {
 
 impl<'arena> Builder<'arena> {
     fn new(
-        argument_arena:                     &'arena Arena<Argument>,
+        arg_arena:                          &'arena Arena<Arg>,
         instr_arena:                        &'arena Arena<Instr<'arena>>
     ) -> Self {
-        Self { argument_arena, instr_arena,
-            arguments: vec![], instrs: vec![], slot_count: 0, return_types: vec![],
+        Self { arg_arena, instr_arena,
+            args: vec![], instrs: vec![], slot_count: 0, return_types: vec![],
             constants: vec![], operand_map: HashMap::new(), functions: vec![] }
     }
 
@@ -106,16 +106,16 @@ impl<'arena> Builder<'arena> {
     }
 
 
-    fn lower_arguments(&mut self, input: &vir::Block, types: &[vir::TypeInfo]) {
-        for vir_argument in &input.arguments {
-            let ty = Type::from(types[vir_argument.pool_index]);
-            let argument = self.argument_arena.alloc(Argument{ slot: self.new_slot(), ty,
+    fn lower_args(&mut self, input: &vir::Block, types: &[vir::TypeInfo]) {
+        for vir_arg in &input.args {
+            let ty = Type::from(types[vir_arg.pool_index]);
+            let arg = self.arg_arena.alloc(Arg{ slot: self.new_slot(), ty,
                 #[cfg(feature = "dogfood")]
-                span: vir_argument.definition_span,
+                span: vir_arg.definition_span,
             });
-            self.arguments.push(argument);
-            let operand = Operand::Reg(Value::Argument(argument));
-            self.operand_map.insert(vir_argument.pool_index, operand);
+            self.args.push(arg);
+            let operand = Operand::Reg(Value::Arg(arg));
+            self.operand_map.insert(vir_arg.pool_index, operand);
         }
     }
 

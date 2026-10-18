@@ -14,10 +14,10 @@ use crate::core::Span;
 
 pub(super) fn run(
     slot_count:                         usize,
-    arguments:                          &[&value::Argument],
+    args:                               &[&value::Arg],
     scheduled:                          &TiVec<SchedulePosition, &value::Instr<'_>>,
 ) -> (Vec<Instr>, RegSet) {
-    let slot_block = lower_to_slots_and_split(slot_count, arguments, scheduled);
+    let slot_block = lower_to_slots_and_split(slot_count, args, scheduled);
     let (regs, available_ranks) = allocate(&slot_block);
     lower_to_regs(&slot_block, &regs, &available_ranks)
 }
@@ -61,7 +61,7 @@ impl SlotInstr {
 
 
 struct SlotBlock {
-    arguments:                          Vec<(AllocatorSlot, MachineReg)>,
+    args:                               Vec<(AllocatorSlot, MachineReg)>,
     instrs:                             Vec<SlotInstr>,
     slot_types:                         TiVec<AllocatorSlot, Type>,
 }
@@ -70,7 +70,7 @@ struct SlotBlock {
 /// Lower the Scheduler's `Instr`s to `SlotInstr`s, and split any live ranges that cross calls.
 fn lower_to_slots_and_split(
     slot_count:                         usize,
-    arguments:                          &[&value::Argument],
+    args:                               &[&value::Arg],
     scheduled:                          &TiVec<SchedulePosition, &value::Instr<'_>>,
 ) -> SlotBlock {
     // Walk through the scheduled instructions finding out when they retire.
@@ -88,13 +88,13 @@ fn lower_to_slots_and_split(
     let mut slot_map: TiVec<ValueSlot, _> = vec![None; slot_count].into();
     let mut slot_types: TiVec<AllocatorSlot, Type> = TiVec::new();
 
-    let mut argument_regs = vec![];
+    let mut arg_regs = vec![];
 
-    for (value, reg) in arguments.iter()
-        .zip(REGS.abi_regs(arguments.iter().map(|v| v.ty))) {
+    for (value, reg) in args.iter()
+        .zip(REGS.abi_regs(args.iter().map(|v| v.ty))) {
         fixed_reg_slots[reg] = Some(value.slot);
         let new_slot = slot_types.push_and_get_key(value.ty);
-        argument_regs.push((new_slot, reg));
+        arg_regs.push((new_slot, reg));
         slot_map[value.slot] = Some(new_slot);
     }
 
@@ -145,7 +145,7 @@ fn lower_to_slots_and_split(
         });
         slot_map[instr.slot] = Some(new_slot);
     }
-    SlotBlock{ arguments: argument_regs, instrs: new_schedule, slot_types }
+    SlotBlock{ args: arg_regs, instrs: new_schedule, slot_types }
 }
 
 
@@ -205,7 +205,7 @@ fn allocate(
     for instr in &block.instrs { interfering_slots[instr.slot].remove(instr.slot); }
 
     // Allocate registers for arguments
-    for &(slot, reg) in &block.arguments {
+    for &(slot, reg) in &block.args {
         set_reg(slot, reg, &regs, &interfering_slots, &mut available_ranks);
     }
 

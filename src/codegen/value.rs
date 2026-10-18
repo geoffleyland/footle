@@ -46,20 +46,20 @@ impl fmt::Display for Type {
 #[derive(Debug, Copy, Clone)]
 pub(super) enum Value<'arena> {
     Instr(&'arena Instr<'arena>),
-    Argument(&'arena Argument)
+    Arg(&'arena Arg)
 }
 impl Value<'_> {
     fn needs_scheduling(&self) -> bool { matches!(self, Value::Instr(..)) }
     pub(super) fn slot(&self) -> ValueSlot {
         match self {
             Value::Instr(v)     => v.slot,
-            Value::Argument(a)  => a.slot,
+            Value::Arg(a)  => a.slot,
         }
     }
     pub(super) fn ty(&self) -> Type {
         match self {
             Value::Instr(v)     => v.ty,
-            Value::Argument(a)  => a.ty,
+            Value::Arg(a)  => a.ty,
         }
     }
 }
@@ -72,12 +72,12 @@ impl<'arena> Operand<'arena> {
     }
 }
 
-/// The number of an `Instr` or `Argument` handed out by `Builder` in lowering order.
+/// The number of an `Instr` or `Arg` handed out by `Builder` in lowering order.
 ///
-/// `Argument`s are stored in order and `Instr`s are stored in the order they come out of
+/// `Arg`s are stored in order and `Instr`s are stored in the order they come out of
 /// `select_instrs`.  Scheduling re-orders the list of instructions and we use `ValueSlot`s
 /// to create side-info arrays like lists of users of the `Instr`s or critical path depths.
-/// The info arrays contain slots for `Argument`s too, since `Instr`'s operands will reference
+/// The info arrays contain slots for `Arg`s too, since `Instr`'s operands will reference
 /// them.
 /// Only use `TiVec`s, not `TiSlice`s (even when passing references to `TiVec`s) - `TiSlices` risk
 /// re-setting the zero on a slice and the numbering going out the window.
@@ -131,7 +131,7 @@ impl<'arena> Instr<'arena> {
 //-------------------------------------------------------------------------------------------------
 
 #[derive(Debug)]
-pub(super) struct Argument {
+pub(super) struct Arg {
     pub(super) slot:                        ValueSlot,
     pub(super) ty:                          Type,
     #[cfg(feature = "dogfood")]
