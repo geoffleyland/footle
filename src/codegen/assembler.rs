@@ -16,9 +16,8 @@ pub(super) enum Operand {
     Function(usize, RelativeTo),
 }
 
-pub(super) struct Offset(pub(super) i32);
-impl From<Offset> for Operand {
-    fn from(o: Offset) -> Self { Self::Offset(o.0) }
+impl From<i32> for Operand {
+    fn from(offset: i32) -> Self { Self::Offset(offset) }
 }
 
 impl From<MachineReg> for Operand {
