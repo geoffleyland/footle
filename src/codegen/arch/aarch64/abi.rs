@@ -73,9 +73,9 @@ pub fn emit_glue(signature: &Signature, instrs: &mut Vec<Instr<Operand>>) {
     }
 
     // Call our function
-    assemble_instr!(instrs, bl,
-        -4 * i32::try_from(instrs.len())
-            .expect("internal compiler error: function too long for jump"));
+    let offset_to_func = -4 * i32::try_from(instrs.len())
+        .expect("internal compiler error: function too long for jump");
+    assemble_instr!(instrs, bl, offset_to_func);
 
     // Load the output buffer in to x16 and the return address to the appropriate spot
     assemble_instr!(instrs, ldp_x_post, REGS.scratch_reg, REGS.link_reg, REGS.stack_reg, 16);

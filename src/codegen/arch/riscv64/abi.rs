@@ -79,9 +79,9 @@ pub fn emit_glue(signature: &Signature, instrs: &mut Vec<Instr<Operand>>) {
     }
 
     // Call our function
-    assemble_instr!(instrs, jal,
-        -4 * i32::try_from(instrs.len())
-            .expect("internal compiler error: function too long for jump"));
+    let offset_to_func = -4 * i32::try_from(instrs.len())
+        .expect("internal compiler error: function too long for jump");
+    assemble_instr!(instrs, jal, offset_to_func);
 
     // Load the output buffer in to the scratch reg and the return address to the appropriate spot
     assemble_instr!(instrs, ld, t6, sp, 0);
