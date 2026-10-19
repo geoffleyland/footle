@@ -12,11 +12,16 @@ use crate::core::Span;
 
 //-------------------------------------------------------------------------------------------------
 
+pub(super) struct Block {
+    pub(super) instrs:                  Vec<Instr>,
+    pub(super) written_regs:            RegSet,
+}
+
 pub(super) fn run(
     instrs:                             &scheduler::Block<'_>,
     slot_count:                         usize,
     signature:                          &Signature,
-) -> (Vec<Instr>, RegSet) {
+) -> Block {
     let slot_block = lower_to_slots_and_split(slot_count, &signature.args, &instrs.0);
     let (regs, available_ranks) = allocate(&slot_block);
     lower_to_regs(&slot_block, &regs, &available_ranks)
@@ -283,9 +288,8 @@ fn lower_to_regs(
     block:                              &SlotBlock,
     regs:                               &TiVec<AllocatorSlot, Option<MachineReg>>,
     available_ranks:                    &TiVec<AllocatorSlot, RankSet>,
-) -> (Vec<Instr>, RegSet) {
-
-    let mut reg_instrs = vec![];
+) -> Block {
+    let mut instrs = vec![];
     let mut written_regs = RegSet::EMPTY;
 
     for instr in &block.instrs {
@@ -326,7 +330,7 @@ fn lower_to_regs(
         if let Some(reg) = regs[instr.slot] { written_regs.insert(reg); }
         if instr.code.is_call() { written_regs.insert(REGS.link_reg) }
 
-        reg_instrs.push(Instr{
+        instrs.push(Instr{
             operands, moves,
             code:                       instr.code,
             result_reg:                 regs[instr.slot],
@@ -336,7 +340,7 @@ fn lower_to_regs(
         });
     }
 
-    (reg_instrs, written_regs)
+    Block{ instrs, written_regs }
 }
 
 

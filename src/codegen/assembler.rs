@@ -117,13 +117,12 @@ pub struct Block {
 
 
 pub(super) fn run(
-    allocated:                      Vec<allocator::Instr>,
-    written_regs:                   RegSet,
+    allocated:                      allocator::Block,
     signature:                      &Signature,
     pool:                           &Pool,
 ) -> Block{
     let mut draft_instrs = Vec::new();
-    let value_words = emit_function(allocated, &mut draft_instrs, &pool.functions, written_regs);
+    let value_words = emit_function(allocated, &mut draft_instrs, &pool.functions);
     let glue_start_words = draft_instrs.len();
     abi::emit_glue(signature, &mut draft_instrs);
 
@@ -136,17 +135,16 @@ pub(super) fn run(
 
 
 fn emit_function(
-    allocated:                      Vec<allocator::Instr>,
+    allocated:                      allocator::Block,
     instrs:                         &mut Vec<Instr<Operand>>,
     functions:                      &[String],
-    written_regs:                   RegSet,
 ) -> HashMap<ValueSlot, usize> {
     let mut value_words = HashMap::new();
 
-    let regs_to_save = REGS.regs_to_save(written_regs);
+    let regs_to_save = REGS.regs_to_save(allocated.written_regs);
     abi::emit_save_regs(instrs, regs_to_save);
 
-    for instr in allocated {
+    for instr in allocated.instrs {
         abi::emit_moves(instrs, &instr.moves);
 
         // Restore callee saved registers before a `ret`.
