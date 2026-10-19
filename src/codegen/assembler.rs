@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use typed_index_collections::TiVec;
 
 use super::{Code, abi, Pool, Signature, allocator, ValueSlot, MachineReg, RegSet, RegBank, RelativeTo, REGS};
 
@@ -118,11 +118,12 @@ pub struct Block {
 
 pub(super) fn run(
     allocated:                      allocator::Block,
+    slot_count:                     usize,
     signature:                      &Signature,
     pool:                           &Pool,
 ) -> Block{
     let mut draft_instrs = Vec::new();
-    let value_words = emit_function(allocated, &mut draft_instrs, &pool.functions);
+    let value_words = emit_function(allocated, slot_count, &mut draft_instrs, &pool.functions);
     let glue_start_words = draft_instrs.len();
     abi::emit_glue(signature, &mut draft_instrs);
 
@@ -136,10 +137,11 @@ pub(super) fn run(
 
 fn emit_function(
     allocated:                      allocator::Block,
+    slot_count:                     usize,
     instrs:                         &mut Vec<Instr<Operand>>,
     functions:                      &[String],
-) -> HashMap<ValueSlot, usize> {
-    let mut value_words = HashMap::new();
+) -> TiVec<ValueSlot, Option<usize>> {
+    let mut value_words: TiVec<_, _> = vec![None; slot_count].into();
 
     let regs_to_save = REGS.regs_to_save(allocated.written_regs);
     abi::emit_save_regs(instrs, regs_to_save);
@@ -166,7 +168,7 @@ fn emit_function(
             }))
         .collect();
 
-        value_words.insert(instr.value_slot, instrs.len());
+        value_words[instr.value_slot] = Some(instrs.len());
         instrs.push(Instr{ code: instr.code, operands,
         #[cfg(feature = "dogfood")]
             span: Some(instr.span)
@@ -185,7 +187,7 @@ pub(super) fn split_regs_by_bank(regs: RegSet) -> (Vec<MachineReg>, Vec<MachineR
 //-------------------------------------------------------------------------------------------------
 
 fn compute_offset(
-    value_words:                            &HashMap<ValueSlot, usize>,
+    value_words:                            &TiVec<ValueSlot, Option<usize>>,
     table_start_words:                      usize,
     entry_index:                            usize,
     word_index:                             usize,
@@ -194,7 +196,7 @@ fn compute_offset(
     let from_word = match relative_to {
         RelativeTo::ThisInstr               => word_index,
         RelativeTo::InstrOf(slot) => {
-            *value_words.get(&slot)
+            value_words[slot]
                 .expect("internal compiler error: InstrOf names a value with no instruction")
         }
     };
@@ -208,7 +210,7 @@ fn compute_offset(
 fn resolve(
     instrs:                                 Vec<Instr<Operand>>,
     layout:                                 &Layout,
-    value_words:                            &HashMap<ValueSlot, usize>,
+    value_words:                            &TiVec<ValueSlot, Option<usize>>,
 ) -> Vec<Instr<Resolved>> {
     use Operand::*;
 

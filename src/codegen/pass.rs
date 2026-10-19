@@ -15,7 +15,7 @@ pub fn run<O:Observer>(
     observer.schedule(&scheduled, &signature, &pool);
 
     let allocated = allocator::run(&scheduled, slot_count, &signature);
-    let assembly = assembler::run(allocated, &signature, &pool);
+    let assembly = assembler::run(allocated, slot_count, &signature, &pool);
     observer.assembly(&assembly, &pool);
     let func = binary::emit(&assembly, signature, &pool);
     observer.func(&func);
