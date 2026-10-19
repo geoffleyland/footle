@@ -44,33 +44,34 @@ impl fmt::Display for Type {
 //-------------------------------------------------------------------------------------------------
 
 #[derive(Debug, Copy, Clone)]
-pub(super) enum Value<'arena> {
-    Instr(&'arena Instr<'arena>),
+pub(super) enum Value {
+    Instr(ValueSlot, Type),
     Arg(ValueSlot, Type)
 }
-impl Value<'_> {
-    fn needs_scheduling(&self) -> bool { matches!(self, Value::Instr(..)) }
+impl Value {
+    fn needs_scheduling(&self) -> bool { matches!(self, Self::Instr(..)) }
     pub(super) fn slot(&self) -> ValueSlot {
         match self {
-            Value::Instr(v)             => v.slot,
-            Value::Arg(slot, _)         => *slot,
+            Self::Instr(slot, _) |
+            Self::Arg(slot, _)          => *slot,
         }
     }
     pub(super) fn ty(&self) -> Type {
         match self {
-            Value::Instr(v)             => v.ty,
-            Value::Arg(_, ty)           => *ty,
+            Self::Instr(_, ty) |
+            Self::Arg(_, ty)            => *ty,
         }
     }
 }
 
 
-pub(super) type Operand<'arena> = super::operand::Operand<Value<'arena>>;
-impl<'arena> Operand<'arena> {
-    fn value(&self) -> Option<Value<'arena>> {
+pub(super) type Operand = super::operand::Operand<Value>;
+impl Operand {
+    fn value(&self) -> Option<Value> {
         if let Self::Reg(v) = self { Some(*v) } else { None }
     }
 }
+
 
 /// The number of an `Instr` or `Arg` handed out by `Builder` in lowering order.
 ///
@@ -85,24 +86,24 @@ impl<'arena> Operand<'arena> {
 pub(super) struct ValueSlot(usize);
 
 #[derive(Debug)]
-pub(super) struct Instr<'arena> {
+pub(super) struct Instr {
     pub(super) slot:                        ValueSlot,
     pub(super) ty:                          Type,
     pub(super) code:                        &'static Code,
-    pub(super) operands:                    Vec<Operand<'arena>>,
-    pub(super) fixed_inputs:                Vec<(Value<'arena>, MachineReg)>,
+    pub(super) operands:                    Vec<Operand>,
+    pub(super) fixed_inputs:                Vec<(Value, MachineReg)>,
     pub(super) fixed_output:                Option<MachineReg>,
     #[cfg(feature = "dogfood")]
     pub(super) span:                        Span,
 }
 
-impl<'arena> Instr<'arena> {
+impl Instr {
     pub(super) fn new(
         slot:                               ValueSlot,
         ty:                                 Type,
         code:                               &'static Code,
-        operands:                           Vec<Operand<'arena>>,
-        fixed_inputs:                       Vec<(Value<'arena>, MachineReg)>,
+        operands:                           Vec<Operand>,
+        fixed_inputs:                       Vec<(Value, MachineReg)>,
         fixed_output:                       Option<MachineReg>,
         #[cfg(feature = "dogfood")]
         span:                               Span
@@ -115,7 +116,7 @@ impl<'arena> Instr<'arena> {
 
     pub(super) fn latency(&self) -> u8                 { self.code.latency() }
 
-    fn predecessors(&self) -> impl Iterator<Item = Value<'arena>> {
+    fn predecessors(&self) -> impl Iterator<Item = Value> {
         self.operands.iter().filter_map(Operand::value)
             .chain(self.fixed_inputs.iter().map(|(v, _)| *v))
     }
@@ -155,7 +156,7 @@ pub(super) struct Constant {
 mod display {
     use super::*;
 
-    impl super::super::operand::display::OperandDisplay for Value<'_> {
+    impl super::super::operand::display::OperandDisplay for Value {
         fn fmt_operand(&self, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, "I{}", self.slot())
         }

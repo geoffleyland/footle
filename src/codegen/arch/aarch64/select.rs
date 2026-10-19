@@ -69,7 +69,7 @@ impl<'arena> Builder<'arena> {
         types:                                  &[vir::TypeInfo],
         fixed_output:                           MachineReg,
         instr:                                  &vir::Instr,
-    ) -> &'arena Instr<'arena> {
+    ) -> &'arena Instr {
         let fixed_inputs = self.exprs_to_fixed_inputs(operands, types);
 
         let function_value = if let Some(&(_, v)) = self.functions.iter().find(|(n, _)| n == name) {

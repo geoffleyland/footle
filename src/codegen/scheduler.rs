@@ -15,13 +15,13 @@ use super::{isa, Instr, ValueSlot};
 pub(super) struct SchedulePosition(usize);
 
 /// The list of instructions we return, hidden to save users from the types.
-pub struct Block<'arena>(pub(super) TiVec<SchedulePosition, &'arena Instr<'arena>>);
+pub struct Block<'arena>(pub(super) TiVec<SchedulePosition, &'arena Instr>);
 
 //-------------------------------------------------------------------------------------------------
 // Instruction Scheduling
 
 pub(super) fn run<'arena>(
-    instrs:             &[&'arena Instr<'arena>],
+    instrs:             &[&'arena Instr],
     slot_count:         usize,
 ) -> Block<'arena> {
     // Count how many operands (that need scheduling, arguments are always available) each

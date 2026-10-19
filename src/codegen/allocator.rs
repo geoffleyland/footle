@@ -71,7 +71,7 @@ struct SlotBlock {
 fn lower_to_slots_and_split(
     slot_count:                         usize,
     args:                               &[value::Arg],
-    scheduled:                          &TiVec<SchedulePosition, &value::Instr<'_>>,
+    scheduled:                          &TiVec<SchedulePosition, &value::Instr>,
 ) -> SlotBlock {
     // Walk through the scheduled instructions finding out when they retire.
     let mut retirements: TiVec<ValueSlot, _> = vec![None; slot_count].into();

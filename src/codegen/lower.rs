@@ -24,10 +24,10 @@ pub struct Pool {
 }
 
 pub(super) fn run<'arena>(
-    arena:                                  &'arena Arena<Instr<'arena>>,
+    arena:                                  &'arena Arena<Instr>,
     input:                                  &vir::Block,
     types:                                  &[vir::TypeInfo],
-) -> (Vec<&'arena Instr<'arena>>, usize, Signature, Pool) {
+) -> (Vec<&'arena Instr>, usize, Signature, Pool) {
     let mut builder = Builder::new(arena);
     builder.lower_args(input, types);
     // Call arch-specific instruction selection.
@@ -48,22 +48,22 @@ pub(super) fn run<'arena>(
 //-------------------------------------------------------------------------------------------------
 
 pub(super) trait IntoOperand<'arena> {
-    fn into_operand(self, builder: &Builder<'arena>) -> Operand<'arena>;
+    fn into_operand(self, builder: &Builder<'arena>) -> Operand;
 }
 
-impl<'arena> IntoOperand<'arena> for &'arena Instr<'arena> {
-    fn into_operand(self, _: &Builder<'arena>) -> Operand<'arena> {
-        Operand::Reg(Value::Instr(self))
+impl<'arena> IntoOperand<'arena> for &'arena Instr {
+    fn into_operand(self, _: &Builder<'arena>) -> Operand {
+        Operand::Reg(Value::Instr(self.slot, self.ty))
     }
 }
 
 impl<'arena> IntoOperand<'arena> for &vir::Expr {
-    fn into_operand(self, builder: &Builder<'arena>) -> Operand<'arena> {
+    fn into_operand(self, builder: &Builder<'arena>) -> Operand {
         builder.operand_map[&self.pool_index()].clone()
     }
 }
 
-impl<'arena> IntoOperand<'arena> for Operand<'arena> {
+impl<'arena> IntoOperand<'arena> for Operand {
     fn into_operand(self, _: &Builder<'arena>) -> Self {
         self
     }
@@ -80,19 +80,19 @@ pub(super) use operands;
 //-------------------------------------------------------------------------------------------------
 
 pub struct Builder<'arena> {
-    arena:                                  &'arena Arena<Instr<'arena>>,
+    arena:                                  &'arena Arena<Instr>,
     args:                                   Vec<Arg>,
-    instrs:                                 Vec<&'arena Instr<'arena>>,
+    instrs:                                 Vec<&'arena Instr>,
     slot_count:                             usize,
     pub(super) return_types:                Vec<Type>,
     pub(super) constants:                   Vec<Constant>,
-    operand_map:                            HashMap<usize, Operand<'arena>>,
-    pub(super) functions:                   Vec<(String, &'arena Instr<'arena>)>,
+    operand_map:                            HashMap<usize, Operand>,
+    pub(super) functions:                   Vec<(String, &'arena Instr)>,
 }
 
 impl<'arena> Builder<'arena> {
     fn new(
-        arena:                              &'arena Arena<Instr<'arena>>
+        arena:                              &'arena Arena<Instr>
     ) -> Self {
         Self { arena,
             args: vec![], instrs: vec![], slot_count: 0, return_types: vec![],
@@ -123,9 +123,9 @@ impl<'arena> Builder<'arena> {
         &mut self,
         ty:                                     Type,
         code:                                   &'static Code,
-        operands:                               Vec<Operand<'arena>>,
+        operands:                               Vec<Operand>,
         instr:                                  &vir::Instr,
-    ) -> &'arena Instr<'arena> {
+    ) -> &'arena Instr {
         self.lower_fixed_instr(ty, code, operands, vec![], None, instr)
     }
 
@@ -133,11 +133,11 @@ impl<'arena> Builder<'arena> {
         &mut self,
         ty:                                     Type,
         code:                                   &'static Code,
-        operands:                               Vec<Operand<'arena>>,
-        fixed_inputs:                           Vec<(Value<'arena>, MachineReg)>,
+        operands:                               Vec<Operand>,
+        fixed_inputs:                           Vec<(Value, MachineReg)>,
         fixed_output:                           Option<MachineReg>,
         vir_instr:                              &vir::Instr,
-    ) -> &'arena Instr<'arena> {
+    ) -> &'arena Instr {
         let instr = self.make_fixed_instr(ty, code, operands, fixed_inputs, fixed_output,
             #[cfg(feature = "dogfood")]
             vir_instr.definition_span
@@ -151,10 +151,10 @@ impl<'arena> Builder<'arena> {
         &mut self,
         ty:                                     Type,
         code:                                   &'static Code,
-        operands:                               Vec<Operand<'arena>>,
+        operands:                               Vec<Operand>,
         #[cfg(feature = "dogfood")]
         span:                                   Span,
-    ) -> &'arena Instr<'arena>  {
+    ) -> &'arena Instr  {
         self.make_fixed_instr(ty, code, operands, vec![], None,
             #[cfg(feature = "dogfood")]
             span
@@ -165,12 +165,12 @@ impl<'arena> Builder<'arena> {
         &mut self,
         ty:                                     Type,
         code:                                   &'static Code,
-        operands:                               Vec<Operand<'arena>>,
-        fixed_inputs:                           Vec<(Value<'arena>, MachineReg)>,
+        operands:                               Vec<Operand>,
+        fixed_inputs:                           Vec<(Value, MachineReg)>,
         fixed_output:                           Option<MachineReg>,
         #[cfg(feature = "dogfood")]
         span:                                   Span,
-    ) -> &'arena Instr<'arena>  {
+    ) -> &'arena Instr  {
         let instr = self.arena.alloc(Instr::new(self.new_slot(), ty, code,
             operands, fixed_inputs, fixed_output,
             #[cfg(feature = "dogfood")]
@@ -185,7 +185,7 @@ impl<'arena> Builder<'arena> {
         &self,
         exprs:                                  &[vir::Expr],
         types:                                  &[vir::TypeInfo],
-    ) -> Vec<(Value<'arena>, MachineReg)> {
+    ) -> Vec<(Value, MachineReg)> {
         exprs.iter()
             .zip(REGS.abi_regs(exprs.iter().map(|expr| Type::from(types[expr.pool_index()]))))
             .map(|(expr, reg)| (
