@@ -1,5 +1,5 @@
 use crate::codegen::{isa, Code, Signature, RegBank, MachineReg, RegSet, REGS,
-    assembler::{assemble, assemble_expr, split_regs_by_bank, Instr, Offset, Operand}};
+    assembler::{assemble_instr, assemble_expr, split_regs_by_bank, Instr, Offset, Operand}};
 
 
 //-------------------------------------------------------------------------------------------------
@@ -12,11 +12,11 @@ const x1: MachineReg = MachineReg::new(1);      // glue: the results pointer arr
 //-------------------------------------------------------------------------------------------------
 
 pub fn emit_moves(instrs: &mut Vec<Instr<Operand>>, moves: &[(MachineReg, MachineReg)]) {
-    for (source, destination) in moves {
-        debug_assert_eq!(RegBank::of_reg(*source), RegBank::of_reg(*destination));
-        match RegBank::of_reg(*source) {
-            RegBank::Int    => assemble!(instrs, mov_x, *destination, *source),
-            RegBank::Float  => assemble!(instrs, fmov_d, *destination, *source)
+    for &(source, destination) in moves {
+        debug_assert_eq!(RegBank::of_reg(source), RegBank::of_reg(destination));
+        match RegBank::of_reg(source) {
+            RegBank::Int    => assemble_instr!(instrs, mov_x, destination, source),
+            RegBank::Float  => assemble_instr!(instrs, fmov_d, destination, source)
         }
     }
 }
@@ -57,37 +57,37 @@ fn save_restore(
 
 pub fn emit_glue(signature: &Signature, instrs: &mut Vec<Instr<Operand>>) {
     // Move the input buffer pointer to x16 so it doesn't get clobbered by arguments to our function.
-    assemble!(instrs, mov_x, REGS.scratch_reg, x0);
+    assemble_instr!(instrs, mov_x, REGS.scratch_reg, x0);
 
     // Move the output buffer and the return address to the stack, since they're about to get
     // overwritten and we need them later.
-    assemble!(instrs, stp_x_pre, x1, REGS.link_reg, REGS.stack_reg, Offset(-16));
+    assemble_instr!(instrs, stp_x_pre, x1, REGS.link_reg, REGS.stack_reg, Offset(-16));
 
     // Move the arguments from the input buffer into the argument registers.
     for (offset, reg) in (0i32..).step_by(8)
         .zip(REGS.abi_regs(signature.args.iter().map(|a| a.ty))) {
         match RegBank::of_reg(reg) {
-            RegBank::Int        => assemble!(instrs, ldr_x_offset, reg, REGS.scratch_reg, Offset(offset)),
-            RegBank::Float      => assemble!(instrs, ldr_d_offset, reg, REGS.scratch_reg, Offset(offset)),
+            RegBank::Int        => assemble_instr!(instrs, ldr_x_offset, reg, REGS.scratch_reg, Offset(offset)),
+            RegBank::Float      => assemble_instr!(instrs, ldr_d_offset, reg, REGS.scratch_reg, Offset(offset)),
         }
     }
 
     // Call our function
-    assemble!(instrs, bl,
+    assemble_instr!(instrs, bl,
         Offset(-4 * i32::try_from(instrs.len())
             .expect("internal compiler error: function too long for jump")));
 
     // Load the output buffer in to x16 and the return address to the appropriate spot
-    assemble!(instrs, ldp_x_post, REGS.scratch_reg, REGS.link_reg, REGS.stack_reg, Offset(16));
+    assemble_instr!(instrs, ldp_x_post, REGS.scratch_reg, REGS.link_reg, REGS.stack_reg, Offset(16));
 
     for (offset, reg) in (0i32..).step_by(8)
         .zip(REGS.abi_regs(signature.return_types.iter().copied())) {
         match RegBank::of_reg(reg) {
-            RegBank::Int        => assemble!(instrs, str_x_offset, reg, REGS.scratch_reg, Offset(offset)),
-            RegBank::Float      => assemble!(instrs, str_d_offset, reg, REGS.scratch_reg, Offset(offset)),
+            RegBank::Int        => assemble_instr!(instrs, str_x_offset, reg, REGS.scratch_reg, Offset(offset)),
+            RegBank::Float      => assemble_instr!(instrs, str_d_offset, reg, REGS.scratch_reg, Offset(offset)),
         }
     }
-    assemble!(instrs, ret);
+    assemble_instr!(instrs, ret);
 }
 
 

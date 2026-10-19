@@ -39,12 +39,12 @@ macro_rules! assemble_expr {
 pub(super) use assemble_expr;
 
 
-macro_rules! assemble {
+macro_rules! assemble_instr {
     ($instrs:expr, $op:ident $(, $($operand:expr),*)?) => {
         $crate::codegen::assembler::assemble_expr!($instrs, &$crate::codegen::isa::$op $(, $($operand),*)?)
     }
 }
-pub(super) use assemble;
+pub(super) use assemble_instr;
 
 
 //-------------------------------------------------------------------------------------------------
