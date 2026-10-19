@@ -15,15 +15,15 @@ use super::{isa, Instr, ValueSlot};
 pub(super) struct SchedulePosition(usize);
 
 /// The list of instructions we return, hidden to save users from the types.
-pub struct Block<'arena>(pub(super) TiVec<SchedulePosition, &'arena Instr>);
+pub struct Block<'a>(pub(super) TiVec<SchedulePosition, &'a Instr>);
 
 //-------------------------------------------------------------------------------------------------
 // Instruction Scheduling
 
-pub(super) fn run<'arena>(
-    instrs:             &[&'arena Instr],
+pub(super) fn run(
+    instrs:             &[Instr],
     slot_count:         usize,
-) -> Block<'arena> {
+) -> Block<'_> {
     // Count how many operands (that need scheduling, arguments are always available) each
     // instruction has so we can figure out when they're ready to go, and find all the users of
     // each value
@@ -57,7 +57,7 @@ pub(super) fn run<'arena>(
 
     let mut ready_instrs: Vec<&Instr> = instrs.iter()
         .filter(|instr| unresolved_operand_count[instr.slot] == 0)
-        .copied().collect();
+        .collect();
 
     while scheduled.len() < expected_length {
         let mut free_units: EnumSet<isa::Unit> = EnumSet::all();

@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use typed_arena::Arena;
-
 use crate::vir;
 use super::{Code, Instr, Arg, Value, ValueSlot, value::Operand, Type, Constant, MachineReg, REGS};
 
@@ -23,12 +21,11 @@ pub struct Pool {
     pub(super) functions:                   Vec<String>,
 }
 
-pub(super) fn run<'arena>(
-    arena:                                  &'arena Arena<Instr>,
+pub(super) fn run(
     input:                                  &vir::Block,
     types:                                  &[vir::TypeInfo],
-) -> (Vec<&'arena Instr>, usize, Signature, Pool) {
-    let mut builder = Builder::new(arena);
+) -> (Vec<Instr>, usize, Signature, Pool) {
+    let mut builder = Builder::default();
     builder.lower_args(input, types);
     // Call arch-specific instruction selection.
     builder.select_instrs(input, types);
@@ -47,26 +44,20 @@ pub(super) fn run<'arena>(
 
 //-------------------------------------------------------------------------------------------------
 
-pub(super) trait IntoOperand<'arena> {
-    fn into_operand(self, builder: &Builder<'arena>) -> Operand;
+pub(super) trait IntoOperand { fn into_operand(self, builder: &Builder) -> Operand; }
+
+impl IntoOperand for Value {
+    fn into_operand(self, _: &Builder) -> Operand { Operand::Reg(self) }
 }
 
-impl<'arena> IntoOperand<'arena> for &'arena Instr {
-    fn into_operand(self, _: &Builder<'arena>) -> Operand {
-        Operand::Reg(Value::Instr(self.slot, self.ty))
-    }
-}
-
-impl<'arena> IntoOperand<'arena> for &vir::Expr {
-    fn into_operand(self, builder: &Builder<'arena>) -> Operand {
+impl IntoOperand for &vir::Expr {
+    fn into_operand(self, builder: &Builder) -> Operand {
         builder.operand_map[&self.pool_index()].clone()
     }
 }
 
-impl<'arena> IntoOperand<'arena> for Operand {
-    fn into_operand(self, _: &Builder<'arena>) -> Self {
-        self
-    }
+impl IntoOperand for Operand {
+    fn into_operand(self, _: &Builder) -> Self { self }
 }
 
 macro_rules! operands {
@@ -79,26 +70,18 @@ pub(super) use operands;
 
 //-------------------------------------------------------------------------------------------------
 
-pub struct Builder<'arena> {
-    arena:                                  &'arena Arena<Instr>,
+#[derive(Default)]
+pub struct Builder {
     args:                                   Vec<Arg>,
-    instrs:                                 Vec<&'arena Instr>,
+    instrs:                                 Vec<Instr>,
     slot_count:                             usize,
     pub(super) return_types:                Vec<Type>,
     pub(super) constants:                   Vec<Constant>,
     operand_map:                            HashMap<usize, Operand>,
-    pub(super) functions:                   Vec<(String, &'arena Instr)>,
+    pub(super) functions:                   Vec<(String, Value)>,
 }
 
-impl<'arena> Builder<'arena> {
-    fn new(
-        arena:                              &'arena Arena<Instr>
-    ) -> Self {
-        Self { arena,
-            args: vec![], instrs: vec![], slot_count: 0, return_types: vec![],
-            constants: vec![], operand_map: HashMap::new(), functions: vec![] }
-    }
-
+impl Builder {
     fn new_slot(&mut self) -> ValueSlot {
         let slot = ValueSlot::from(self.slot_count);
         self.slot_count += 1;
@@ -125,7 +108,7 @@ impl<'arena> Builder<'arena> {
         code:                                   &'static Code,
         operands:                               Vec<Operand>,
         instr:                                  &vir::Instr,
-    ) -> &'arena Instr {
+    ) -> Value {
         self.lower_fixed_instr(ty, code, operands, vec![], None, instr)
     }
 
@@ -137,14 +120,14 @@ impl<'arena> Builder<'arena> {
         fixed_inputs:                           Vec<(Value, MachineReg)>,
         fixed_output:                           Option<MachineReg>,
         vir_instr:                              &vir::Instr,
-    ) -> &'arena Instr {
-        let instr = self.make_fixed_instr(ty, code, operands, fixed_inputs, fixed_output,
+    ) -> Value {
+        let value = self.make_fixed_instr(ty, code, operands, fixed_inputs, fixed_output,
             #[cfg(feature = "dogfood")]
             vir_instr.definition_span
         );
-        let operand = instr.into_operand(self);
+        let operand = value.into_operand(self);
         self.operand_map.insert(vir_instr.pool_index, operand);
-        instr
+        value
     }
 
     pub(super) fn make_instr(
@@ -154,7 +137,7 @@ impl<'arena> Builder<'arena> {
         operands:                               Vec<Operand>,
         #[cfg(feature = "dogfood")]
         span:                                   Span,
-    ) -> &'arena Instr  {
+    ) -> Value {
         self.make_fixed_instr(ty, code, operands, vec![], None,
             #[cfg(feature = "dogfood")]
             span
@@ -170,14 +153,14 @@ impl<'arena> Builder<'arena> {
         fixed_output:                           Option<MachineReg>,
         #[cfg(feature = "dogfood")]
         span:                                   Span,
-    ) -> &'arena Instr  {
-        let instr = self.arena.alloc(Instr::new(self.new_slot(), ty, code,
+    ) -> Value {
+        let slot = self.new_slot();
+        self.instrs.push(Instr::new(slot, ty, code,
             operands, fixed_inputs, fixed_output,
             #[cfg(feature = "dogfood")]
             span
         ));
-        self.instrs.push(instr);
-        instr
+        Value::Instr(slot, ty)
     }
 
 

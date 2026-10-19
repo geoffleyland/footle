@@ -1,12 +1,12 @@
 use crate::{vir, core::BinaryOperator};
-use crate::codegen::{isa, RelativeTo, Constant, Instr, Type, MachineReg, REGS,
+use crate::codegen::{isa, RelativeTo, Constant, Value, Type, MachineReg, REGS,
     lower::{Builder, operands}, value::Operand};
 
 
 //-------------------------------------------------------------------------------------------------
 
 // This is the arch-specific part of codegen::lower::Builder.
-impl<'arena> Builder<'arena> {
+impl Builder {
     pub fn select_instrs(&mut self, input: &vir::Block, types: &[vir::TypeInfo]) {
         for instr in &input.instrs {
             let ty = Type::from(types[instr.pool_index]);
@@ -24,7 +24,8 @@ impl<'arena> Builder<'arena> {
                             instr.definition_span
                      );
                     self.lower_instr(ty, &isa::fld,
-                        operands!(self, base, Operand::PooledF64(constant_index, RelativeTo::InstrOf(base.slot))), instr);
+                        operands!(self, base, Operand::PooledF64(constant_index, RelativeTo::InstrOf(base.slot()))),
+                        instr);
                 }
                 vir::InstrKind::Bool(value) => {
                     self.lower_instr(ty,
@@ -75,7 +76,7 @@ impl<'arena> Builder<'arena> {
         types:                                  &[vir::TypeInfo],
         fixed_output:                           MachineReg,
         instr:                                  &vir::Instr,
-    ) -> &'arena Instr {
+    ) -> Value {
         let fixed_inputs = self.exprs_to_fixed_inputs(operands, types);
 
         let function_value = if let Some(&(_, v)) = self.functions.iter().find(|(n, _)| n == name) {
@@ -87,7 +88,7 @@ impl<'arena> Builder<'arena> {
                 instr.definition_span
             );
             let v = self.make_instr(Type::Pointer, &isa::ld,
-                operands!(self, base, Operand::Function(name.into(), RelativeTo::InstrOf(base.slot))),
+                operands!(self, base, Operand::Function(name.into(), RelativeTo::InstrOf(base.slot()))),
                 #[cfg(feature = "dogfood")]
                 instr.definition_span
             );
