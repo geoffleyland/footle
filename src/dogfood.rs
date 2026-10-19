@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 
-use crate::{FOOTLE_FILE_EXTENSION, core, codegen};
+use crate::{FOOTLE_FILE_EXTENSION, core, codegen, codegen::{assembler, scheduler, Signature, Pool}};
 use crate::core::{Styleable, join_format};
 use crate::ast;
 use crate::vir;
@@ -50,11 +50,11 @@ impl runtime::Observer for Printer {
         eprintln!("\nValue IR from '{}':", self.file_name());
         eprintln!("{}", vir.styled(1, self.style()));
     }
-    fn schedule(&mut self, block: &codegen::scheduler::Block, pool: &codegen::Pool) {
+    fn schedule(&mut self, block: &scheduler::Block, signature: &Signature, pool: &Pool) {
         eprintln!("\nScheduled instructions from '{}':", self.file_name());
-        eprintln!("{}", (block, pool).styled(1, self.style()));
+        eprintln!("{}", (block, signature, pool).styled(1, self.style()));
     }
-    fn assembly(&mut self, block: &codegen::assembler::Block, pool: &codegen::Pool) {
+    fn assembly(&mut self, block: &assembler::Block, pool: &Pool) {
         eprintln!("\nAssembly from '{}':", self.file_name());
         eprintln!("{}", (block, pool).styled(1, self.style()));
     }
@@ -186,10 +186,10 @@ impl runtime::Observer for DogfoodEater {
     fn signature(&mut self, signature: &[vir::TypeInfo]) {
         self.signature = join_format(signature, " ");
     }
-    fn schedule(&mut self, block: &codegen::scheduler::Block, pool: &codegen::Pool) {
-        self.test(&Self::schedule_key(), &[], true, &block_to_strings(&(block, pool)));
+    fn schedule(&mut self, block: &scheduler::Block, signature: &Signature, pool: &Pool) {
+        self.test(&Self::schedule_key(), &[], true, &block_to_strings(&(block, signature, pool)));
     }
-    fn assembly(&mut self, block: &codegen::assembler::Block, pool: &codegen::Pool) {
+    fn assembly(&mut self, block: &assembler::Block, pool: &Pool) {
         let assembly = block_to_strings(&(block, pool));
         self.test(&self.assembly_key("assembly"), &[], true, &assembly);
         self.expected.insert(self.assembly_key("disassembly"), assembly);

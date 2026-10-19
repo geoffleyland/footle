@@ -46,20 +46,20 @@ impl fmt::Display for Type {
 #[derive(Debug, Copy, Clone)]
 pub(super) enum Value<'arena> {
     Instr(&'arena Instr<'arena>),
-    Arg(&'arena Arg)
+    Arg(ValueSlot, Type)
 }
 impl Value<'_> {
     fn needs_scheduling(&self) -> bool { matches!(self, Value::Instr(..)) }
     pub(super) fn slot(&self) -> ValueSlot {
         match self {
-            Value::Instr(v)     => v.slot,
-            Value::Arg(a)  => a.slot,
+            Value::Instr(v)             => v.slot,
+            Value::Arg(slot, _)         => *slot,
         }
     }
     pub(super) fn ty(&self) -> Type {
         match self {
-            Value::Instr(v)     => v.ty,
-            Value::Arg(a)  => a.ty,
+            Value::Instr(v)             => v.ty,
+            Value::Arg(_, ty)           => *ty,
         }
     }
 }
@@ -130,7 +130,7 @@ impl<'arena> Instr<'arena> {
 
 //-------------------------------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub(super) struct Arg {
     pub(super) slot:                        ValueSlot,
     pub(super) ty:                          Type,

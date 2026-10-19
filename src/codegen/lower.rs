@@ -11,35 +11,32 @@ use crate::core::Span;
 
 //-------------------------------------------------------------------------------------------------
 
-pub struct Block<'arena> {
-    pub(super) args:                        Vec<&'arena Arg>,
-    pub(super) instrs:                      Vec<&'arena Instr<'arena>>,
-    pub(super) slot_count:                  usize,
-    pub(super) return_types :               Vec<Type>,
+/// The function signature: established in lower and passed right through to the compiled function
+pub struct Signature {
+    pub(super) args:                        Vec<Arg>,
+    pub(super) return_types:                Vec<Type>,
 }
 
+/// The constant pool - floats and function pointers.
 pub struct Pool {
     pub(super) constants:                   Vec<Constant>,
     pub(super) functions:                   Vec<String>,
 }
 
-
 pub(super) fn run<'arena>(
-    arg_arena:                              &'arena Arena<Arg>,
-    instr_arena:                            &'arena Arena<Instr<'arena>>,
+    arena:                                  &'arena Arena<Instr<'arena>>,
     input:                                  &vir::Block,
     types:                                  &[vir::TypeInfo],
-) -> (Block<'arena>, Pool) {
-    let mut builder = Builder::new(arg_arena, instr_arena);
+) -> (Vec<&'arena Instr<'arena>>, usize, Signature, Pool) {
+    let mut builder = Builder::new(arena);
     builder.lower_args(input, types);
     // Call arch-specific instruction selection.
     builder.select_instrs(input, types);
 
-    (Block {
+    (builder.instrs, builder.slot_count,
+    Signature {
         args:                               builder.args,
-        instrs:                             builder.instrs,
-        slot_count:                         builder.slot_count,
-        return_types:                       builder.return_types
+        return_types:                       builder.return_types,
     },
     Pool {
         constants:                          builder.constants,
@@ -83,9 +80,8 @@ pub(super) use operands;
 //-------------------------------------------------------------------------------------------------
 
 pub struct Builder<'arena> {
-    arg_arena:                              &'arena Arena<Arg>,
-    instr_arena:                            &'arena Arena<Instr<'arena>>,
-    args:                                   Vec<&'arena Arg>,
+    arena:                                  &'arena Arena<Instr<'arena>>,
+    args:                                   Vec<Arg>,
     instrs:                                 Vec<&'arena Instr<'arena>>,
     slot_count:                             usize,
     pub(super) return_types:                Vec<Type>,
@@ -96,10 +92,9 @@ pub struct Builder<'arena> {
 
 impl<'arena> Builder<'arena> {
     fn new(
-        arg_arena:                          &'arena Arena<Arg>,
-        instr_arena:                        &'arena Arena<Instr<'arena>>
+        arena:                              &'arena Arena<Instr<'arena>>
     ) -> Self {
-        Self { arg_arena, instr_arena,
+        Self { arena,
             args: vec![], instrs: vec![], slot_count: 0, return_types: vec![],
             constants: vec![], operand_map: HashMap::new(), functions: vec![] }
     }
@@ -114,12 +109,12 @@ impl<'arena> Builder<'arena> {
     fn lower_args(&mut self, input: &vir::Block, types: &[vir::TypeInfo]) {
         for vir_arg in &input.args {
             let ty = Type::from(types[vir_arg.pool_index]);
-            let arg = self.arg_arena.alloc(Arg{ slot: self.new_slot(), ty,
+            let slot = self.new_slot();
+            self.args.push(Arg{ slot, ty,
                 #[cfg(feature = "dogfood")]
                 span: vir_arg.definition_span,
             });
-            self.args.push(arg);
-            let operand = Operand::Reg(Value::Arg(arg));
+            let operand = Operand::Reg(Value::Arg(slot, ty));
             self.operand_map.insert(vir_arg.pool_index, operand);
         }
     }
@@ -176,7 +171,7 @@ impl<'arena> Builder<'arena> {
         #[cfg(feature = "dogfood")]
         span:                                   Span,
     ) -> &'arena Instr<'arena>  {
-        let instr = self.instr_arena.alloc(Instr::new(self.new_slot(), ty, code,
+        let instr = self.arena.alloc(Instr::new(self.new_slot(), ty, code,
             operands, fixed_inputs, fixed_output,
             #[cfg(feature = "dogfood")]
             span

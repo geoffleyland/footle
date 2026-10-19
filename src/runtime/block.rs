@@ -8,6 +8,7 @@ use crate::core::{ParseError, SourceMap};
 use crate::ast;
 use crate::env;
 use crate::vir;
+use crate::codegen::{scheduler, assembler, Signature, Pool, CompiledFn};
 use crate::codegen;
 
 
@@ -18,9 +19,9 @@ pub trait Observer {
     fn stmts(&mut self, _stmts: &[ast::Stmt]) {}
     fn vir(&mut self, _vir: &vir::Block) {}
     fn signature(&mut self, _sig: &[vir::TypeInfo]) {}
-    fn schedule(&mut self, _block: &codegen::scheduler::Block, _pool: &codegen::Pool) {}
-    fn assembly(&mut self, _block: &codegen::assembler::Block, _pool: &codegen::Pool) {}
-    fn func(&mut self, _func: &codegen::CompiledFn) {}
+    fn schedule(&mut self, _instrs: &scheduler::Block, _signature: &Signature, _pool: &Pool) {}
+    fn assembly(&mut self, _block: &assembler::Block, _pool: &Pool) {}
+    fn func(&mut self, _func: &CompiledFn) {}
     fn safe_to_run(&self) -> bool { true }
 }
 
@@ -129,7 +130,7 @@ pub struct Block {
     env:                crate::env::Env,
     pub vir:            vir::Block,
     source:             Arc<SourceMap>,
-    funcs:              HashMap<Vec<vir::TypeInfo>, codegen::CompiledFn>,
+    funcs:              HashMap<Vec<vir::TypeInfo>, CompiledFn>,
 }
 
 

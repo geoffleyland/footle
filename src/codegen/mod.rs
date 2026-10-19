@@ -13,7 +13,7 @@ mod sys;
 
 pub use pass::run;
 pub use binary::CompiledFn;
-pub use lower::Pool;
+pub use lower::{Pool, Signature};
 
 use value::{Arg, Instr, Value, ValueSlot, Type, Constant};
 use regs::{MachineReg, RegBank, RegFile, RegSet, RankSet};

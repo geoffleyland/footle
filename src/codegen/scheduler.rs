@@ -2,7 +2,7 @@ use enumset::EnumSet;
 use derive_more::{From, Into, Display};
 use typed_index_collections::TiVec;
 
-use super::{isa, lower, Arg, Instr, ValueSlot, Type};
+use super::{isa, Instr, ValueSlot};
 
 
 //-------------------------------------------------------------------------------------------------
@@ -14,47 +14,24 @@ use super::{isa, lower, Arg, Instr, ValueSlot, Type};
 #[derive(Debug, Copy, Clone, From, Into, Display, PartialOrd, Ord, PartialEq, Eq)]
 pub(super) struct SchedulePosition(usize);
 
-pub struct Block<'arena> {
-    pub(super) slot_count:                  usize,
-    pub(super) args:                        Vec<&'arena Arg>,
-    pub(super) instrs:                      TiVec<SchedulePosition, &'arena Instr<'arena>>,
-    pub(super) return_types :               Vec<Type>,
-}
-
-
-//-------------------------------------------------------------------------------------------------
-
-pub(super) fn run(
-    block:                  lower::Block<'_>,
-) -> Block<'_> {
-    let instrs = schedule(&block.instrs, block.slot_count);
-
-    Block { instrs,
-        args:           block.args,
-        return_types:   block.return_types,
-        slot_count:     block.slot_count,
-    }
-}
-
+/// The list of instructions we return, hidden to save users from the types.
+pub struct Block<'arena>(pub(super) TiVec<SchedulePosition, &'arena Instr<'arena>>);
 
 //-------------------------------------------------------------------------------------------------
 // Instruction Scheduling
 
-fn schedule<'arena>(
+pub(super) fn run<'arena>(
     instrs:             &[&'arena Instr<'arena>],
     slot_count:         usize,
-) -> TiVec<SchedulePosition, &'arena Instr<'arena>> {
+) -> Block<'arena> {
     // Count how many operands (that need scheduling, arguments are always available) each
-    // instruction has so we can figure out when they're ready to go.
+    // instruction has so we can figure out when they're ready to go, and find all the users of
+    // each value
     let mut unresolved_operand_count: TiVec<ValueSlot, usize> = vec![0; slot_count].into();
-    for instr in instrs { unresolved_operand_count[instr.slot] = instr.predecessor_instr_count(); }
-
-    // Find all the users of each value
     let mut users: TiVec<ValueSlot, _> = vec![vec![]; slot_count].into();
     for instr in instrs {
-        for slot in instr.predecessor_slots() {
-            users[slot].push(instr);
-        }
+        unresolved_operand_count[instr.slot] = instr.predecessor_instr_count();
+        for slot in instr.predecessor_slots() { users[slot].push(instr); }
     }
 
     // And count the uses of each value
@@ -141,7 +118,7 @@ fn schedule<'arena>(
         }
     }
 
-    scheduled
+    Block(scheduled)
 }
 
 
@@ -152,15 +129,15 @@ mod display {
     use std::fmt;
 
     use super::*;
-    use crate::codegen::Pool;
+    use crate::codegen::{Pool, Signature};
     use crate::core::{Styleable, LineStyle};
 
-    impl Styleable for (&Block<'_>, &Pool) {
+    impl Styleable for (&Block<'_>, &Signature, &Pool) {
         fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
-            for a in &self.0.args {
+            for a in &self.1.args {
                 writer.writeln(f, indent, Some(a.span), &format!("I{}: argument", a.slot))?;
             }
-            for instr in &self.0.instrs {
+            for instr in &self.0.0 {
                 let operands = instr.operands.iter().map(|o| format!("{o}")).collect::<Vec<_>>();
                 writer.writeln(f, indent, Some(instr.span), &format!("I{}: {}{}{}{}{}",
                     instr.slot,
@@ -169,7 +146,7 @@ mod display {
                     if instr.fixed_inputs.is_empty() { "" } else { " " },
                     instr.fixed_inputs.iter().map(|(v, _)| format!("I{}", v.slot())).collect::<Vec<_>>().join(" ")))?;
             }
-            for (i, c) in self.1.constants.iter().enumerate() {
+            for (i, c) in self.2.constants.iter().enumerate() {
                 writer.writeln(f, indent, Some(c.span), &format!("K{i}: {:?}", c.value))?;
             }
             Ok(())

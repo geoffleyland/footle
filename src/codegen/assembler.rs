@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::{Code, abi, Pool, allocator, ValueSlot, Type, MachineReg, RegSet, RegBank, RelativeTo, REGS};
+use super::{Code, abi, Pool, Signature, allocator, ValueSlot, MachineReg, RegSet, RegBank, RelativeTo, REGS};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -108,33 +108,30 @@ impl Resolved {
 }
 
 
+//-------------------------------------------------------------------------------------------------
+
 pub struct Block {
     pub(super) layout:              Layout,
     pub(super) instrs:              Vec<Instr<Resolved>>,
-    pub(super) arg_types:           Vec<Type>,
-    pub(super) return_types:        Vec<Type>,
 }
 
 
-//-------------------------------------------------------------------------------------------------
-
 pub(super) fn run(
     allocated:                      Vec<allocator::Instr>,
-    arg_types:                      Vec<Type>,
-    return_types:                   Vec<Type>,
     written_regs:                   RegSet,
+    signature:                      &Signature,
     pool:                           &Pool,
 ) -> Block{
     let mut draft_instrs = Vec::new();
     let value_words = emit_function(allocated, &mut draft_instrs, &pool.functions, written_regs);
     let glue_start_words = draft_instrs.len();
-    abi::emit_glue(&arg_types, &return_types, &mut draft_instrs);
+    abi::emit_glue(signature, &mut draft_instrs);
 
     let layout = Layout::new(glue_start_words, draft_instrs.len(), pool.constants.len(), pool.functions.len());
 
     let instrs = resolve(draft_instrs, &layout, &value_words);
 
-    Block{ layout, instrs, arg_types, return_types }
+    Block{ layout, instrs }
 }
 
 

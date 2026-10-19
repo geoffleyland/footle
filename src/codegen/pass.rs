@@ -1,7 +1,7 @@
 use typed_arena::Arena;
 
 use crate::{vir, runtime::Observer};
-use super::{lower, scheduler, allocator, assembler, binary, Instr, Arg};
+use super::{lower, scheduler, allocator, assembler, binary, Instr};
 
 
 //-------------------------------------------------------------------------------------------------
@@ -11,20 +11,17 @@ pub fn run<O:Observer>(
     types:              &[vir::TypeInfo],
     observer:           &mut O,
 ) -> binary::CompiledFn {
-    let arg_arena = Arena::<Arg>::new();
-    let instr_arena = Arena::<Instr>::new();
+    let arena = Arena::<Instr>::new();
 
-    let (lowered_block, pool) = lower::run(&arg_arena, &instr_arena, vir_block, types);
-    let arg_types = lowered_block.args.iter().map(|a| a.ty).collect();
+    let (lowered, slot_count, signature, pool) = lower::run(&arena, vir_block, types);
 
-    let scheduled_block = scheduler::run(lowered_block);
-    observer.schedule(&scheduled_block, &pool);
+    let scheduled = scheduler::run(&lowered, slot_count);
+    observer.schedule(&scheduled, &signature, &pool);
 
-    let (allocated, written_regs) = allocator::run(&scheduled_block);
-    let assembly =
-        assembler::run(allocated, arg_types, scheduled_block.return_types, written_regs, &pool);
+    let (allocated, written_regs) = allocator::run(&scheduled, slot_count, &signature);
+    let assembly = assembler::run(allocated, written_regs, &signature, &pool);
     observer.assembly(&assembly, &pool);
-    let func = binary::emit(&assembly, &pool);
+    let func = binary::emit(&assembly, signature, &pool);
     observer.func(&func);
     func
 }

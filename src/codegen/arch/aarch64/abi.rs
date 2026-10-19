@@ -1,4 +1,4 @@
-use crate::codegen::{isa, Code, Type, RegBank, MachineReg, RegSet, REGS,
+use crate::codegen::{isa, Code, Signature, RegBank, MachineReg, RegSet, REGS,
     assembler::{assemble, assemble_expr, split_regs_by_bank, Instr, Offset, Operand}};
 
 
@@ -55,7 +55,7 @@ fn save_restore(
 
 //-------------------------------------------------------------------------------------------------
 
-pub fn emit_glue(arg_types: &[Type], return_types: &[Type], instrs: &mut Vec<Instr<Operand>>) {
+pub fn emit_glue(signature: &Signature, instrs: &mut Vec<Instr<Operand>>) {
     // Move the input buffer pointer to x16 so it doesn't get clobbered by arguments to our function.
     assemble!(instrs, mov_x, REGS.scratch_reg, x0);
 
@@ -65,7 +65,7 @@ pub fn emit_glue(arg_types: &[Type], return_types: &[Type], instrs: &mut Vec<Ins
 
     // Move the arguments from the input buffer into the argument registers.
     for (offset, reg) in (0i32..).step_by(8)
-        .zip(REGS.abi_regs(arg_types.iter().copied())) {
+        .zip(REGS.abi_regs(signature.args.iter().map(|a| a.ty))) {
         match RegBank::of_reg(reg) {
             RegBank::Int        => assemble!(instrs, ldr_x_offset, reg, REGS.scratch_reg, Offset(offset)),
             RegBank::Float      => assemble!(instrs, ldr_d_offset, reg, REGS.scratch_reg, Offset(offset)),
@@ -81,7 +81,7 @@ pub fn emit_glue(arg_types: &[Type], return_types: &[Type], instrs: &mut Vec<Ins
     assemble!(instrs, ldp_x_post, REGS.scratch_reg, REGS.link_reg, REGS.stack_reg, Offset(16));
 
     for (offset, reg) in (0i32..).step_by(8)
-        .zip(REGS.abi_regs(return_types.iter().copied())) {
+        .zip(REGS.abi_regs(signature.return_types.iter().copied())) {
         match RegBank::of_reg(reg) {
             RegBank::Int        => assemble!(instrs, str_x_offset, reg, REGS.scratch_reg, Offset(offset)),
             RegBank::Float      => assemble!(instrs, str_d_offset, reg, REGS.scratch_reg, Offset(offset)),

@@ -2,7 +2,7 @@ use std::mem;
 
 use anyhow::{bail, Result};
 
-use super::{assembler, sys, Constant, Pool, Type, Layout, Resolved};
+use super::{assembler, sys, Constant, Pool, Signature, Type, Layout, Resolved};
 use crate::runtime::Value;
 
 
@@ -11,8 +11,7 @@ use crate::runtime::Value;
 pub struct CompiledFn {
     ptr:                            *mut u32,
     pub(super) layout:              Layout,
-    arg_types:                      Vec<Type>,
-    return_types:                   Vec<Type>,
+    signature:                      Signature,
     func:                           fn(*const u64, *mut u64),
 }
 
@@ -21,24 +20,20 @@ impl CompiledFn {
     fn new(
         ptr:                        *mut u32,
         layout:                     Layout,
-        arg_types:                  &[Type],
-        return_types:               &[Type],
+        signature:                  Signature,
     ) -> Self {
         let func = unsafe { mem::transmute::<*mut u32, fn(*const u64, *mut u64)>(ptr.add(layout.glue_start_words)) };
 
-        Self { ptr, layout, func,
-            arg_types:              arg_types.to_vec(),
-            return_types:           return_types.to_vec(),
-        }
+        Self { ptr, layout, signature, func }
     }
 
     pub fn call(&self, input: &[Value]) -> Result<Vec<Value>> {
-        if self.arg_types.len() != input.len() {
+        if self.signature.args.len() != input.len() {
             bail!("wrong number of arguments: expected {}, got {}",
-                self.arg_types.len(), input.len());
+                self.signature.args.len(), input.len());
         }
         let mut lowered_input = vec![];
-        for (index, (e, i)) in self.arg_types.iter().zip(input).enumerate() {
+        for (index, (e, i)) in self.signature.args.iter().map(|a| a.ty).zip(input).enumerate() {
             let bits = match (e, i) {
                 (Type::F64, Value::F64(v))  => { v.to_bits() },
                 (Type::I64, Value::Bool(v)) => { (*v).into() },
@@ -49,9 +44,9 @@ impl CompiledFn {
             lowered_input.push(bits);
         }
 
-        let mut output = vec![0u64; self.return_types.len()];
+        let mut output = vec![0u64; self.signature.return_types.len()];
         (self.func)(lowered_input.as_ptr(), output.as_mut_ptr());
-        let result = output.iter().zip(&self.return_types).map(|(&bits, &ty)| match ty {
+        let result = output.iter().zip(&self.signature.return_types).map(|(&bits, &ty)| match ty {
             Type::F64 => Value::F64(f64::from_bits(bits)),
             Type::I64 => Value::Bool(bits != 0),
             _ => unreachable!("internal compiler error: not a return type"),
@@ -73,7 +68,11 @@ impl Drop for CompiledFn {
 
 //-------------------------------------------------------------------------------------------------
 
-pub fn emit(block: &assembler::Block, pool: &Pool) -> CompiledFn {
+pub fn emit(
+    block:              &assembler::Block,
+    signature:          Signature,
+    pool:               &Pool
+) -> CompiledFn {
     let ptr = sys::alloc_jit(block.layout.total_bytes);
     let words = jit_as_words_mut(ptr, block.layout.total_bytes);
 
@@ -85,7 +84,7 @@ pub fn emit(block: &assembler::Block, pool: &Pool) -> CompiledFn {
 
     sys::finish_jit_compile(ptr, block.layout.total_bytes);
 
-    CompiledFn::new(ptr, block.layout, &block.arg_types, &block.return_types)
+    CompiledFn::new(ptr, block.layout, signature)
 }
 
 
