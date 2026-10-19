@@ -2,7 +2,7 @@ use std::mem;
 
 use anyhow::{bail, Result};
 
-use super::{assembler, sys, Constant, Type, Layout, Resolved};
+use super::{assembler, sys, Constant, Pool, Type, Layout, Resolved};
 use crate::runtime::Value;
 
 
@@ -73,15 +73,15 @@ impl Drop for CompiledFn {
 
 //-------------------------------------------------------------------------------------------------
 
-pub fn emit(block: &assembler::Block) -> CompiledFn {
+pub fn emit(block: &assembler::Block, pool: &Pool) -> CompiledFn {
     let ptr = sys::alloc_jit(block.layout.total_bytes);
     let words = jit_as_words_mut(ptr, block.layout.total_bytes);
 
     sys::start_jit_compile();
 
     encode_instrs(&block.instrs, words);
-    encode_constants(&block.constants, words, block.layout.constant_start_words);
-    encode_functions(&block.functions, words, block.layout.function_start_words);
+    encode_constants(&pool.constants, words, block.layout.constant_start_words);
+    encode_functions(&pool.functions, words, block.layout.function_start_words);
 
     sys::finish_jit_compile(ptr, block.layout.total_bytes);
 

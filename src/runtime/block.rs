@@ -18,8 +18,8 @@ pub trait Observer {
     fn stmts(&mut self, _stmts: &[ast::Stmt]) {}
     fn vir(&mut self, _vir: &vir::Block) {}
     fn signature(&mut self, _sig: &[vir::TypeInfo]) {}
-    fn schedule(&mut self, _block: &codegen::scheduler::Block) {}
-    fn assembly(&mut self, _block: &codegen::assembler::Block) {}
+    fn schedule(&mut self, _block: &codegen::scheduler::Block, _pool: &codegen::Pool) {}
+    fn assembly(&mut self, _block: &codegen::assembler::Block, _pool: &codegen::Pool) {}
     fn func(&mut self, _func: &codegen::CompiledFn) {}
     fn safe_to_run(&self) -> bool { true }
 }

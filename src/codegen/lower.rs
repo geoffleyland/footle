@@ -16,6 +16,9 @@ pub struct Block<'arena> {
     pub(super) instrs:                      Vec<&'arena Instr<'arena>>,
     pub(super) slot_count:                  usize,
     pub(super) return_types :               Vec<Type>,
+}
+
+pub struct Pool {
     pub(super) constants:                   Vec<Constant>,
     pub(super) functions:                   Vec<String>,
 }
@@ -26,20 +29,22 @@ pub(super) fn run<'arena>(
     instr_arena:                            &'arena Arena<Instr<'arena>>,
     input:                                  &vir::Block,
     types:                                  &[vir::TypeInfo],
-) -> Block<'arena> {
+) -> (Block<'arena>, Pool) {
     let mut builder = Builder::new(arg_arena, instr_arena);
     builder.lower_args(input, types);
     // Call arch-specific instruction selection.
     builder.select_instrs(input, types);
 
-    Block {
+    (Block {
         args:                               builder.args,
         instrs:                             builder.instrs,
         slot_count:                         builder.slot_count,
-        return_types:                       builder.return_types,
+        return_types:                       builder.return_types
+    },
+    Pool {
         constants:                          builder.constants,
         functions:                          builder.functions.into_iter().map(|(n, _)| n).collect()
-    }
+    })
 }
 
 

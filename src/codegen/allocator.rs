@@ -4,7 +4,7 @@ use bit_set::BitSet;
 use typed_index_collections::TiVec;
 use derive_more::{From, Into};
 
-use super::{value, Code, ValueSlot, Type, MachineReg, RegFile, RegSet, RankSet, SchedulePosition, REGS};
+use super::{value, scheduler, Code, ValueSlot, Type, MachineReg, RegFile, RegSet, RankSet, SchedulePosition, REGS};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -12,12 +12,8 @@ use crate::core::Span;
 
 //-------------------------------------------------------------------------------------------------
 
-pub(super) fn run(
-    slot_count:                         usize,
-    args:                               &[&value::Arg],
-    scheduled:                          &TiVec<SchedulePosition, &value::Instr<'_>>,
-) -> (Vec<Instr>, RegSet) {
-    let slot_block = lower_to_slots_and_split(slot_count, args, scheduled);
+pub(super) fn run(block: &scheduler::Block) -> (Vec<Instr>, RegSet) {
+    let slot_block = lower_to_slots_and_split(block.slot_count, &block.args, &block.instrs);
     let (regs, available_ranks) = allocate(&slot_block);
     lower_to_regs(&slot_block, &regs, &available_ranks)
 }

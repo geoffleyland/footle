@@ -2,7 +2,7 @@ use enumset::EnumSet;
 use derive_more::{From, Into, Display};
 use typed_index_collections::TiVec;
 
-use super::{isa, lower, Arg, Instr, ValueSlot, Type, Constant};
+use super::{isa, lower, Arg, Instr, ValueSlot, Type};
 
 
 //-------------------------------------------------------------------------------------------------
@@ -19,8 +19,6 @@ pub struct Block<'arena> {
     pub(super) args:                        Vec<&'arena Arg>,
     pub(super) instrs:                      TiVec<SchedulePosition, &'arena Instr<'arena>>,
     pub(super) return_types :               Vec<Type>,
-    pub(super) constants:                   Vec<Constant>,
-    pub(super) functions:                   Vec<String>,
 }
 
 
@@ -35,8 +33,6 @@ pub(super) fn run(
         args:           block.args,
         return_types:   block.return_types,
         slot_count:     block.slot_count,
-        constants:      block.constants,
-        functions:      block.functions,
     }
 }
 
@@ -156,14 +152,15 @@ mod display {
     use std::fmt;
 
     use super::*;
+    use crate::codegen::Pool;
     use crate::core::{Styleable, LineStyle};
 
-    impl Styleable for Block<'_> {
+    impl Styleable for (&Block<'_>, &Pool) {
         fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
-            for a in &self.args {
+            for a in &self.0.args {
                 writer.writeln(f, indent, Some(a.span), &format!("I{}: argument", a.slot))?;
             }
-            for instr in &self.instrs {
+            for instr in &self.0.instrs {
                 let operands = instr.operands.iter().map(|o| format!("{o}")).collect::<Vec<_>>();
                 writer.writeln(f, indent, Some(instr.span), &format!("I{}: {}{}{}{}{}",
                     instr.slot,
@@ -172,7 +169,7 @@ mod display {
                     if instr.fixed_inputs.is_empty() { "" } else { " " },
                     instr.fixed_inputs.iter().map(|(v, _)| format!("I{}", v.slot())).collect::<Vec<_>>().join(" ")))?;
             }
-            for (i, c) in self.constants.iter().enumerate() {
+            for (i, c) in self.1.constants.iter().enumerate() {
                 writer.writeln(f, indent, Some(c.span), &format!("K{i}: {:?}", c.value))?;
             }
             Ok(())

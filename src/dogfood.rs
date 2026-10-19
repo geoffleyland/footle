@@ -50,13 +50,13 @@ impl runtime::Observer for Printer {
         eprintln!("\nValue IR from '{}':", self.file_name());
         eprintln!("{}", vir.styled(1, self.style()));
     }
-    fn schedule(&mut self, block: &codegen::scheduler::Block) {
+    fn schedule(&mut self, block: &codegen::scheduler::Block, pool: &codegen::Pool) {
         eprintln!("\nScheduled instructions from '{}':", self.file_name());
-        eprintln!("{}", block.styled(1, self.style()));
+        eprintln!("{}", (block, pool).styled(1, self.style()));
     }
-    fn assembly(&mut self, block: &codegen::assembler::Block) {
+    fn assembly(&mut self, block: &codegen::assembler::Block, pool: &codegen::Pool) {
         eprintln!("\nAssembly from '{}':", self.file_name());
-        eprintln!("{}", block.styled(1, self.style()));
+        eprintln!("{}", (block, pool).styled(1, self.style()));
     }
     fn func(&mut self, func: &codegen::CompiledFn) {
         eprintln!("\nDisassembly from '{}':", self.file_name());
@@ -186,11 +186,11 @@ impl runtime::Observer for DogfoodEater {
     fn signature(&mut self, signature: &[vir::TypeInfo]) {
         self.signature = join_format(signature, " ");
     }
-    fn schedule(&mut self, block: &codegen::scheduler::Block) {
-        self.test(&Self::schedule_key(), &[], true, &block_to_strings(block));
+    fn schedule(&mut self, block: &codegen::scheduler::Block, pool: &codegen::Pool) {
+        self.test(&Self::schedule_key(), &[], true, &block_to_strings(&(block, pool)));
     }
-    fn assembly(&mut self, block: &codegen::assembler::Block) {
-        let assembly = block_to_strings(block);
+    fn assembly(&mut self, block: &codegen::assembler::Block, pool: &codegen::Pool) {
+        let assembly = block_to_strings(&(block, pool));
         self.test(&self.assembly_key("assembly"), &[], true, &assembly);
         self.expected.insert(self.assembly_key("disassembly"), assembly);
     }

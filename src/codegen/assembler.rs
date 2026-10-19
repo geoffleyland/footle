@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::{Code, abi, allocator, ValueSlot, Constant, Type, MachineReg, RegSet, RegBank, RelativeTo, REGS};
+use super::{Code, abi, Pool, allocator, ValueSlot, Type, MachineReg, RegSet, RegBank, RelativeTo, REGS};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -111,8 +111,6 @@ impl Resolved {
 pub struct Block {
     pub(super) layout:              Layout,
     pub(super) instrs:              Vec<Instr<Resolved>>,
-    pub(super) constants:           Vec<Constant>,
-    pub(super) functions:           Vec<String>,
     pub(super) arg_types:           Vec<Type>,
     pub(super) return_types:        Vec<Type>,
 }
@@ -122,23 +120,21 @@ pub struct Block {
 
 pub(super) fn run(
     allocated:                      Vec<allocator::Instr>,
-    constants:                      &[Constant],
-    functions:                      &[String],
     arg_types:                      Vec<Type>,
     return_types:                   Vec<Type>,
     written_regs:                   RegSet,
+    pool:                           &Pool,
 ) -> Block{
-    let mut instrs = Vec::new();
-    let value_words = emit_function(allocated, &mut instrs, functions, written_regs);
-    let glue_start_words = instrs.len();
-    abi::emit_glue(&arg_types, &return_types, &mut instrs);
+    let mut draft_instrs = Vec::new();
+    let value_words = emit_function(allocated, &mut draft_instrs, &pool.functions, written_regs);
+    let glue_start_words = draft_instrs.len();
+    abi::emit_glue(&arg_types, &return_types, &mut draft_instrs);
 
-    let layout = Layout::new(glue_start_words, instrs.len(), constants.len(), functions.len());
+    let layout = Layout::new(glue_start_words, draft_instrs.len(), pool.constants.len(), pool.functions.len());
 
-    let resolved = resolve(instrs, &layout, &value_words);
+    let instrs = resolve(draft_instrs, &layout, &value_words);
 
-    Block{ layout, instrs: resolved, constants: constants.into(), functions: functions.to_vec(),
-        arg_types, return_types }
+    Block{ layout, instrs, arg_types, return_types }
 }
 
 
@@ -252,20 +248,20 @@ mod display {
     use super::*;
     use crate::core::{Styleable, LineStyle};
 
-    impl Styleable for Block {
+    impl Styleable for (&Block, &Pool) {
         fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
-            for (i, instr) in self.instrs.iter().enumerate() {
+            for (i, instr) in self.0.instrs.iter().enumerate() {
                 let address = i32::try_from(0x1000 + i * 4).unwrap();
                 writer.writeln(f, indent, instr.span, &format!("{:#06x}: {}",
                     address,
                     instr.code.format_assembly(&instr.operands, address)))?;
             }
-            for (i, c) in self.constants.iter().enumerate() {
-                let address = 0x1000 + self.layout.constant_start_words * 4 + i * 8;
+            for (i, c) in self.1.constants.iter().enumerate() {
+                let address = 0x1000 + self.0.layout.constant_start_words * 4 + i * 8;
                 writer.writeln(f, indent, Some(c.span), &format!("{address:#06x}: {:?}", c.value))?;
             }
-            for (i, func) in self.functions.iter().enumerate() {
-                let address = 0x1000 + self.layout.function_start_words * 4 + i * 8;
+            for (i, func) in self.1.functions.iter().enumerate() {
+                let address = 0x1000 + self.0.layout.function_start_words * 4 + i * 8;
                 writer.writeln(f, indent, None, &format!("{address:#06x}: {func}"))?;
             }
             Ok(())
