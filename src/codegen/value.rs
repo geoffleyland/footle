@@ -130,7 +130,7 @@ impl Instr {
 pub(super) struct Arg {
     pub(super) slot:                        ValueSlot,
     pub(super) ty:                          Type,
-    #[cfg(feature = "dogfood")]
+    #[cfg_attr(not(feature = "dogfood"), expect(dead_code, reason = "only dogfood displays spans"))]
     pub(super) span:                        Span,
 }
 
@@ -140,7 +140,7 @@ pub(super) struct Arg {
 #[derive(Debug, Copy, Clone)]
 pub(super) struct Constant {
     pub(super) value:                       f64,
-    #[cfg(feature = "dogfood")]
+    #[cfg_attr(not(feature = "dogfood"), expect(dead_code, reason = "only dogfood displays spans"))]
     pub(super) span:                        Span
 }
 

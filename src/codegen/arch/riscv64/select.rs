@@ -12,11 +12,7 @@ impl Builder {
         let span = instr.definition_span;
         match &instr.kind {
             vir::InstrKind::Number(value) => {
-                self.constants.push(Constant{ value: *value,
-                #[cfg(feature = "dogfood")]
-                    span
-                });
-
+                self.constants.push(Constant{ value: *value, span });
                 let constant_index = self.constants.len() - 1;
                 let base = self.make_instr(Type::Pointer, &isa::auipc,
                     vec![Operand::PooledF64(constant_index, RelativeTo::ThisInstr)], span);

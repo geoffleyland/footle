@@ -94,10 +94,7 @@ impl Builder {
         for vir_arg in &input.args {
             let ty = Type::from(types[vir_arg.pool_index]);
             let slot = self.new_slot();
-            self.args.push(Arg{ slot, ty,
-                #[cfg(feature = "dogfood")]
-                span: vir_arg.definition_span,
-            });
+            self.args.push(Arg{ slot, ty, span: vir_arg.definition_span });
             let operand = Operand::Reg(Value::Arg(slot, ty));
             self.operand_map.insert(vir_arg.pool_index, operand);
         }
