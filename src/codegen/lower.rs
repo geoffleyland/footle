@@ -25,8 +25,12 @@ pub(super) fn run(
 ) -> (Vec<Instr>, usize, Signature, Pool) {
     let mut builder = Builder::default();
     builder.lower_args(input, types);
-    // Call arch-specific instruction selection.
-    builder.select_instrs(input, types);
+    for instr in &input.instrs {
+        // Call arch-specific instruction selection.
+        let value = builder.select_instr(instr, types);
+        builder.operand_map.insert(instr.pool_index, value.into_operand(&builder));
+    }
+    builder.select_return(input, types);
 
     (builder.instrs, builder.slot_count,
     Signature {
@@ -86,7 +90,6 @@ impl Builder {
         slot
     }
 
-
     fn lower_args(&mut self, input: &vir::Block, types: &[vir::TypeInfo]) {
         for vir_arg in &input.args {
             let ty = Type::from(types[vir_arg.pool_index]);
@@ -98,32 +101,6 @@ impl Builder {
             let operand = Operand::Reg(Value::Arg(slot, ty));
             self.operand_map.insert(vir_arg.pool_index, operand);
         }
-    }
-
-    pub(super) fn lower_instr(
-        &mut self,
-        ty:                                     Type,
-        code:                                   &'static Code,
-        operands:                               Vec<Operand>,
-        instr:                                  &vir::Instr,
-    ) -> Value {
-        self.lower_fixed_instr(ty, code, operands, vec![], None, instr)
-    }
-
-    pub(super) fn lower_fixed_instr(
-        &mut self,
-        ty:                                     Type,
-        code:                                   &'static Code,
-        operands:                               Vec<Operand>,
-        fixed_inputs:                           Vec<(Value, MachineReg)>,
-        fixed_output:                           Option<MachineReg>,
-        vir_instr:                              &vir::Instr,
-    ) -> Value {
-        let value = self.make_fixed_instr(ty, code, operands, fixed_inputs, fixed_output,
-            vir_instr.definition_span);
-        let operand = value.into_operand(self);
-        self.operand_map.insert(vir_instr.pool_index, operand);
-        value
     }
 
     pub(super) fn make_instr(
@@ -149,7 +126,6 @@ impl Builder {
         self.instrs.push(Instr::new(slot, ty, code, operands, fixed_inputs, fixed_output, span));
         Value::Instr(slot, ty)
     }
-
 
     pub(super) fn exprs_to_fixed_inputs(
         &self,
