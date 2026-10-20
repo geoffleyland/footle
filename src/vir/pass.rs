@@ -29,7 +29,6 @@ pub fn run(env: &Env, stmts: &[ast::Stmt]) -> Result<Block, Vec<ParseError>> {
         instrs:             flattened.instrs,
         return_values:      flattened.return_values,
         reassignments:      p.reassignments,
-        #[cfg(any(feature = "dogfood", test))]
         return_span:        flattened.return_span
     })
 }
@@ -38,14 +37,12 @@ pub fn run(env: &Env, stmts: &[ast::Stmt]) -> Result<Block, Vec<ParseError>> {
 //-------------------------------------------------------------------------------------------------
 
 pub struct Block {
-    pub exprs:              Vec<vir::Expr>,
-    pub args:               Vec<Arg>,
-    pub instrs:             Vec<Instr>,
-    pub return_values:      Vec<vir::Expr>,
-    pub reassignments:      Vec<(String, vir::Expr, vir::Expr, Span)>,
-
-    #[cfg(any(feature = "dogfood", test))]
-    pub return_span:        Span,
+    pub exprs:                  Vec<vir::Expr>,
+    pub args:                   Vec<Arg>,
+    pub instrs:                 Vec<Instr>,
+    pub return_values:          Vec<vir::Expr>,
+    pub reassignments:          Vec<(String, vir::Expr, vir::Expr, Span)>,
+    pub return_span:            Span,
 }
 
 
@@ -62,10 +59,9 @@ struct Pass {
 
 
 struct Flattened {
-    instrs:                              Vec<Instr>,
-    return_values:                       Vec<vir::Expr>,
-    #[cfg(any(feature = "dogfood", test))]
-    return_span:                         Span,
+    instrs:                     Vec<Instr>,
+    return_values:              Vec<vir::Expr>,
+    return_span:                Span,
 }
 
 
@@ -98,10 +94,7 @@ impl Pass {
                     .map(|expr| self.transform_expr(env, expr).ok())
                     .collect::<Option<Vec<_>>>();
                 if let Some(exprs) = maybe_exprs {
-                    self.stmts.push(vir::Stmt::return_stmt(exprs.try_into().unwrap(),
-                        #[cfg(any(feature = "dogfood", test))]
-                        stmt.span
-                    ));
+                    self.stmts.push(vir::Stmt::return_stmt(exprs.try_into().unwrap(), stmt.span));
                 }
             }
             ast::StmtKind::Assignment(assignment) => {
@@ -211,7 +204,6 @@ impl Pass {
         let mut instrs = vec![];
         let mut emitted = HashSet::<usize>::new();
 
-        #[cfg(any(feature = "dogfood", test))]
         let (return_values, return_span) = match self.stmts.last() {
             Some(vir::Stmt{ span, kind: vir::StmtKind::Return(exprs)}) => {
                 for expr in exprs { emit_expr(expr, &mut instrs, &mut emitted); }
@@ -219,18 +211,7 @@ impl Pass {
             }
             _ => (vec![], Span::from((0, 0))),
         };
-        #[cfg(not(any(feature = "dogfood", test)))]
-        let return_values = match self.stmts.last() {
-            Some(vir::Stmt{ kind: vir::StmtKind::Return(exprs), .. }) => {
-                for expr in exprs { emit_expr(expr, &mut instrs, &mut emitted); }
-                exprs.to_vec()
-            }
-            _ => vec![],
-        };
-        Flattened { instrs, return_values,
-            #[cfg(any(feature = "dogfood", test))]
-            return_span
-        }
+        Flattened { instrs, return_values, return_span }
     }
 }
 
@@ -308,9 +289,7 @@ fn emit_expr(expr: &vir::Expr, instrs: &mut Vec<Instr>, emitted: &mut HashSet<us
         }
         emitted.insert(expr.pool_index());
         instrs.push(Instr{ kind: instr.clone(), pool_index: expr.pool_index(),
-            #[cfg(any(feature = "dogfood", test))]
-            definition_span: expr.definition_span()
-        });
+            definition_span: expr.definition_span() });
     }
 }
 

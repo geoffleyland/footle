@@ -142,7 +142,6 @@ impl Expr {
 pub struct Instr {
     pub kind:                               InstrKind,
     pub pool_index:                         usize,
-    #[cfg(any(feature = "dogfood", test))]
     pub definition_span:                    Span,
 }
 

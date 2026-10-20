@@ -1,10 +1,8 @@
 use std::collections::HashMap;
 
+use crate::core::Span;
 use crate::vir;
 use super::{Code, Instr, Arg, Value, ValueSlot, value::Operand, Type, Constant, MachineReg, REGS};
-
-#[cfg(feature = "dogfood")]
-use crate::core::Span;
 
 
 //-------------------------------------------------------------------------------------------------
@@ -122,9 +120,7 @@ impl Builder {
         vir_instr:                              &vir::Instr,
     ) -> Value {
         let value = self.make_fixed_instr(ty, code, operands, fixed_inputs, fixed_output,
-            #[cfg(feature = "dogfood")]
-            vir_instr.definition_span
-        );
+            vir_instr.definition_span);
         let operand = value.into_operand(self);
         self.operand_map.insert(vir_instr.pool_index, operand);
         value
@@ -135,13 +131,9 @@ impl Builder {
         ty:                                     Type,
         code:                                   &'static Code,
         operands:                               Vec<Operand>,
-        #[cfg(feature = "dogfood")]
         span:                                   Span,
     ) -> Value {
-        self.make_fixed_instr(ty, code, operands, vec![], None,
-            #[cfg(feature = "dogfood")]
-            span
-        )
+        self.make_fixed_instr(ty, code, operands, vec![], None, span)
     }
 
     pub(super) fn make_fixed_instr(
@@ -151,15 +143,10 @@ impl Builder {
         operands:                               Vec<Operand>,
         fixed_inputs:                           Vec<(Value, MachineReg)>,
         fixed_output:                           Option<MachineReg>,
-        #[cfg(feature = "dogfood")]
         span:                                   Span,
     ) -> Value {
         let slot = self.new_slot();
-        self.instrs.push(Instr::new(slot, ty, code,
-            operands, fixed_inputs, fixed_output,
-            #[cfg(feature = "dogfood")]
-            span
-        ));
+        self.instrs.push(Instr::new(slot, ty, code, operands, fixed_inputs, fixed_output, span));
         Value::Instr(slot, ty)
     }
 

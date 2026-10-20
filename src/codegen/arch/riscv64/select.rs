@@ -20,9 +20,7 @@ impl Builder {
                     let constant_index = self.constants.len() - 1;
                     let base = self.make_instr(Type::Pointer, &isa::auipc,
                         vec![Operand::PooledF64(constant_index, RelativeTo::ThisInstr)],
-                            #[cfg(feature = "dogfood")]
-                            instr.definition_span
-                     );
+                            instr.definition_span);
                     self.lower_instr(ty, &isa::fld,
                         operands!(self, base, Operand::PooledF64(constant_index, RelativeTo::InstrOf(base.slot()))),
                         instr);
@@ -61,10 +59,7 @@ impl Builder {
 
         let return_values = self.exprs_to_fixed_inputs(&input.return_values, types);
         self.return_types = return_values.iter().map(|(v, _)| v.ty()).collect();
-        self.make_fixed_instr(Type::NoValue, &isa::ret, vec![], return_values, None,
-            #[cfg(feature = "dogfood")]
-            input.return_span
-        );
+        self.make_fixed_instr(Type::NoValue, &isa::ret, vec![], return_values, None, input.return_span);
     }
 
 
@@ -84,14 +79,10 @@ impl Builder {
         } else {
             let base = self.make_instr(Type::Pointer,
                 &isa::auipc, vec![Operand::Function(name.into(), RelativeTo::ThisInstr)],
-                #[cfg(feature = "dogfood")]
-                instr.definition_span
-            );
+                instr.definition_span);
             let v = self.make_instr(Type::Pointer, &isa::ld,
                 operands!(self, base, Operand::Function(name.into(), RelativeTo::InstrOf(base.slot()))),
-                #[cfg(feature = "dogfood")]
-                instr.definition_span
-            );
+                instr.definition_span);
 
             self.functions.push((name.into(), v));
             v

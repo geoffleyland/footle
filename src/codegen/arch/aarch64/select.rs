@@ -54,10 +54,7 @@ impl Builder {
 
         let return_values = self.exprs_to_fixed_inputs(&input.return_values, types);
         self.return_types = return_values.iter().map(|(v, _)| v.ty()).collect();
-        self.make_fixed_instr(Type::NoValue, &isa::ret, vec![], return_values, None,
-            #[cfg(feature = "dogfood")]
-            input.return_span
-        );
+        self.make_fixed_instr(Type::NoValue, &isa::ret, vec![], return_values, None, input.return_span);
     }
 
 
@@ -77,9 +74,7 @@ impl Builder {
         } else {
             let v = self.make_instr(Type::Pointer,
                 &isa::ldr_x_literal, vec![Operand::Function(name.into(), RelativeTo::ThisInstr)],
-                #[cfg(feature = "dogfood")]
-                instr.definition_span
-            );
+                instr.definition_span);
             self.functions.push((name.into(), v));
             v
         };

@@ -2,10 +2,9 @@ use std::fmt;
 
 use derive_more::{From, Into, Display};
 
+use crate::core::Span;
 use super::{MachineReg, Code};
 use crate::vir;
-#[cfg(feature = "dogfood")]
-use crate::core::Span;
 
 
 //-------------------------------------------------------------------------------------------------
@@ -93,7 +92,7 @@ pub(super) struct Instr {
     pub(super) operands:                    Vec<Operand>,
     pub(super) fixed_inputs:                Vec<(Value, MachineReg)>,
     pub(super) fixed_output:                Option<MachineReg>,
-    #[cfg(feature = "dogfood")]
+    #[cfg_attr(not(feature = "dogfood"), expect(dead_code, reason = "only dogfood displays spans"))]
     pub(super) span:                        Span,
 }
 
@@ -105,13 +104,9 @@ impl Instr {
         operands:                           Vec<Operand>,
         fixed_inputs:                       Vec<(Value, MachineReg)>,
         fixed_output:                       Option<MachineReg>,
-        #[cfg(feature = "dogfood")]
         span:                               Span
     ) -> Self {
-        Self { slot, ty, code, operands, fixed_inputs, fixed_output,
-        #[cfg(feature = "dogfood")]
-            span
-        }
+        Self { slot, ty, code, operands, fixed_inputs, fixed_output, span }
     }
 
     pub(super) fn latency(&self) -> u8                 { self.code.latency() }
