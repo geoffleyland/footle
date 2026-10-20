@@ -111,30 +111,24 @@ pub fn emit_glue(signature: &Signature, instrs: &mut Vec<Instr<Operand>>) {
 ///   braces, otherwise it will be confused for an offset: `li reg, {foo(value)}`.
 macro_rules! assemble {
     // The entry point.
-    ($instrs:expr, $($rest:tt)*)     => { assemble!(@suffix $instrs; $($rest)* ;) };
+    ($instrs:expr, $($rest:tt)*)        => { assemble!(@suffix $instrs; $($rest)* ;) };
     // The exit point.
-    (@suffix $instrs:expr; )         => { () };
+    (@suffix $env:tt; )                 => { () };
     // An empty line: the added `;` after a listing that already ended with one.
-    (@suffix $instrs:expr; ; $($rest:tt)*) => { assemble!(@suffix $instrs; $($rest)*) };
+    (@suffix $env:tt; ; $($rest:tt)*)   => { assemble!(@suffix $env; $($rest)*) };
 
     // Deal with instruction suffixes by turning, say, `fmv.d` into `fmv_d`.
-    (@suffix $instrs:expr; $opcode:ident . $suffix:ident $($rest:tt)*) => {
-        ::paste::paste! { assemble!(@line $instrs; [<$opcode _ $suffix>] $($rest)*) }
+    (@suffix $env:tt; $opcode:ident . $suffix:ident $($rest:tt)*) => {
+        ::paste::paste! { assemble!(@line $env; [<$opcode _ $suffix>] $($rest)*) }
     };
-    (@suffix $instrs:expr; $opcode:ident $($rest:tt)*) => {
-        assemble!(@line $instrs; $opcode $($rest)*)
+    (@suffix $env:tt; $opcode:ident $($rest:tt)*) => {
+        assemble!(@line $env; $opcode $($rest)*)
     };
 
-    // Offset form: opcode reg, offset(base).  This has to come first: otherwise the general form
-    // will match it: `offset(sp)` looks like a function call and is viable as an `expr`.
-    (@line $instrs:expr; $opcode:ident $reg:expr, $offset:tt($base:expr); $($rest:tt)*) => {{
-        assemble_instr!($instrs, $opcode, $reg, $base, $offset);
-        assemble!(@suffix $instrs; $($rest)*)
-    }};
-    // General form: opcode operand1, operand2..
-    (@line $instrs:expr; $opcode:ident $($operands:expr),*; $($rest:tt)*) => {{
-        assemble_instr!($instrs, $opcode $(,$operands)*);
-        assemble!(@suffix $instrs; $($rest)*)
+    // Assemble the general form (opcode operand1, operand2..) and move on to the next.
+    (@line $env:tt; $opcode:ident $($operands:expr),*; $($rest:tt)*) => {{
+        assemble_instr!($env, $opcode $(,$operands)*);
+        assemble!(@suffix $env; $($rest)*)
     }};
 }
 use assemble;
