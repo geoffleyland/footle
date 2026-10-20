@@ -22,8 +22,8 @@ pub fn emit_moves(instrs: &mut Vec<Instr<Operand>>, moves: &[(MachineReg, Machin
     for &(source, destination) in moves {
         debug_assert_eq!(RegBank::of_reg(source), RegBank::of_reg(destination));
         match RegBank::of_reg(source) {
-            RegBank::Int    => assemble_instr!(instrs, mv, destination, source),
-            RegBank::Float  => assemble_instr!(instrs, fmv_d, destination, source)
+            RegBank::Int    => assemble!(instrs, mv    destination, source),
+            RegBank::Float  => assemble!(instrs, fmv.d destination, source),
         }
     }
 }
@@ -38,11 +38,11 @@ fn frame_size(regs: RegSet) -> i32 {
 
 pub fn emit_save_regs(instrs: &mut Vec<Instr<Operand>>, regs: RegSet) {
     if regs.is_empty() { return }
+    assemble!(instrs, addi sp, sp, -frame_size(regs));
     let (int_regs, float_regs) = split_regs_by_bank(regs);
-    assemble_instr!(instrs, addi, sp, sp, -frame_size(regs));
     let mut offset = 0;
-    for reg in int_regs         { assemble_instr!(instrs, sd, reg, sp, offset); offset += 8; }
-    for reg in float_regs       { assemble_instr!(instrs, fsd, reg, sp, offset); offset += 8; }
+    for reg in int_regs         { assemble!(instrs, sd  reg, offset(sp)); offset += 8; }
+    for reg in float_regs       { assemble!(instrs, fsd reg, offset(sp)); offset += 8; }
 }
 
 
@@ -50,53 +50,86 @@ pub fn emit_restore_regs(instrs: &mut Vec<Instr<Operand>>, regs: RegSet) {
     if regs.is_empty() { return }
     let (int_regs, float_regs) = split_regs_by_bank(regs);
     let mut offset = 0;
-    for reg in int_regs         { assemble_instr!(instrs, ld, reg, sp, offset); offset += 8; }
-    for reg in float_regs       { assemble_instr!(instrs, fld, reg, sp, offset); offset += 8; }
-    assemble_instr!(instrs, addi, sp, sp, frame_size(regs));
+    for reg in int_regs         { assemble!(instrs, ld  reg, offset(sp)); offset += 8; }
+    for reg in float_regs       { assemble!(instrs, fld reg, offset(sp)); offset += 8; }
+    assemble!(instrs, addi sp, sp, frame_size(regs));
 }
 
 
 //-------------------------------------------------------------------------------------------------
 
 pub fn emit_glue(signature: &Signature, instrs: &mut Vec<Instr<Operand>>) {
-    // Move the input buffer pointer to the scratch reg  so it doesn't get clobbered by arguments
-    // to our function.
-    assemble_instr!(instrs, mv, t6, a0);
+    assemble!(instrs,
+        mv t6, a0;                  // Move the input buffer pointer to t6 so it doesn't get
+                                    // clobbered as we write arguments to the function.
+        addi sp, sp, -16;           // Adjust sp for the output buffer and the return address.
+        sd a1, 0(sp);               // Move the output buffer pointer to the stack.
+        sd ra, 8(sp);               // Move the return address onto the stack.
+    );
 
-    // Move the output buffer and the return address to the stack, since they're about to get
-    // overwritten and we need them later.
-    assemble_instr!(instrs, addi, sp, sp, -16);
-    assemble_instr!(instrs, sd, a1, sp, 0);
-    assemble_instr!(instrs, sd, ra, sp, 8);
-
-    // Move the arguments from the input buffer into the argument registers.
+    // Move the arguments from the input buffer (t6) into the argument registers.
     for (offset, reg) in (0i32..).step_by(8)
         .zip(REGS.abi_regs(signature.args.iter().map(|a| a.ty))) {
         match RegBank::of_reg(reg) {
-            RegBank::Int        => assemble_instr!(instrs, ld, reg, t6, offset),
-            RegBank::Float      => assemble_instr!(instrs, fld, reg, t6, offset),
+            RegBank::Int        => assemble!(instrs, ld  reg, offset(t6)),
+            RegBank::Float      => assemble!(instrs, fld reg, offset(t6)),
         }
     }
 
-    // Call our function
     let offset_to_func = -4 * i32::try_from(instrs.len())
         .expect("internal compiler error: function too long for jump");
-    assemble_instr!(instrs, jal, offset_to_func);
+    assemble!(instrs,
+        jal offset_to_func;         // Call the function.
+        ld t6, 0(sp);               // Load the output buffer point into t6.
+        ld ra, 8(sp);               // Put the return address back into ra.
+        addi sp, sp, 16;            // Adjust sp back.
+    );
 
-    // Load the output buffer in to the scratch reg and the return address to the appropriate spot
-    assemble_instr!(instrs, ld, t6, sp, 0);
-    assemble_instr!(instrs, ld, ra, sp, 8);
-    assemble_instr!(instrs, addi, sp, sp, 16);
-
+    // Move the function outputs from their registers into the output buffer (t6).
     for (offset, reg) in (0i32..).step_by(8)
         .zip(REGS.abi_regs(signature.return_types.iter().copied())) {
         match RegBank::of_reg(reg) {
-            RegBank::Int        => assemble_instr!(instrs, sd, reg, t6, offset),
-            RegBank::Float      => assemble_instr!(instrs, fsd, reg, t6, offset),
+            RegBank::Int        => assemble!(instrs, sd  reg, offset(t6)),
+            RegBank::Float      => assemble!(instrs, fsd reg, offset(t6)),
         }
     }
-    assemble_instr!(instrs, ret);
+    assemble!(instrs, ret);
 }
+
+
+//-------------------------------------------------------------------------------------------------
+
+/// Nifty little assembler macro that lets us write RISC-V assembly like RISC-V assembly!
+///
+/// Examples are above, but roughly: assemble!(instrs, opcode arg1, arg2; ..).
+/// Instructions are separated by semicolons (the last one is optional) and you can use RISC-V
+/// dot-syntax (fmv.d) on instructions.
+/// Exceptions from "real" RISC-V assembler are:
+/// * if an offset is more than one token (including just a negative number) it needs to be in
+///   curly braces: `ld reg, {-8}(t6)`;
+/// * if the second operand of an instruction is a function call, the whole call needs to be in
+///   braces, otherwise it will be confused for an offset: `li reg, {foo(value)}`.
+macro_rules! assemble {
+    // The entry point.
+    ($instrs:expr, $($rest:tt)*)     => { assemble!(@line $instrs; $($rest)* ;) };
+    // The exit point.
+    (@line $instrs:expr; )           => { () };
+    // An empty line: the added `;` after a listing that already ended with one.
+    (@line $instrs:expr; ; $($rest:tt)*) => { assemble!(@line $instrs; $($rest)*) };
+
+    // Offset form: opcode reg, offset(base).  This has to come first: otherwise the general form
+    // will match it.
+    (@line $instrs:expr; $opcode:ident $(. $suffix:ident)? $reg:expr, $offset:tt($base:expr); $($rest:tt)*) => {{
+        ::paste::paste! { assemble_instr!($instrs, [<$opcode $(_ $suffix)?>], $reg, $base, $offset) };
+        assemble!(@line $instrs; $($rest)*)
+    }};
+    // G eneral form: opcode operand1, operand2..
+    (@line $instrs:expr; $opcode:ident $(. $suffix:ident)? $($operands:expr),*; $($rest:tt)*) => {{
+        ::paste::paste! { assemble_instr!($instrs, [<$opcode $(_ $suffix)?>] $(,$operands)*) };
+        assemble!(@line $instrs; $($rest)*)
+    }};
+}
+use assemble;
 
 
 //-------------------------------------------------------------------------------------------------
