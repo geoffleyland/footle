@@ -125,6 +125,12 @@ macro_rules! assemble {
         assemble!(@line $env; $opcode $($rest)*)
     };
 
+    // Offset form: opcode reg, offset(base).  This has to come first: otherwise the general form
+    // will match it: `offset(sp)` looks like a function call and is viable as an `expr`.
+    (@line $env:tt; $opcode:ident $reg:expr, $offset:tt($base:expr); $($rest:tt)*) => {
+        assemble!(@line $env; $opcode $reg, $base, $offset; $($rest)*)
+    };
+
     // Assemble the general form (opcode operand1, operand2..) and move on to the next.
     (@line $env:tt; $opcode:ident $($operands:expr),*; $($rest:tt)*) => {{
         assemble_instr!($env, $opcode $(,$operands)*);
