@@ -17,20 +17,26 @@ pub(super) enum RelativeTo {
 
 #[derive(Debug, Clone)]
 pub(super) enum Operand<REG> {
-    PooledF64(usize, RelativeTo),
-    ImmU16(u16),
-    Function(String, RelativeTo),
     Reg(REG),
+    ImmU16(u16),
+    PooledF64(usize, RelativeTo),
+    Function(String, RelativeTo),
 }
 
 impl<REG> Operand<REG> {
     pub(super) fn map_reg<R2>(self, f: impl FnOnce(REG) -> R2) -> Operand<R2> {
         match self {
-            Self::PooledF64(c, r)   => Operand::PooledF64(c, r),
-            Self::ImmU16(v)         => Operand::ImmU16(v),
-            Self::Function(s, r)    => Operand::Function(s, r),
             Self::Reg(r)            => Operand::Reg(f(r)),
+            Self::ImmU16(v)         => Operand::ImmU16(v),
+            Self::PooledF64(c, r)   => Operand::PooledF64(c, r),
+            Self::Function(s, r)    => Operand::Function(s, r),
         }
+    }
+    pub(super) fn constant(index: usize, relative_to: RelativeTo) -> Self {
+        Self::PooledF64(index, relative_to)
+    }
+    pub(super) fn function(name: &str, relative_to: RelativeTo) -> Self {
+        Self::Function(name.into(), relative_to)
     }
 }
 

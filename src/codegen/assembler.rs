@@ -10,9 +10,9 @@ use crate::core::Span;
 
 pub(super) enum Operand {
     Reg(MachineReg),
-    PooledF64(usize, RelativeTo),
     ImmU16(u16),
     Offset(i32),
+    PooledF64(usize, RelativeTo),
     Function(usize, RelativeTo),
 }
 
@@ -23,7 +23,6 @@ impl From<i32> for Operand {
 impl From<MachineReg> for Operand {
     fn from(r: MachineReg) -> Self { Self::Reg(r) }
 }
-
 
 macro_rules! assemble_expr {
     ($instrs:expr, $op:expr $(, $($operand:expr),*)?) => {

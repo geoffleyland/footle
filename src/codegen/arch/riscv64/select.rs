@@ -14,14 +14,13 @@ impl Builder {
             vir::InstrKind::Number(value) => {
                 self.constants.push(Constant{ value: *value, span });
                 let constant_index = self.constants.len() - 1;
-                let base = self.make_instr(Type::Pointer, &isa::auipc,
-                    vec![Operand::PooledF64(constant_index, RelativeTo::ThisInstr)], span);
-                self.make_instr(ty, &isa::fld,
-                    operands!(self, base, Operand::PooledF64(constant_index, RelativeTo::InstrOf(base.slot()))),
-                    span)
+                assemble!(self, span,
+                    auipc base: Pointer, %constant(constant_index);
+                    fld : ty, %constant(constant_index)(base)
+                )
             }
             vir::InstrKind::Bool(value) => {
-                self.make_instr(ty, &isa::li, vec![Operand::ImmU16((*value).into())], span)
+                assemble!(self, span, li :ty, Operand::ImmU16((*value).into()))
             },
             vir::InstrKind::Binary(op, lhs, rhs) => {
                 if *op == BinaryOperator::Power {
@@ -33,15 +32,13 @@ impl Builder {
                         REGS.abi_regs([ty]).next().unwrap(), span)
 
                 } else {
-                    let machine_instr = match op {
-                        BinaryOperator::Add             => &isa::fadd_d,
-                        BinaryOperator::Subtract        => &isa::fsub_d,
-                        BinaryOperator::Multiply        => &isa::fmul_d,
-                        BinaryOperator::Divide          => &isa::fdiv_d,
-
-                        _                               => todo!("More machine ops")
-                    };
-                    self.make_instr(ty, machine_instr, operands!(self, lhs, rhs), span)
+                    match op {
+                        BinaryOperator::Add         => assemble!(self, span, fadd.d : ty, lhs, rhs),
+                        BinaryOperator::Subtract    => assemble!(self, span, fsub.d : ty, lhs, rhs),
+                        BinaryOperator::Multiply    => assemble!(self, span, fmul.d : ty, lhs, rhs),
+                        BinaryOperator::Divide      => assemble!(self, span, fdiv.d : ty, lhs, rhs),
+                        _                           => todo!("More machine ops")
+                    }
                 }
             }
             vir::InstrKind::Call(name, exprs) => {
@@ -73,20 +70,80 @@ impl Builder {
         let function_value = if let Some(&(_, v)) = self.functions.iter().find(|(n, _)| n == name) {
             v
         } else {
-            let base = self.make_instr(Type::Pointer,
-                &isa::auipc, vec![Operand::Function(name.into(), RelativeTo::ThisInstr)], span);
-            let v = self.make_instr(Type::Pointer, &isa::ld,
-                operands!(self, base, Operand::Function(name.into(), RelativeTo::InstrOf(base.slot()))),
-                span);
-
+            let v = assemble!(self, span,
+                auipc base: Pointer, %function(name);
+                ld : Pointer, %function(name)(base)
+            );
             self.functions.push((name.into(), v));
             v
         };
-
         self.make_fixed_instr(ty,
             &isa::jalr, operands!(self, function_value), fixed_inputs, Some(fixed_output), span)
     }
 }
+
+
+//-------------------------------------------------------------------------------------------------
+
+macro_rules! assemble {
+    // The entry point.
+    ($builder:expr, $span:expr, $($rest:tt)*)  => {{ assemble!(@suffix [$builder, $span] $($rest)*) }};
+
+    // Deal with instruction suffixes by turning, say, `fmv.d` into `fmv_d`.
+    (@suffix [$($header:tt),*] $opcode:ident . $suffix:ident $($rest:tt)*) => {
+        ::paste::paste! { assemble!(@dest [$($header,)* [<$opcode _ $suffix>]] $($rest)*) }
+    };
+    (@suffix [$($header:tt),*] $opcode:ident $($rest:tt)*) => {
+        assemble!(@dest [$($header,)* $opcode] $($rest)*)
+    };
+
+    (@dest [$($header:tt),*] $($dest:ident)? : $ty:expr, $($rest:tt)*) => {
+        assemble!(@operands [$($header,)* ($($dest)?, $ty)] $($rest)*)
+    };
+
+    // Offset to a function or constant
+    (@operands $header:tt % $kind:ident($arg:expr)($base:expr) $($rest:tt)*) => {
+        assemble!(@line $header
+            ($base, Operand::$kind($arg, RelativeTo::InstrOf($base.slot())))
+            $($rest)*)
+    };
+    (@operands $header:tt % $kind:ident($arg:expr) $($rest:tt)*) => {
+        assemble!(@line $header
+            (Operand::$kind($arg, RelativeTo::ThisInstr))
+            $($rest)*)
+    };
+    (@operands $header:tt $($operands:expr),* ; $($rest:tt)*) => {
+        assemble!(@line $header ($($operands),*) ; $($rest)*)
+    };
+    (@operands $header:tt $($operands:expr),*) => {
+        assemble!(@line $header ($($operands),*))
+    };
+
+    // The last line
+    (@line [$builder:expr, $span:expr, $opcode:ident, ($($dest:ident)?,$ty:expr)] $operands:tt $(;)*) => {
+        assemble!(@emit [$builder, $span, $opcode, $ty] $operands)
+    };
+
+    // Assemble a line and pass on the rest.
+    (@line [$builder:expr, $span:expr, $opcode:ident, ($dest:ident,$ty:expr)] $operands:tt ; $($rest:tt)*) => {{
+        let $dest = assemble!(@emit [$builder, $span, $opcode, $ty] $operands);
+        assemble!(@suffix [$builder, $span] $($rest)*)
+    }};
+
+    // Finally, actually do some work.
+    (@emit [$builder:expr, $span:expr, $opcode:ident, $ty:expr] ($($operands:expr),*)) => {
+        $builder.make_instr(
+            {
+                #[allow(unused_imports)]
+                use Type::*;
+                $ty
+            },
+            &$crate::codegen::isa::$opcode,
+            operands!($builder, $($operands),*),
+            $span)
+    };
+}
+use assemble;
 
 
 //-------------------------------------------------------------------------------------------------

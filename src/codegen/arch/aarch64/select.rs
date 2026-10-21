@@ -14,7 +14,7 @@ impl Builder {
                 self.constants.push(Constant{ value: *value, span });
                 let constant_index = self.constants.len() - 1;
                 self.make_instr(ty, &isa::ldr_d_literal,
-                    vec![Operand::PooledF64(constant_index, RelativeTo::ThisInstr)], span)
+                    vec![Operand::constant(constant_index, RelativeTo::ThisInstr)], span)
             }
             vir::InstrKind::Bool(value) => {
                 self.make_instr(ty,
@@ -71,7 +71,7 @@ impl Builder {
             v
         } else {
             let v = self.make_instr(Type::Pointer,
-                &isa::ldr_x_literal, vec![Operand::Function(name.into(), RelativeTo::ThisInstr)],
+                &isa::ldr_x_literal, vec![Operand::function(name, RelativeTo::ThisInstr)],
                 span);
             self.functions.push((name.into(), v));
             v
