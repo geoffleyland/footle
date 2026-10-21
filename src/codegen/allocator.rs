@@ -45,8 +45,8 @@ struct SlotInstr {
     slot:                               AllocatorSlot,
     code:                               &'static Code,
     operands:                           Vec<SlotOperand>,
-    fixed_inputs:                       Vec<(AllocatorSlot, MachineReg)>,
-    fixed_output:                       Option<MachineReg>,
+    abi_args:                           Vec<(AllocatorSlot, MachineReg)>,
+    abi_output:                         Option<MachineReg>,
     slot_moves:                         Vec<(AllocatorSlot, AllocatorSlot)>,
     value_slot:                         ValueSlot,
     #[cfg(feature = "dogfood")]
@@ -59,8 +59,8 @@ impl SlotInstr {
         let operands = self.operands.iter().filter_map(|op| {
             if let SlotOperand::Reg(s) = op { Some(*s) } else { None }
         });
-        let fixed_inputs = self.fixed_inputs.iter().map(|(v, _)| *v);
-        operands.chain(fixed_inputs)
+        let abi_args = self.abi_args.iter().map(|(v, _)| *v);
+        operands.chain(abi_args)
     }
 }
 
@@ -109,8 +109,8 @@ fn lower_to_slots_and_split(
         let operands = instr.operands.iter().cloned()
             .map(|o| o.map_reg::<AllocatorSlot>(|v| slot_map[v.slot()].unwrap())).collect();
 
-        // Renumber any fixed inputs
-        let fixed_inputs = instr.fixed_inputs.iter()
+        // Renumber the ABI arguments' slots.
+        let abi_args = instr.abi_args.iter()
             .map(|(v, reg)| (slot_map[v.slot()].unwrap(), *reg))
             .collect();
 
@@ -133,16 +133,16 @@ fn lower_to_slots_and_split(
             }
         }
 
-        if let Some(fixed_output) = instr.fixed_output {
-            fixed_reg_slots[fixed_output] = Some(instr.slot);
+        if let Some(abi_output) = instr.abi_output {
+            fixed_reg_slots[abi_output] = Some(instr.slot);
         }
 
         let new_slot = slot_types.push_and_get_key(instr.ty);
         new_schedule.push(SlotInstr{
-            operands, slot_moves, fixed_inputs,
+            operands, slot_moves, abi_args,
             code:                           instr.code,
             slot:                           new_slot,
-            fixed_output:                   instr.fixed_output,
+            abi_output:                     instr.abi_output,
             value_slot:                     instr.slot,
 
             #[cfg(feature = "dogfood")]
@@ -216,17 +216,17 @@ fn allocate(
 
     // Allocate registers for value with constrained output registers.
     for instr in &block.instrs {
-        if let Some(fixed_output) = instr.fixed_output {
-            set_reg(instr.slot, fixed_output, &regs, &interfering_slots, &mut available_ranks);
+        if let Some(abi_output) = instr.abi_output {
+            set_reg(instr.slot, abi_output, &regs, &interfering_slots, &mut available_ranks);
         }
     }
 
     // Allocate registers for values with constrained operand registers.
     for instr in &block.instrs {
-        for (input_slot, preferred_reg) in &instr.fixed_inputs {
-            if regs[*input_slot].get().is_some() { continue; }
-            let reg = REGS.best_reg(available_ranks[*input_slot], Some(*preferred_reg));
-            set_reg(*input_slot, reg, &regs, &interfering_slots, &mut available_ranks);
+        for (arg_slot, preferred_reg) in &instr.abi_args {
+            if regs[*arg_slot].get().is_some() { continue; }
+            let reg = REGS.best_reg(available_ranks[*arg_slot], Some(*preferred_reg));
+            set_reg(*arg_slot, reg, &regs, &interfering_slots, &mut available_ranks);
         }
     }
 
@@ -296,13 +296,13 @@ fn lower_to_regs(
         let operands: Vec<Operand> = instr.operands.iter().cloned().map(|o| o.map_reg(|s|
             regs[s].expect("internal compiler error: no register assigned for slot"))).collect();
 
-        // Unify fixed_input moves and slot_moves and transform them into an ordered list of moves
-        // between registers.
+        // Unify the ABI argument moves and slot_moves and transform them into an ordered list of
+        // moves between registers.
         // While we're unifying, filter out any that turn out to be between the same register.
         // We store the source slot for each move so that, if the moves need a temp register,
         // we pick from any of the registers available to the moved slots (minus the registers
         // they're using)
-        let unordered_moves: Vec<_> = instr.fixed_inputs.iter()
+        let unordered_moves: Vec<_> = instr.abi_args.iter()
             .map(|(slot, reg)| (*slot, regs[*slot].unwrap(), *reg))
             .chain(instr.slot_moves.iter()
                 .map(|(src, dst)| (*src, regs[*src].unwrap(), regs[*dst].unwrap())))

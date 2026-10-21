@@ -143,8 +143,8 @@ mod display {
                     instr.slot,
                     instr.code.mnemonic(),
                     if operands.is_empty() { "" } else { " " }, operands.join(" "),
-                    if instr.fixed_inputs.is_empty() { "" } else { " " },
-                    instr.fixed_inputs.iter().map(|(v, _)| format!("I{}", v.slot())).collect::<Vec<_>>().join(" ")))?;
+                    if instr.abi_args.is_empty() { "" } else { " " },
+                    instr.abi_args.iter().map(|(v, _)| format!("I{}", v.slot())).collect::<Vec<_>>().join(" ")))?;
             }
             for (i, c) in self.2.constants.iter().enumerate() {
                 writer.writeln(f, indent, Some(c.span), &format!("K{i}: {:?}", c.value))?;

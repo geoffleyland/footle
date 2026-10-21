@@ -133,7 +133,7 @@ impl Builder {
             .zip(REGS.abi_regs(exprs.iter().map(|expr| Type::from(types[expr.pool_index()]))))
             .map(|(expr, reg)| (
                 if let Operand::Reg(v) = self.operand_map[&expr.pool_index()] { v } else {
-                    panic!("internal compiler error: constant as a fixed input")
+                    panic!("internal compiler error: constant as an ABI argument")
                 },
                 reg)
             ).collect()

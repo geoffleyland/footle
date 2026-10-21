@@ -90,8 +90,8 @@ pub(super) struct Instr {
     pub(super) ty:                          Type,
     pub(super) code:                        &'static Code,
     pub(super) operands:                    Vec<Operand>,
-    pub(super) fixed_inputs:                Vec<(Value, MachineReg)>,
-    pub(super) fixed_output:                Option<MachineReg>,
+    pub(super) abi_args:                    Vec<(Value, MachineReg)>,
+    pub(super) abi_output:                  Option<MachineReg>,
     #[cfg_attr(not(feature = "dogfood"), expect(dead_code, reason = "only dogfood displays spans"))]
     pub(super) span:                        Span,
 }
@@ -102,18 +102,18 @@ impl Instr {
         ty:                                 Type,
         code:                               &'static Code,
         operands:                           Vec<Operand>,
-        fixed_inputs:                       Vec<(Value, MachineReg)>,
-        fixed_output:                       Option<MachineReg>,
+        abi_args:                           Vec<(Value, MachineReg)>,
+        abi_output:                         Option<MachineReg>,
         span:                               Span
     ) -> Self {
-        Self { slot, ty, code, operands, fixed_inputs, fixed_output, span }
+        Self { slot, ty, code, operands, abi_args, abi_output, span }
     }
 
     pub(super) fn latency(&self) -> u8                 { self.code.latency() }
 
     fn predecessors(&self) -> impl Iterator<Item = Value> {
         self.operands.iter().filter_map(Operand::value)
-            .chain(self.fixed_inputs.iter().map(|(v, _)| *v))
+            .chain(self.abi_args.iter().map(|(v, _)| *v))
     }
     pub(super) fn predecessor_instr_count(&self) -> usize {
         self.predecessors().filter(Value::needs_scheduling).count()
