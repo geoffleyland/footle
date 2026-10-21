@@ -1,5 +1,5 @@
 use crate::{vir, core::{BinaryOperator, Span}};
-use crate::codegen::{isa, RelativeTo, Constant, Value, Type, MachineReg, REGS,
+use crate::codegen::{isa, RelativeTo, Constant, Value, Type, MachineReg,
     lower::{Builder, operands}, value::Operand};
 
 
@@ -7,7 +7,7 @@ use crate::codegen::{isa, RelativeTo, Constant, Value, Type, MachineReg, REGS,
 
 // This is the arch-specific part of codegen::lower::Builder.
 impl Builder {
-    pub fn select_instr(&mut self, instr: &vir::Instr, types: &[vir::TypeInfo]) -> Value {
+    pub(in crate::codegen) fn select_instr(&mut self, instr: &vir::Instr, types: &[vir::TypeInfo]) -> Value {
         let ty = Type::from(types[instr.pool_index]);
         let span = instr.definition_span;
         match &instr.kind {
@@ -23,62 +23,48 @@ impl Builder {
                 assemble!(self, span, li :ty, Operand::ImmU16((*value).into()))
             },
             vir::InstrKind::Binary(op, lhs, rhs) => {
-                if *op == BinaryOperator::Power {
-                    self.select_call("pow", ty, &[lhs.clone(), rhs.clone()], types,
-                        REGS.abi_regs([ty]).next().unwrap(), span)
+                match op {
+                    BinaryOperator::Add         => assemble!(self, span, fadd.d : ty, lhs, rhs),
+                    BinaryOperator::Subtract    => assemble!(self, span, fsub.d : ty, lhs, rhs),
+                    BinaryOperator::Multiply    => assemble!(self, span, fmul.d : ty, lhs, rhs),
+                    BinaryOperator::Divide      => assemble!(self, span, fdiv.d : ty, lhs, rhs),
 
-                } else if *op == BinaryOperator::Modulo {
-                    self.select_call("fmod", ty, &[lhs.clone(), rhs.clone()], types,
-                        REGS.abi_regs([ty]).next().unwrap(), span)
+                    BinaryOperator::Power =>
+                        self.lower_call("pow",  ty, &[lhs.clone(), rhs.clone()], types, span),
+                    BinaryOperator::Modulo =>
+                        self.lower_call("fmod", ty, &[lhs.clone(), rhs.clone()], types, span),
 
-                } else {
-                    match op {
-                        BinaryOperator::Add         => assemble!(self, span, fadd.d : ty, lhs, rhs),
-                        BinaryOperator::Subtract    => assemble!(self, span, fsub.d : ty, lhs, rhs),
-                        BinaryOperator::Multiply    => assemble!(self, span, fmul.d : ty, lhs, rhs),
-                        BinaryOperator::Divide      => assemble!(self, span, fdiv.d : ty, lhs, rhs),
-                        _                           => todo!("More machine ops")
-                    }
+                    _                           => todo!("More machine ops")
                 }
             }
-            vir::InstrKind::Call(name, exprs) => {
-                self.select_call(name, ty, exprs, types,
-                    REGS.abi_regs([ty]).next().unwrap(), span)
-            }
+            vir::InstrKind::Call(name, exprs) => self.lower_call(name, ty, exprs, types, span)
         }
     }
 
 
-    pub fn select_return(&mut self, input: &vir::Block, types: &[vir::TypeInfo]) {
-        let return_values = self.exprs_to_fixed_inputs(&input.return_values, types);
+    pub(in crate::codegen) fn select_return(&mut self, input: &vir::Block, types: &[vir::TypeInfo]) {
+        let return_values = self.exprs_to_abi_regs(&input.return_values, types);
         self.return_types = return_values.iter().map(|(v, _)| v.ty()).collect();
-        self.make_fixed_instr(Type::NoValue, &isa::ret, vec![], return_values, None, input.return_span);
+        self.emit_abi_instr(Type::NoValue, &isa::ret, vec![], return_values, None, input.return_span);
     }
 
 
-    fn select_call(
+    pub(in crate::codegen) fn load_function_address(&mut self, name: &str, span: Span) -> Value {
+        assemble!(self, span,
+            auipc base: Pointer, %function(name);
+            ld : Pointer, %function(name)(base)
+        )
+    }
+
+    pub(in crate::codegen) fn select_call(
         &mut self,
-        name:                                   &str,
         ty:                                     Type,
-        operands:                               &[vir::Expr],
-        types:                                  &[vir::TypeInfo],
-        fixed_output:                           MachineReg,
+        function:                               Value,
+        args:                                   Vec<(Value, MachineReg)>,
+        output:                                 MachineReg,
         span:                                   Span,
     ) -> Value {
-        let fixed_inputs = self.exprs_to_fixed_inputs(operands, types);
-
-        let function_value = if let Some(&(_, v)) = self.functions.iter().find(|(n, _)| n == name) {
-            v
-        } else {
-            let v = assemble!(self, span,
-                auipc base: Pointer, %function(name);
-                ld : Pointer, %function(name)(base)
-            );
-            self.functions.push((name.into(), v));
-            v
-        };
-        self.make_fixed_instr(ty,
-            &isa::jalr, operands!(self, function_value), fixed_inputs, Some(fixed_output), span)
+        self.emit_abi_instr(ty, &isa::jalr, operands!(self, function), args, Some(output), span)
     }
 }
 
@@ -132,7 +118,7 @@ macro_rules! assemble {
 
     // Finally, actually do some work.
     (@emit [$builder:expr, $span:expr, $opcode:ident, $ty:expr] ($($operands:expr),*)) => {
-        $builder.make_instr(
+        $builder.emit_instr(
             {
                 #[allow(unused_imports)]
                 use Type::*;

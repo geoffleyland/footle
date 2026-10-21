@@ -100,31 +100,31 @@ impl Builder {
         }
     }
 
-    pub(super) fn make_instr(
+    pub(super) fn emit_instr(
         &mut self,
         ty:                                     Type,
         code:                                   &'static Code,
         operands:                               Vec<Operand>,
         span:                                   Span,
     ) -> Value {
-        self.make_fixed_instr(ty, code, operands, vec![], None, span)
+        self.emit_abi_instr(ty, code, operands, vec![], None, span)
     }
 
-    pub(super) fn make_fixed_instr(
+    pub(super) fn emit_abi_instr(
         &mut self,
         ty:                                     Type,
         code:                                   &'static Code,
         operands:                               Vec<Operand>,
-        fixed_inputs:                           Vec<(Value, MachineReg)>,
-        fixed_output:                           Option<MachineReg>,
+        abi_args:                               Vec<(Value, MachineReg)>,
+        abi_output:                             Option<MachineReg>,
         span:                                   Span,
     ) -> Value {
         let slot = self.new_slot();
-        self.instrs.push(Instr::new(slot, ty, code, operands, fixed_inputs, fixed_output, span));
+        self.instrs.push(Instr::new(slot, ty, code, operands, abi_args, abi_output, span));
         Value::Instr(slot, ty)
     }
 
-    pub(super) fn exprs_to_fixed_inputs(
+    pub(super) fn exprs_to_abi_regs(
         &self,
         exprs:                                  &[vir::Expr],
         types:                                  &[vir::TypeInfo],
@@ -137,6 +137,25 @@ impl Builder {
                 },
                 reg)
             ).collect()
+    }
+
+    pub(super) fn lower_call(
+        &mut self,
+        name:                                   &str,
+        ty:                                     Type,
+        arg_exprs:                              &[vir::Expr],
+        types:                                  &[vir::TypeInfo],
+        span:                                   Span,
+    ) -> Value {
+        let function_address =
+            if let Some(&(_, a)) = self.functions.iter().find(|(n, _)| n == name) { a } else {
+            let a = self.load_function_address(name, span);
+            self.functions.push((name.into(), a));
+            a
+        };
+        let args = self.exprs_to_abi_regs(arg_exprs, types);
+        let output_reg = REGS.abi_regs([ty]).next().unwrap();
+        self.select_call(ty, function_address, args, output_reg, span)
     }
 }
 
