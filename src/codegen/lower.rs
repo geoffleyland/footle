@@ -30,7 +30,7 @@ pub(super) fn run(
         let value = builder.select_instr(instr, types);
         builder.operand_map.insert(instr.pool_index, value.into_operand(&builder));
     }
-    builder.select_return(input, types);
+    builder.lower_return(input, types);
 
     (builder.instrs, builder.slot_count,
     Signature {
@@ -124,14 +124,11 @@ impl Builder {
         Value::Instr(slot, ty)
     }
 
-    pub(super) fn emit_return(
-        &mut self,
-        code:                                   &'static Code,
-        abi_args:                               Vec<(Value, MachineReg)>,
-        span:                                   Span,
-    ) {
+    pub fn lower_return(&mut self, input: &vir::Block, types: &[vir::TypeInfo]) {
+        let return_values = self.exprs_to_abi_regs(&input.return_values, types);
+        self.return_types = return_values.iter().map(|(v, _)| v.ty()).collect();
         let slot = self.new_slot();
-        self.instrs.push(Instr::new(slot, None, code, vec![], abi_args, None, span));
+        self.instrs.push(Instr::new(slot, None, Self::RETURN, vec![], return_values, None, input.return_span));
     }
 
     pub(super) fn exprs_to_abi_regs(

@@ -1,11 +1,13 @@
 use crate::{vir, core::{Span, BinaryOperator}};
-use crate::codegen::{isa, RelativeTo, Constant, Value, Type, MachineReg,
+use crate::codegen::{isa, Code, RelativeTo, Constant, Value, Type, MachineReg,
     lower::{Builder, operands}, value::Operand};
 
 //-------------------------------------------------------------------------------------------------
 
 // This is the arch-specific part of codegen::lower::Builder.
 impl Builder {
+    pub(in crate::codegen) const RETURN: &'static Code = &isa::ret;
+
     pub(in crate::codegen) fn select_instr(&mut self, instr: &vir::Instr, types: &[vir::TypeInfo]) -> Value {
         let ty = Type::from(types[instr.pool_index]);
         let span = instr.definition_span;
@@ -42,14 +44,6 @@ impl Builder {
             vir::InstrKind::Call(name, exprs) => self.lower_call(name, ty, exprs, types, span)
         }
     }
-
-
-    pub(in crate::codegen) fn select_return(&mut self, input: &vir::Block, types: &[vir::TypeInfo]) {
-        let return_values = self.exprs_to_abi_regs(&input.return_values, types);
-        self.return_types = return_values.iter().map(|(v, _)| v.ty()).collect();
-        self.emit_return(&isa::ret, return_values, input.return_span);
-    }
-
 
     pub(in crate::codegen) fn load_function_address(&mut self, name: &str, span: Span) -> Value {
         self.emit_instr(Type::Pointer,
