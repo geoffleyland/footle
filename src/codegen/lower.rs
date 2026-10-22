@@ -120,8 +120,18 @@ impl Builder {
         span:                                   Span,
     ) -> Value {
         let slot = self.new_slot();
-        self.instrs.push(Instr::new(slot, ty, code, operands, abi_args, abi_output, span));
+        self.instrs.push(Instr::new(slot, Some(ty), code, operands, abi_args, abi_output, span));
         Value::Instr(slot, ty)
+    }
+
+    pub(super) fn emit_return(
+        &mut self,
+        code:                                   &'static Code,
+        abi_args:                               Vec<(Value, MachineReg)>,
+        span:                                   Span,
+    ) {
+        let slot = self.new_slot();
+        self.instrs.push(Instr::new(slot, None, code, vec![], abi_args, None, span));
     }
 
     pub(super) fn exprs_to_abi_regs(
@@ -154,7 +164,7 @@ impl Builder {
             a
         };
         let args = self.exprs_to_abi_regs(arg_exprs, types);
-        let output_reg = REGS.abi_regs([ty]).next().unwrap();
+        let output_reg = REGS.abi_result_reg(ty);
         self.select_call(ty, function_address, args, output_reg, span)
     }
 }

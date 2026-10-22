@@ -47,9 +47,10 @@ impl CompiledFn {
         let mut output = vec![0u64; self.signature.return_types.len()];
         (self.func)(lowered_input.as_ptr(), output.as_mut_ptr());
         let result = output.iter().zip(&self.signature.return_types).map(|(&bits, &ty)| match ty {
-            Type::F64 => Value::F64(f64::from_bits(bits)),
-            Type::I64 => Value::Bool(bits != 0),
-            _ => unreachable!("internal compiler error: not a return type"),
+            Type::F64           => Value::F64(f64::from_bits(bits)),
+            Type::I64           => Value::Bool(bits != 0),
+            // FIXME: a pointer type shouldn't even get to here.
+            Type::Pointer       => unreachable!("internal compiler error: not a return type"),
         }).collect();
         Ok(result)
     }

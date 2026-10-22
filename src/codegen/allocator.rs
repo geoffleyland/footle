@@ -68,7 +68,7 @@ impl SlotInstr {
 struct SlotBlock {
     args:                               Vec<(AllocatorSlot, MachineReg)>,
     instrs:                             Vec<SlotInstr>,
-    slot_types:                         TiVec<AllocatorSlot, Type>,
+    slot_types:                         TiVec<AllocatorSlot, Option<Type>>,
 }
 
 
@@ -91,14 +91,14 @@ fn lower_to_slots_and_split(
     // ValueSlots to AllocatorSlots.  Start with `None` - we work through the slots in dependency
     // order so we should always write to `slot_map` before we read from it.
     let mut slot_map: TiVec<ValueSlot, _> = vec![None; slot_count].into();
-    let mut slot_types: TiVec<AllocatorSlot, Type> = TiVec::new();
+    let mut slot_types: TiVec<AllocatorSlot, Option<Type>> = TiVec::new();
 
     let mut arg_regs = vec![];
 
     for (arg, reg) in args.iter()
         .zip(REGS.abi_regs(args.iter().map(|v| v.ty))) {
         fixed_reg_slots[reg] = Some(arg.slot);
-        let new_slot = slot_types.push_and_get_key(arg.ty);
+        let new_slot = slot_types.push_and_get_key(Some(arg.ty));
         arg_regs.push((new_slot, reg));
         slot_map[arg.slot] = Some(new_slot);
     }
@@ -187,7 +187,7 @@ fn allocate(
     let mut interfering_slots: TiVec<AllocatorSlot, _> =
         vec![SlotSet::default(); block.slot_types.len()].into();
     let mut available_ranks: TiVec<AllocatorSlot, _> = block.slot_types.iter()
-        .map(|&ty| REGS.ranks_for_type(ty))
+        .map(|&ty| ty.map_or(RankSet::EMPTY, |ty| REGS.ranks_for_type(ty)))
         .collect();
 
     for instr in block.instrs.iter().rev() {

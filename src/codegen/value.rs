@@ -11,7 +11,6 @@ use crate::vir;
 
 #[derive(Debug, Copy, Clone)]
 pub(super) enum Type {
-    NoValue,
     F64,
     I64,
     Pointer,
@@ -30,7 +29,6 @@ impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use Type::*;
         let str = match self {
-            NoValue                     => "NoValue",
             I64                         => "i64",
             F64                         => "f64",
             Pointer                     => "Pointer",
@@ -87,7 +85,7 @@ pub(super) struct ValueSlot(usize);
 #[derive(Debug)]
 pub(super) struct Instr {
     pub(super) slot:                        ValueSlot,
-    pub(super) ty:                          Type,
+    pub(super) ty:                          Option<Type>,
     pub(super) code:                        &'static Code,
     pub(super) operands:                    Vec<Operand>,
     pub(super) abi_args:                    Vec<(Value, MachineReg)>,
@@ -99,7 +97,7 @@ pub(super) struct Instr {
 impl Instr {
     pub(super) fn new(
         slot:                               ValueSlot,
-        ty:                                 Type,
+        ty:                                 Option<Type>,
         code:                               &'static Code,
         operands:                           Vec<Operand>,
         abi_args:                           Vec<(Value, MachineReg)>,

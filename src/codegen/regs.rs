@@ -114,11 +114,10 @@ impl RegBank {
             _ => unreachable!(),
         }
     }
-    pub(super) const fn of_type(ty: Type) -> Option<Self> {
+    pub(super) const fn of_type(ty: Type) -> Self {
         match ty {
-            Type::I64 | Type::Pointer       => Some(Self::Int),
-            Type::F64                       => Some(Self::Float),
-            Type::NoValue                   => None,
+            Type::I64 | Type::Pointer       => Self::Int,
+            Type::F64                       => Self::Float,
         }
     }
     pub(super) const fn index(self) -> usize { self as usize }
@@ -217,7 +216,7 @@ impl RegFile {
     }
 
     pub(super) fn ranks_for_type(&self, ty: Type) -> RankSet {
-        RegBank::of_type(ty).map_or(RankSet::EMPTY, |b| self.available_ranks[b.index()])
+        self.available_ranks[RegBank::of_type(ty).index()]
     }
     pub(super) fn ranks_for_reg(&self, reg: MachineReg) -> RankSet {
         self.available_ranks[RegBank::of_reg(reg).index()]
@@ -226,12 +225,17 @@ impl RegFile {
     pub(super) fn abi_regs(&self, types: impl IntoIterator<Item = Type>) -> impl Iterator<Item = MachineReg> {
         let mut used = [0usize; RegBank::COUNT];           // registers used so far, per bank
         types.into_iter().map(move |ty| {
-            let b = RegBank::of_type(ty).expect("internal compiler error: no bank for type").index();
-            let reg = *self.argument_regs[b].get(used[b])
+            let bank = RegBank::of_type(ty).index();
+            let reg = *self.argument_regs[bank].get(used[bank])
                 .expect("internal compiler error: too many arguments/return values in one register bank");
-            used[b] += 1;
+            used[bank] += 1;
             reg
         })
+    }
+
+    pub(super) fn abi_result_reg(&self, ty: Type) -> MachineReg {
+        let bank = RegBank::of_type(ty).index();
+        self.argument_regs[bank][0]
     }
 }
 

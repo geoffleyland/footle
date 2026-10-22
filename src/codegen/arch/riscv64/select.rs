@@ -45,7 +45,7 @@ impl Builder {
     pub(in crate::codegen) fn select_return(&mut self, input: &vir::Block, types: &[vir::TypeInfo]) {
         let return_values = self.exprs_to_abi_regs(&input.return_values, types);
         self.return_types = return_values.iter().map(|(v, _)| v.ty()).collect();
-        self.emit_abi_instr(Type::NoValue, &isa::ret, vec![], return_values, None, input.return_span);
+        self.emit_return(&isa::ret, return_values, input.return_span);
     }
 
 
