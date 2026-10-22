@@ -1,3 +1,5 @@
+use derive_more::{From, Into, Display};
+
 use super::ValueSlot;
 
 
@@ -15,11 +17,14 @@ pub(super) enum RelativeTo {
     InstrOf(ValueSlot)
 }
 
+#[derive(Debug, Copy, Clone, From, Into, Display)]
+pub(super) struct ConstantIndex(usize);
+
 #[derive(Debug, Clone)]
 pub(super) enum Operand<REG> {
     Reg(REG),
     ImmU16(u16),
-    PooledF64(usize, RelativeTo),
+    PooledF64(ConstantIndex, RelativeTo),
     Function(String, RelativeTo),
 }
 
@@ -32,7 +37,7 @@ impl<REG> Operand<REG> {
             Self::Function(s, r)    => Operand::Function(s, r),
         }
     }
-    pub(super) fn constant(index: usize, relative_to: RelativeTo) -> Self {
+    pub(super) fn constant(index: ConstantIndex, relative_to: RelativeTo) -> Self {
         Self::PooledF64(index, relative_to)
     }
     pub(super) fn function(name: &str, relative_to: RelativeTo) -> Self {

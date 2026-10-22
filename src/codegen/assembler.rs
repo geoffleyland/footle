@@ -1,6 +1,8 @@
 use typed_index_collections::TiVec;
 
-use super::{Code, abi, Pool, Signature, allocator, ValueSlot, MachineReg, RegSet, RegBank, RelativeTo, REGS};
+use super::{abi, allocator,
+    Code, ConstantIndex, Pool, Signature, ValueSlot, MachineReg, RegSet, RegBank, RelativeTo,
+    REGS};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -12,7 +14,7 @@ pub(super) enum Operand {
     Reg(MachineReg),
     ImmU16(u16),
     Offset(i32),
-    PooledF64(usize, RelativeTo),
+    PooledF64(ConstantIndex, RelativeTo),
     Function(usize, RelativeTo),
 }
 
@@ -220,7 +222,7 @@ fn resolve(
                     ImmU16(v)               => Resolved::Imm(v.into()),
                     PooledF64(i, r)         => Resolved::Imm(compute_offset(
                                                     value_words, layout.constant_start_words,
-                                                    i, word_index, r)),
+                                                    i.into(), word_index, r)),
                     Function(i, r)          => Resolved::Imm(compute_offset(
                                                     value_words, layout.function_start_words,
                                                     i, word_index, r)),

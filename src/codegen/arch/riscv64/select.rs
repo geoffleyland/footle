@@ -15,11 +15,10 @@ impl Builder {
         let span = instr.definition_span;
         match &instr.kind {
             vir::InstrKind::Number(value) => {
-                self.constants.push(Constant{ value: *value, span });
-                let constant_index = self.constants.len() - 1;
+                let index = self.constants.push_and_get_key(Constant{ value: *value, span });
                 assemble!(self, span,
-                    auipc base: Pointer, %constant(constant_index);
-                    fld : ty, %constant(constant_index)(base)
+                    auipc base: Pointer, %constant(index);
+                    fld : ty, %constant(index)(base)
                 )
             }
             vir::InstrKind::Bool(value) => {

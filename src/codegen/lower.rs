@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
+use typed_index_collections::TiVec;
+
 use crate::core::Span;
 use crate::vir;
-use super::{Code, Instr, Arg, Value, ValueSlot, value::Operand, Type, Constant, MachineReg, REGS};
+use super::{Code, Instr, Arg, Value, ValueSlot, value::Operand, Type, Constant, ConstantIndex, MachineReg, REGS};
 
 
 //-------------------------------------------------------------------------------------------------
@@ -15,7 +17,7 @@ pub struct Signature {
 
 /// The constant pool - floats and function pointers.
 pub struct Pool {
-    pub(super) constants:                   Vec<Constant>,
+    pub(super) constants:                   TiVec<ConstantIndex, Constant>,
     pub(super) functions:                   Vec<String>,
 }
 
@@ -78,7 +80,7 @@ pub struct Builder {
     instrs:                                 Vec<Instr>,
     slot_count:                             usize,
     pub(super) return_types:                Vec<Type>,
-    pub(super) constants:                   Vec<Constant>,
+    pub(super) constants:                   TiVec<ConstantIndex, Constant>,
     operand_map:                            HashMap<usize, Operand>,
     pub(super) functions:                   Vec<(String, Value)>,
 }

@@ -15,10 +15,9 @@ impl Builder {
         let span = instr.definition_span;
         match &instr.kind {
             vir::InstrKind::Number(value) => {
-                self.constants.push(Constant{ value: *value, span });
-                let constant_index = self.constants.len() - 1;
+                let index = self.constants.push_and_get_key(Constant{ value: *value, span });
                 self.emit_instr(ty, &isa::ldr_d_literal,
-                    vec![Operand::constant(constant_index, RelativeTo::ThisInstr)], span)
+                    vec![Operand::constant(index, RelativeTo::ThisInstr)], span)
             }
             vir::InstrKind::Bool(value) => {
                 self.emit_instr(ty,

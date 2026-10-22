@@ -1,8 +1,9 @@
 use std::mem;
 
 use anyhow::{bail, Result};
+use typed_index_collections::TiVec;
 
-use super::{assembler, sys, Constant, Pool, Signature, Type, Layout, Resolved};
+use super::{assembler, sys, Constant, ConstantIndex, Pool, Signature, Type, Layout, Resolved};
 use crate::runtime::Value;
 
 
@@ -98,7 +99,7 @@ fn encode_instrs(
 }
 
 
-fn encode_constants(constants: &[Constant], words: &mut [u32], constant_start_words: usize) {
+fn encode_constants(constants: &TiVec<ConstantIndex, Constant>, words: &mut [u32], constant_start_words: usize) {
     let mut index = constant_start_words;
     for c in constants {
         let bits = c.value.to_bits();
