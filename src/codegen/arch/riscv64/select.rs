@@ -1,5 +1,5 @@
-use crate::{vir, core::{BinaryOperator, Span}};
-use crate::codegen::{isa, Code, RelativeTo, Constant, Value, Type, MachineReg,
+use crate::{vir, core::{Span, BinaryOperator}};
+use crate::codegen::{isa, Code, RelativeTo, Constant, Value, Type,
     lower::{Builder, operands}, value::Operand};
 
 
@@ -8,6 +8,7 @@ use crate::codegen::{isa, Code, RelativeTo, Constant, Value, Type, MachineReg,
 // This is the arch-specific part of codegen::lower::Builder.
 impl Builder {
     pub(in crate::codegen) const RETURN: &'static Code = &isa::ret;
+    pub(in crate::codegen) const CALL_REG: &'static Code = &isa::jalr;
 
     pub(in crate::codegen) fn select_instr(&mut self, instr: &vir::Instr, types: &[vir::TypeInfo]) -> Value {
         let ty = Type::from(types[instr.pool_index]);
@@ -48,17 +49,6 @@ impl Builder {
             auipc base: Pointer, %function(name);
             ld : Pointer, %function(name)(base)
         )
-    }
-
-    pub(in crate::codegen) fn select_call(
-        &mut self,
-        ty:                                     Type,
-        function:                               Value,
-        args:                                   Vec<(Value, MachineReg)>,
-        output:                                 MachineReg,
-        span:                                   Span,
-    ) -> Value {
-        self.emit_abi_instr(ty, &isa::jalr, operands!(self, function), args, Some(output), span)
     }
 }
 

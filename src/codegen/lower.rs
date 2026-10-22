@@ -162,7 +162,7 @@ impl Builder {
         };
         let args = self.exprs_to_abi_regs(arg_exprs, types);
         let output_reg = REGS.abi_result_reg(ty);
-        self.select_call(ty, function_address, args, output_reg, span)
+        self.emit_abi_instr(ty, Self::CALL_REG, operands!(self, function_address), args, Some(output_reg), span)
     }
 }
 
