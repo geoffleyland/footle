@@ -14,8 +14,8 @@ use display::*;
 pub static REGS: RegFile = RegFile::new(31, 30, 16,
     RegSet::new(0x0000_FF00_1FF8_0000),
     [
-        &regs::machine_regs([ 0,  1,  2,  3,  4,  5,  6,  7]),
-        &regs::machine_regs([32, 33, 34, 35, 36, 37, 38, 39]),
+        regs::machine_regs([ 0,  1,  2,  3,  4,  5,  6,  7]),
+        regs::machine_regs([32, 33, 34, 35, 36, 37, 38, 39]),
     ],
     &[
          9, 10, 11, 12, 13, 14, 15,                 // caller-saved temps (x16-18 excluded)

@@ -14,8 +14,8 @@ use display::*;
 pub static REGS: RegFile = RegFile::new(2, 1, 31,       // sp = x2, ra = x1, scratch = t6 (x31)
     RegSet::new(0x0FFC_0300_0FFC_0300),                 // s0-s11 (x8, x9, x18-27), fs0-fs11 likewise
     [
-        &regs::machine_regs([10, 11, 12, 13, 14, 15, 16, 17]),      // a0-a7
-        &regs::machine_regs([42, 43, 44, 45, 46, 47, 48, 49]),      // fa0-fa7
+        regs::machine_regs([10, 11, 12, 13, 14, 15, 16, 17]),      // a0-a7
+        regs::machine_regs([42, 43, 44, 45, 46, 47, 48, 49]),      // fa0-fa7
     ],
     &[
          5,  6,  7, 28, 29, 30,                     // t0-t5: caller-saved temps (t6 is scratch)

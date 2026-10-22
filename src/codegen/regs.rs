@@ -137,7 +137,7 @@ pub(super) struct RegFile {
     pub(super) scratch_reg:     MachineReg,
     pub(super) callee_saved:    RegSet,             // Registers we have to save in our prologue
                                                     // and restore in our epilogue (if we use them)
-    argument_regs:              [&'static [MachineReg]; RegBank::COUNT],
+    argument_regs:              [[MachineReg; 8]; RegBank::COUNT],
                                                     // Argument registers in order.
     order:                      [MachineReg; Self::REG_COUNT],
                                                     // Order in which we allocate registers
@@ -158,7 +158,7 @@ impl RegFile {
         link_reg:           u8,
         scratch_reg:        u8,
         callee_saved:       RegSet,
-        argument_regs:      [&'static [MachineReg]; RegBank::COUNT],
+        argument_regs:      [[MachineReg; 8]; RegBank::COUNT],
         u8_order:           &[u8],
     ) -> Self {
         let mut order = [MachineReg::new(0); Self::REG_COUNT];
