@@ -10,7 +10,7 @@ use super::variable::{Binding, Variable};
 /// A list of all the variables in scope.
 ///
 /// We search the list backwards to look for a variable so the most recent ones come out first.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct SymbolTable {
     variables:                              Vec<Rc<Variable>>,
     scope_depth:                            usize,
@@ -24,14 +24,6 @@ pub enum AssignmentError {
 
 
 impl SymbolTable {
-    pub const fn new() -> Self {
-        Self {
-            variables:                      vec![],
-            scope_depth:                    0,
-        }
-    }
-
-
     pub fn scope_depth(&self) -> usize      { self.scope_depth }
 
 

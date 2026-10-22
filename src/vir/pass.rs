@@ -14,7 +14,7 @@ use crate::core::Span;
 //-------------------------------------------------------------------------------------------------
 
 pub fn run(env: &Env, stmts: &[ast::Stmt]) -> Result<Block, Vec<ParseError>> {
-    let mut p = Pass::new();
+    let mut p = Pass::default();
 
     for stmt in stmts {
         p.transform_stmt(env, stmt);
@@ -48,13 +48,14 @@ pub struct Block {
 
 //------------------------------------------------------------------------------------------------
 
+#[derive(Debug, Default)]
 struct Pass {
     args:                       Vec<Arg>,
     stmts:                      Vec<vir::Stmt>,
     symbols:                    SymbolTable,
     exprs:                      ExprPool,
-    errors:                     Vec<ParseError>,
     reassignments:              Vec<(String, vir::Expr, vir::Expr, Span)>,
+    errors:                     Vec<ParseError>,
 }
 
 
@@ -66,17 +67,6 @@ struct Flattened {
 
 
 impl Pass {
-    fn new() -> Self {
-        Self {
-            args:               vec![],
-            stmts:              vec![],
-            symbols:            SymbolTable::new(),
-            exprs:              ExprPool::new(),
-            errors:             vec![],
-            reassignments:      vec![],
-        }
-    }
-
     fn push_error(&mut self, error: ParseError) { self.errors.push(error); }
 
     fn transform_stmt(&mut self, env: &Env, stmt: &ast::Stmt) {

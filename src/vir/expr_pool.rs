@@ -7,6 +7,7 @@ use super::expr::{InstrKind, ExprKind, ExprEntry, Expr};
 
 //-------------------------------------------------------------------------------------------------
 
+#[derive(Debug, Default)]
 pub struct ExprPool {
     exprs:                      HashMap<ExprKind, Rc<ExprEntry>>,
     ordered:                    Vec<Expr>
@@ -14,13 +15,6 @@ pub struct ExprPool {
 
 
 impl ExprPool {
-    pub fn new() -> Self {
-        Self {
-            exprs:              HashMap::new(),
-            ordered:            vec![],
-        }
-    }
-
     pub(super) fn iter(&self) -> std::slice::Iter<'_, Expr>
         { self.ordered.iter() }
 
