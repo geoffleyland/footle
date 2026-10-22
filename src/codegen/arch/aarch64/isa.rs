@@ -1,10 +1,8 @@
 #![allow(clippy::unusual_byte_groupings, non_upper_case_globals)]
 
-use enumset::{EnumSetType, enum_set};
-use paste::paste;
+use enumset::EnumSetType;
 
-use crate::codegen::{regs, Code, RegBank, RegFile, RegSet, Resolved};
-
+use crate::codegen::{define_code, regs, RegBank, RegFile, RegSet};
 #[cfg(feature = "dogfood")]
 use display::*;
 
@@ -85,63 +83,71 @@ code!(ret                           => 0b110_101_1_0_0_10_11111_0000_0_0_11110_0
 // Cover the instruction operand patterns to try to figure out the addressing mode (if there is one)
 macro_rules! code {
     ($mnemonic:ident => $($rest:tt)*) => {
-        find_reg_bank!(nothing, None, $mnemonic, (), $($rest)*);
+        code!(@reg_bank nothing ($mnemonic;) None () $($rest)*);
     };
     ($mnemonic:ident $rd:ident, #$imm:ident => $($rest:tt)*) => {
-        find_reg_bank!($rd, @mode_suffix:_imm, None, $mnemonic, ($rd, $imm), $($rest)*);
+        code!(@reg_bank $rd ($mnemonic; imm) None ($rd $imm) $($rest)*);
     };
     ($mnemonic:ident $rd:ident, imm19 => $($rest:tt)*) => {
-        find_reg_bank!($rd, @mode_suffix:_literal, None, $mnemonic, ($rd, imm19), $($rest)*);
+        code!(@reg_bank $rd ($mnemonic; literal) None ($rd imm19) $($rest)*);
     };
-    ($mnemonic:ident $($rt:ident)? $(, $operands:ident)* => $($rest:tt)*) => {
-        find_reg_bank!($($rt,)? None, $mnemonic, ($($rt,)? $($operands),*), $($rest)*);
+    ($mnemonic:ident $rt:ident $(, $operands:ident)* => $($rest:tt)*) => {
+        code!(@reg_bank $rt ($mnemonic;) None ($rt $($operands)*) $($rest)*);
     };
     ($mnemonic:ident $rt1:ident, $($rt2:ident,)? [$xn:ident, # $imm:ident]! => $($rest:tt)*) => {
-        find_reg_bank!($rt1, @mode_suffix:_pre, Pre, $mnemonic, ($rt1, $($rt2,)? $xn, $imm), $($rest)*);
+        code!(@reg_bank $rt1 ($mnemonic; pre) Pre ($rt1 $($rt2)? $xn $imm) $($rest)*);
     };
     ($mnemonic:ident $rt1:ident, $($rt2:ident,)? [$xn:ident], # $imm:ident => $($rest:tt)*) => {
-        find_reg_bank!($rt1, @mode_suffix:_post, Post, $mnemonic, ($rt1, $($rt2,)? $xn, $imm), $($rest)*);
+        code!(@reg_bank $rt1 ($mnemonic; post) Post ($rt1 $($rt2)? $xn $imm) $($rest)*);
     };
     ($mnemonic:ident $rt1:ident, $($rt2:ident,)? [$xn:ident, # $imm:ident] => $($rest:tt)*) => {
-        find_reg_bank!($rt1, @mode_suffix:_offset, Offset, $mnemonic, ($rt1, $($rt2,)? $xn, $imm), $($rest)*);
+        code!(@reg_bank $rt1 ($mnemonic; offset) Offset ($rt1 $($rt2)? $xn $imm) $($rest)*);
+    };
+
+    (@reg_bank xd     $($rest:tt)*)   => { code!(@insert_reg_bank x $($rest)*); };
+    (@reg_bank xt     $($rest:tt)*)   => { code!(@insert_reg_bank x $($rest)*); };
+    (@reg_bank xt1    $($rest:tt)*)   => { code!(@insert_reg_bank x $($rest)*); };
+    (@reg_bank dd     $($rest:tt)*)   => { code!(@insert_reg_bank d $($rest)*); };
+    (@reg_bank dt     $($rest:tt)*)   => { code!(@insert_reg_bank d $($rest)*); };
+    (@reg_bank dt1    $($rest:tt)*)   => { code!(@insert_reg_bank d $($rest)*); };
+    (@reg_bank $i:ident $($rest:tt)*) => { define_code!($($rest)*); };
+
+    (@insert_reg_bank $bank:ident ($mnemonic:ident $($dotted:ident)*; $($suffixes:ident)*) $($rest:tt)*) => {
+        define_code!(($mnemonic $($dotted)*; $bank $($suffixes)*) $($rest)*);
     };
 }
 use code;
 
-macro_rules! _code {
-    (
-        $(@reg_bank:$reg_bank:ident,)?
-        $(@mode_suffix:$mode_suffix:ident,)?
-        $addressing_mode:ident,
-        $mnemonic:ident,
-        ($($reg:ident),* $(,)?),
-        $pattern:literal,
-        $latency:literal,
-        [$($unit:ident)|+ $(|)?]
-    ) => {
-        paste!(pub static [<$mnemonic $($reg_bank)? $($mode_suffix)?>]: Code = Code {
-            is_call:            is_call!($mnemonic),
-            is_return:          is_return!($mnemonic),
-            has_output:         $( has_output!($mnemonic, $reg) ||)* false,
-
-            encode: |operands: &[Resolved]| -> u32 {
-                // If there's no operands (ie `ret`), _it is unused, so the _ silences a warning.
-                let mut _it = operands.iter().copied();
-                $pattern $(| { let value = _it.next().unwrap(); encode_operand!($reg, value) })*
-            },
-
-            latency:            $latency,
-            units:              enum_set!($(Unit::$unit)|*),
-
-            #[cfg(feature = "dogfood")]
-            mnemonic:           stringify!($mnemonic),
-            #[cfg(feature = "dogfood")]
-            format_assembly: |mnemonic, operands, address|
-                format_assembly(mnemonic, AddressingMode::$addressing_mode, operands, address, &[$(format_operand!($reg)),*]),
-            };);
-    }
+macro_rules! has_output {
+    (str        $($reg:ident)*)     => { false };
+    (stp        $($reg:ident)*)     => { false };
+    ($any:ident $($reg:ident)*)     => { $( output_reg!($reg) ||)* false };
 }
-use _code;
+use has_output;
+
+macro_rules! output_reg {
+    (dd)                            => { true };
+    (dt)                            => { true };
+    (dt1)                           => { true };
+    (xd)                            => { true };
+    (xt)                            => { true };
+    (xt1)                           => { true };
+    ($any:ident)                    => { false };
+}
+use output_reg;
+
+macro_rules! is_call {
+    (bl)                            => { true };
+    (blr)                           => { true };
+    ($any:ident)                    => { false };
+}
+use is_call;
+
+macro_rules! is_return {
+    (ret)                           => { true };
+    ($any:ident)                    => { false };
+}
+use is_return;
 
 macro_rules! encode_operand {
     (xd, $it:expr)    => { $it.reg_field(RegBank::Int) << 0 };
@@ -149,7 +155,7 @@ macro_rules! encode_operand {
     (xa, $it:expr)    => { $it.reg_field(RegBank::Int) << 10 };
     (xm, $it:expr)    => { $it.reg_field(RegBank::Int) << 16 };
     (xt, $it:expr)    => { $it.reg_field(RegBank::Int) << 0 };
-    (xt1, $it:expr)    => { $it.reg_field(RegBank::Int) << 0 };
+    (xt1, $it:expr)   => { $it.reg_field(RegBank::Int) << 0 };
     (xt2, $it:expr)   => { $it.reg_field(RegBank::Int) << 10 };
 
     (dd, $it:expr)    => { $it.reg_field(RegBank::Float) << 0 };
@@ -169,49 +175,6 @@ macro_rules! encode_operand {
 }
 use encode_operand;
 
-macro_rules! output_reg {
-    (dd)    => { true };
-    (dt)    => { true };
-    (dt1)   => { true };
-    (xd)    => { true };
-    (xt)    => { true };
-    (xt1)   => { true };
-    ($other:tt) => { false };
-}
-use output_reg;
-
-macro_rules! is_call {
-    (bl)                    => { true };
-    (blr)                   => { true };
-    ($other:ident)          => { false };
-}
-use is_call;
-
-macro_rules! is_return {
-    (ret)                   => { true };
-    ($other:ident)          => { false };
-}
-use is_return;
-
-macro_rules! has_output {
-    (str, $($reg:ident),*)  => { false };
-    (stp, $($reg:ident),*)  => { false };
-    ($mnemonic:ident, $($reg:ident),*) => { $( output_reg!($reg) ||)* false };
-}
-use has_output;
-
-// Try to figure out if our destination is a x or d register.
-macro_rules! find_reg_bank {
-    (xd,    $($rest:tt)*)   => { _code!(@reg_bank:_x, $($rest)*); };
-    (xt,    $($rest:tt)*)   => { _code!(@reg_bank:_x, $($rest)*); };
-    (xt1,   $($rest:tt)*)   => { _code!(@reg_bank:_x, $($rest)*); };
-    (dd,    $($rest:tt)*)   => { _code!(@reg_bank:_d, $($rest)*); };
-    (dt,    $($rest:tt)*)   => { _code!(@reg_bank:_d, $($rest)*); };
-    (dt1,   $($rest:tt)*)   => { _code!(@reg_bank:_d, $($rest)*); };
-    ($other:ident, $($rest:tt)*) => { _code!($($rest)*); };
-}
-use find_reg_bank;
-
 
 //-------------------------------------------------------------------------------------------------
 
@@ -222,9 +185,9 @@ mod display {
     #[derive(Debug, Clone, Copy)]
     pub(super) enum AddressingMode {
         None,
+        Offset,
         Pre,
         Post,
-        Offset,
     }
 
     pub(super) fn format_assembly(

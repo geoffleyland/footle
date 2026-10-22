@@ -54,3 +54,41 @@ impl Code {
 
 
 //-------------------------------------------------------------------------------------------------
+
+macro_rules! define_code {
+    (
+        ($mnemonic:ident $($dotted:ident)* ; $($suffixes:ident)*)
+        $addressing_mode:ident
+        ($($reg:ident)*)
+        $pattern:literal,
+        $latency:literal,
+        [$($unit:ident)|+ $(|)?]
+    ) => {
+        ::paste::paste!(
+        pub static [<$mnemonic $(_ $dotted)* $(_ $suffixes)*>]: $crate::codegen::Code =
+            $crate::codegen::Code {
+            is_call:            is_call!($mnemonic),
+            is_return:          is_return!($mnemonic),
+            has_output:         has_output!($mnemonic $($reg)*),
+
+            encode: |operands: &[$crate::codegen::Resolved]| -> u32 {
+                // If there's no operands (ie `ret`), _it is unused, so the _ silences a warning.
+                let mut _it = operands.iter().copied();
+                $pattern $(| { let value = _it.next().unwrap(); encode_operand!($reg, value) })*
+            },
+
+            latency:            $latency,
+            units:              ::enumset::enum_set!($(Unit::$unit)|*),
+
+            #[cfg(feature = "dogfood")]
+            mnemonic:           concat!(stringify!($mnemonic) $(, ".", stringify!($dotted))*),
+            #[cfg(feature = "dogfood")]
+            format_assembly: |mnemonic, operands, address|
+                format_assembly(mnemonic, AddressingMode::$addressing_mode, operands, address, &[$(format_operand!($reg)),*]),
+        };);
+    }
+}
+pub(super) use define_code;
+
+
+//-------------------------------------------------------------------------------------------------

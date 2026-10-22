@@ -18,7 +18,7 @@ pub use lower::{Pool, Signature};
 use value::{Arg, Instr, Value, ValueSlot, Type, Constant};
 use regs::{MachineReg, RegBank, RegFile, RegSet, RankSet};
 use arch::{isa, isa::REGS, isa::Unit, abi};
-use code::Code;
+use code::{Code, define_code};
 use scheduler::SchedulePosition;
 use assembler::{Layout, Resolved};
 use operand::{ConstantIndex, RelativeTo};

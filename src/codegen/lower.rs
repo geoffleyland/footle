@@ -126,7 +126,7 @@ impl Builder {
         Value::Instr(slot, ty)
     }
 
-    pub fn lower_return(&mut self, input: &vir::Block, types: &[vir::TypeInfo]) {
+    fn lower_return(&mut self, input: &vir::Block, types: &[vir::TypeInfo]) {
         let return_values = self.exprs_to_abi_regs(&input.return_values, types);
         self.return_types = return_values.iter().map(|(v, _)| v.ty()).collect();
         let slot = self.new_slot();

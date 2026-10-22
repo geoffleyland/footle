@@ -1,10 +1,8 @@
 #![allow(clippy::unusual_byte_groupings, non_upper_case_globals)]
 
-use enumset::{EnumSetType, enum_set};
-use paste::paste;
+use enumset::EnumSetType;
 
-use crate::codegen::{regs, Code, RegBank, RegFile, RegSet, Resolved};
-
+use crate::codegen::{define_code, regs, RegBank, RegFile, RegSet};
 #[cfg(feature = "dogfood")]
 use display::*;
 
@@ -66,61 +64,39 @@ code!(ret                   =>  0b000000000000_00001_000_00000_1100111,     1, [
 
 // Cover the instruction operand patterns to try to figure out the addressing mode (if there is one)
 macro_rules! code {
-    ($mnemonic:ident $(. $suffix:ident)* => $($rest:tt)*) => {
-        _code!(None,  ($mnemonic $($suffix)*), (), $($rest)*);
+    ($mnemonic:ident $(. $dotted:ident)* $($reg:ident),* => $($rest:tt)*) => {
+        define_code!(($mnemonic $($dotted)* ;) None ($($reg)*) $($rest)*);
     };
-    ($mnemonic:ident $(. $suffix:ident)* $rd:ident, $rs1:ident => $($rest:tt)*) => {
-        _code!(None,  ($mnemonic $($suffix)*), ($rd, $rs1), $($rest)*);
-    };
-    ($mnemonic:ident $(. $suffix:ident)* $imm:ident => $($rest:tt)*) => {
-        _code!(None, ($mnemonic $($suffix)*), ($imm), $($rest)*);
-    };
-    ($mnemonic:ident $(. $suffix:ident)* $rd:ident, $rs1:ident, $imm:ident => $($rest:tt)*) => {
-        _code!(None, ($mnemonic $($suffix)*), ($rd, $rs1, $imm), $($rest)*);
-    };
-    ($mnemonic:ident $(. $suffix:ident)* $imm:ident($rs1:ident) => $($rest:tt)*) => {
-        _code!(Offset, ($mnemonic $($suffix)*), ($rs1, $imm), $($rest)*);
-    };
-    ($mnemonic:ident $(. $suffix:ident)* $rd:ident, $imm:ident($rs1:ident) => $($rest:tt)*) => {
-        _code!(Offset, ($mnemonic $($suffix)*), ($rd, $rs1, $imm), $($rest)*);
+    ($mnemonic:ident $(. $dotted:ident)* $($operand:ident $(($base:ident))?),* => $($rest:tt)*) => {
+        define_code!(($mnemonic $($dotted)* ;) Offset ($($($base)? $operand)*) $($rest)*);
     };
 }
 use code;
 
-
-macro_rules! _code {
-    (
-        $addressing_mode:ident,
-        ($mnemonic:ident $($suffix:ident)*),
-        ($($reg:ident),* $(,)?),
-        $pattern:literal,
-        $latency:literal,
-        [$($unit:ident)|+ $(|)?]
-    ) => {
-        paste!(pub static [<$mnemonic $(_ $suffix)*>]: Code = Code {
-            is_call:            is_call!($mnemonic),
-            is_return:          is_return!($mnemonic),
-            has_output:         $( output_reg!($reg) ||)* false,
-
-            encode: |operands: &[Resolved]| -> u32 {
-                // If there's no operands (ie `ret`), _it is unused, so the _ silences a warning.
-                let mut _it = operands.iter().copied();
-                $pattern $(| { let value = _it.next().unwrap(); encode_operand!($reg, value) })*
-            },
-
-            latency:            $latency,
-            units:              enum_set!($(Unit::$unit)|*),
-
-            #[cfg(feature = "dogfood")]
-            mnemonic:           concat!(stringify!($mnemonic) $(, ".", stringify!($suffix))*),
-            #[cfg(feature = "dogfood")]
-            format_assembly: |mnemonic, operands, address|
-                format_assembly(mnemonic, AddressingMode::$addressing_mode, operands, address, &[$(format_operand!($reg)),*]),
-            };);
-    }
+macro_rules! has_output {
+    ($any:ident $($reg:ident)*)     => { $( output_reg!($reg) ||)* false };
 }
-use _code;
+use has_output;
 
+macro_rules! output_reg {
+    (xd)                            => { true };
+    (fd)                            => { true };
+    ($any:ident)                    => { false };
+}
+use output_reg;
+
+macro_rules! is_call {
+    (jal)                           => { true };
+    (jalr)                          => { true };
+    ($any:ident)                    => { false };
+}
+use is_call;
+
+macro_rules! is_return {
+    (ret)                           => { true };
+    ($any:ident)                    => { false };
+}
+use is_return;
 
 macro_rules! encode_operand {
     (xd, $it:expr)    => { $it.reg_field(RegBank::Int) << 7 };
@@ -153,26 +129,6 @@ macro_rules! encode_operand {
 }
 use encode_operand;
 
-macro_rules! output_reg {
-    (xd)                    => { true };
-    (fd)                    => { true };
-    ($other:tt)             => { false };
-}
-use output_reg;
-
-macro_rules! is_call {
-    (jal)                   => { true };
-    (jalr)                  => { true };
-    ($other:ident)          => { false };
-}
-use is_call;
-
-macro_rules! is_return {
-    (ret)                   => { true };
-    ($other:ident)          => { false };
-}
-use is_return;
-
 
 //-------------------------------------------------------------------------------------------------
 
@@ -194,11 +150,9 @@ mod display {
         formatters:         &[fn(Resolved, i32) -> String]
     ) -> String {
         use AddressingMode::*;
-
-        if operands.is_empty() { return mnemonic.into() }
+        if operands.is_empty() { return mnemonic.to_string() }
 
         debug_assert_eq!(operands.len(), formatters.len());
-
         let operand_strings: Vec<_> = formatters.iter().zip(operands)
             .map(|(f, &v)| f(v, address))
             .collect();
@@ -217,7 +171,7 @@ mod display {
         format!("{mnemonic} {operand_string}")
     }
 
-    // format_operant gets called to fill the format_assembly field in _code!
+    // format_operand gets called to fill the format_assembly field in define_code!
     macro_rules! format_operand {
         (xd)    => { format_x_reg };
         (xs1)   => { format_x_reg };
