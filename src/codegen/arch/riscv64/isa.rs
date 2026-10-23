@@ -2,7 +2,7 @@
 
 use enumset::EnumSetType;
 
-use crate::codegen::{define_code, regs, RegBank, RegFile, RegSet};
+use crate::codegen::{operand_class, define_code, regs, RegBank, RegFile, RegSet};
 #[cfg(feature = "dogfood")]
 use display::*;
 
@@ -32,6 +32,24 @@ pub static REGS: RegFile = RegFile::new(2, 1, 31,       // sp = x2, ra = x1, scr
 // Temporary units until we target a real cpu
 #[derive(Debug, EnumSetType)]
 pub enum Unit { U1, U2, U3}
+
+
+//-------------------------------------------------------------------------------------------------
+// Operand classes  used for defining instructions
+
+operand_class!(xd       Output  format_x_reg);
+operand_class!(xs1              format_x_reg);
+operand_class!(xs2              format_x_reg);
+
+operand_class!(fd       Output  format_f_reg);
+operand_class!(fs1              format_f_reg);
+operand_class!(fs2              format_f_reg);
+operand_class!(fs12             format_f_reg);
+
+operand_class!(imm_i            format_imm);
+operand_class!(imm_j            format_imm);
+operand_class!(imm_s            format_imm);
+operand_class!(imm_u            format_imm_u);
 
 
 //-------------------------------------------------------------------------------------------------
@@ -73,17 +91,12 @@ macro_rules! code {
 }
 use code;
 
-macro_rules! has_output {
-    ($any:ident $($reg:ident)*)     => { $( output_reg!($reg) ||)* false };
-}
-use has_output;
-
-macro_rules! output_reg {
-    (xd)                            => { true };
-    (fd)                            => { true };
+macro_rules! is_store {
+    (sd)                            => { true };
+    (fsd)                           => { true };
     ($any:ident)                    => { false };
 }
-use output_reg;
+use is_store;
 
 macro_rules! is_call {
     (jal)                           => { true };
@@ -162,7 +175,7 @@ mod display {
             return format!("addi {}, zero, {}", operand_strings[0], operand_strings[1])
         }
 
-        let operand_string = match (mode, operands.len()) {
+        let operand_string = match (mode, operand_strings.len()) {
             (None, _)       => operand_strings.join(", "),
             (Offset, 2)     => format!("{}({})", operand_strings[1], operand_strings[0]),
             (Offset, 3)     => format!("{}, {}({})", operand_strings[0], operand_strings[2], operand_strings[1]),
@@ -170,24 +183,6 @@ mod display {
         };
         format!("{mnemonic} {operand_string}")
     }
-
-    // format_operand gets called to fill the format_assembly field in define_code!
-    macro_rules! format_operand {
-        (xd)    => { format_x_reg };
-        (xs1)   => { format_x_reg };
-        (xs2)   => { format_x_reg };
-
-        (fd)    => { format_f_reg };
-        (fs1)   => { format_f_reg };
-        (fs2)   => { format_f_reg };
-        (fs12)  => { format_f_reg };
-
-        (imm_i) => { format_imm };
-        (imm_j) => { format_imm };
-        (imm_s) => { format_imm };
-        (imm_u) => { format_imm_u };
-    }
-    pub(super) use format_operand;
 
     pub(super) fn format_imm(imm: Resolved, _address: i32) -> String {
         let n = imm.imm();

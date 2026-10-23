@@ -53,8 +53,6 @@ impl Code {
 }
 
 
-//-------------------------------------------------------------------------------------------------
-
 macro_rules! define_code {
     (
         ($mnemonic:ident $($dotted:ident)* ; $($suffixes:ident)*)
@@ -65,11 +63,12 @@ macro_rules! define_code {
         [$($unit:ident)|+ $(|)?]
     ) => {
         ::paste::paste!(
-        pub static [<$mnemonic $(_ $dotted)* $(_ $suffixes)*>]: $crate::codegen::Code =
-            $crate::codegen::Code {
+        pub static [<$mnemonic $(_ $dotted)* $(_ $suffixes)*>]: $crate::codegen::code::Code =
+            $crate::codegen::code::Code {
             is_call:            is_call!($mnemonic),
             is_return:          is_return!($mnemonic),
-            has_output:         has_output!($mnemonic $($reg)*),
+            has_output:         !is_store!($mnemonic) &&
+                                    ( $( $crate::codegen::isa::$reg.implies_output ||)* false),
 
             encode: |operands: &[$crate::codegen::Resolved]| -> u32 {
                 // If there's no operands (ie `ret`), _it is unused, so the _ silences a warning.
@@ -84,11 +83,35 @@ macro_rules! define_code {
             mnemonic:           concat!(stringify!($mnemonic) $(, ".", stringify!($dotted))*),
             #[cfg(feature = "dogfood")]
             format_assembly: |mnemonic, operands, address|
-                format_assembly(mnemonic, AddressingMode::$addressing_mode, operands, address, &[$(format_operand!($reg)),*]),
+                format_assembly(mnemonic, AddressingMode::$addressing_mode, operands, address,
+                    &[$($crate::codegen::isa::$reg.format_assembly),*]),
         };);
     }
 }
 pub(super) use define_code;
+
+
+//-------------------------------------------------------------------------------------------------
+
+pub(super) struct OperandClass {
+    pub(super) implies_output:              bool,
+    #[cfg(feature = "dogfood")]
+    pub(super) format_assembly:             fn(Resolved, i32) -> String,
+}
+
+
+macro_rules! operand_class {
+    ($name:ident Output $($rest:tt)*) => { operand_class!(@define $name true  $($rest)*); };
+    ($name:ident        $($rest:tt)*) => { operand_class!(@define $name false $($rest)*); };
+    (@define $name:ident $output:ident $format:ident) => {
+        const $name: $crate::codegen::code::OperandClass = $crate::codegen::code::OperandClass {
+            implies_output:                 $output,
+            #[cfg(feature = "dogfood")]
+            format_assembly:                $format,
+        };
+    }
+}
+pub(super) use operand_class;
 
 
 //-------------------------------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 
 use enumset::EnumSetType;
 
-use crate::codegen::{define_code, regs, RegBank, RegFile, RegSet};
+use crate::codegen::{operand_class, define_code, regs, RegBank, RegFile, RegSet};
 #[cfg(feature = "dogfood")]
 use display::*;
 
@@ -39,6 +39,31 @@ pub enum Unit {
     FP13,
     FP14,
 }
+
+
+//-------------------------------------------------------------------------------------------------
+// Operand classes  used for defining instructions
+
+operand_class!(xd       Output  format_x_reg);
+operand_class!(xt       Output  format_x_reg);
+operand_class!(xt1      Output  format_x_reg);
+operand_class!(xt2              format_x_reg);
+operand_class!(xn               format_x_reg);
+operand_class!(xm               format_x_reg);
+
+operand_class!(dd       Output  format_d_reg);
+operand_class!(dt       Output  format_d_reg);
+operand_class!(dt1      Output  format_d_reg);
+operand_class!(dt2              format_d_reg);
+operand_class!(dn               format_d_reg);
+operand_class!(dm               format_d_reg);
+
+operand_class!(imm7             format_imm);
+operand_class!(imm9             format_imm);
+operand_class!(imm12            format_imm);
+operand_class!(imm16            format_imm);
+operand_class!(imm19            format_address);
+operand_class!(imm26            format_address);
 
 
 //-------------------------------------------------------------------------------------------------
@@ -118,23 +143,12 @@ macro_rules! code {
 }
 use code;
 
-macro_rules! has_output {
-    (str        $($reg:ident)*)     => { false };
-    (stp        $($reg:ident)*)     => { false };
-    ($any:ident $($reg:ident)*)     => { $( output_reg!($reg) ||)* false };
-}
-use has_output;
-
-macro_rules! output_reg {
-    (dd)                            => { true };
-    (dt)                            => { true };
-    (dt1)                           => { true };
-    (xd)                            => { true };
-    (xt)                            => { true };
-    (xt1)                           => { true };
+macro_rules! is_store {
+    (str)                           => { true };
+    (stp)                           => { true };
     ($any:ident)                    => { false };
 }
-use output_reg;
+use is_store;
 
 macro_rules! is_call {
     (bl)                            => { true };
@@ -152,7 +166,6 @@ use is_return;
 macro_rules! encode_operand {
     (xd, $it:expr)    => { $it.reg_field(RegBank::Int) << 0 };
     (xn, $it:expr)    => { $it.reg_field(RegBank::Int) << 5 };
-    (xa, $it:expr)    => { $it.reg_field(RegBank::Int) << 10 };
     (xm, $it:expr)    => { $it.reg_field(RegBank::Int) << 16 };
     (xt, $it:expr)    => { $it.reg_field(RegBank::Int) << 0 };
     (xt1, $it:expr)   => { $it.reg_field(RegBank::Int) << 0 };
@@ -160,7 +173,6 @@ macro_rules! encode_operand {
 
     (dd, $it:expr)    => { $it.reg_field(RegBank::Float) << 0 };
     (dn, $it:expr)    => { $it.reg_field(RegBank::Float) << 5 };
-    (da, $it:expr)    => { $it.reg_field(RegBank::Float) << 10 };
     (dm, $it:expr)    => { $it.reg_field(RegBank::Float) << 16 };
     (dt, $it:expr)    => { $it.reg_field(RegBank::Float) << 0 };
     (dt1, $it:expr)   => { $it.reg_field(RegBank::Float) << 0 };
@@ -216,33 +228,6 @@ mod display {
         };
         format!("{mnemonic} {operand_string}")
     }
-
-    macro_rules! format_operand {
-        (xd)    => { format_x_reg };
-        (xn)    => { format_x_reg };
-        (xm)    => { format_x_reg };
-        (xa)    => { format_x_reg };
-        (xt)    => { format_x_reg };
-        (xt1)   => { format_x_reg };
-        (xt2)   => { format_x_reg };
-
-        (dd)    => { format_d_reg };
-        (dn)    => { format_d_reg };
-        (dm)    => { format_d_reg };
-        (da)    => { format_d_reg };
-        (dt)    => { format_d_reg };
-        (dt1)   => { format_d_reg };
-        (dt2)   => { format_d_reg };
-
-        (imm7)  => { format_imm };
-        (imm9)  => { format_imm };
-        (imm12) => { format_imm };
-        (imm16) => { format_imm };
-        (imm19) => { format_address };
-        (imm26) => { format_address };
-    }
-    pub(super) use format_operand;
-
 
     pub(super) fn format_x_reg(reg: Resolved, _address: i32) -> String {
         match reg.reg().encoding() {
