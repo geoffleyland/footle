@@ -6,10 +6,13 @@ use crate::codegen::{MachineReg, RankSet, REGS, Unit, Resolved};
 //-------------------------------------------------------------------------------------------------
 
 #[derive(Debug)]
+pub(super) enum InstrClass { Call, Return, Store }
+
+
+#[derive(Debug)]
 pub(super) struct Code {
     pub(super) encode:                      fn(&[Resolved]) -> u32,
-    pub(super) is_call:                     bool,
-    pub(super) is_return:                   bool,
+    pub(super) instr_class:                 Option<InstrClass>,
     pub(super) has_output:                  bool,
 
     pub(super) latency:                     u8,
@@ -25,10 +28,9 @@ pub(super) struct Code {
 impl Code {
     pub(super) fn encode(&self, operands: &[Resolved])-> u32   { (self.encode)(operands) }
 
-    pub(super) fn is_call(&self) -> bool            { self.is_call }
-    pub(super) fn is_return(&self) -> bool          { self.is_return }
+    pub(super) fn is_call(&self) -> bool            { matches!(self.instr_class, Some(InstrClass::Call)) }
+    pub(super) fn is_return(&self) -> bool          { matches!(self.instr_class, Some(InstrClass::Return)) }
     pub(super) fn has_output(&self) -> bool         { self.has_output }
-
 
     pub(super) fn clobbers_anything(&self) -> bool  { self.is_call() }
     pub(super) fn clobbers(&self, reg: MachineReg) -> bool {
@@ -58,17 +60,17 @@ macro_rules! define_code {
         ($mnemonic:ident $($dotted:ident)* ; $($suffixes:ident)*)
         $addressing_mode:ident
         ($($reg:ident)*)
-        $pattern:literal,
-        $latency:literal,
+        $pattern:literal
+        $($instr_class:ident)? ;
+        $latency:literal
         [$($unit:ident)|+ $(|)?]
     ) => {
         ::paste::paste!(
         pub static [<$mnemonic $(_ $dotted)* $(_ $suffixes)*>]: $crate::codegen::code::Code =
             $crate::codegen::code::Code {
-            is_call:            is_call!($mnemonic),
-            is_return:          is_return!($mnemonic),
-            has_output:         !is_store!($mnemonic) &&
-                                    ( $( $crate::codegen::isa::$reg.implies_output ||)* false),
+            instr_class:        define_code!(@instr_class $($instr_class)?),
+            has_output:         !matches!(define_code!(@instr_class $($instr_class)?), Some($crate::codegen::code::InstrClass::Store))
+                                    && ($($crate::codegen::isa::$reg.implies_output ||)* false),
 
             encode: |operands: &[$crate::codegen::Resolved]| -> u32 {
                 // If there's no operands (ie `ret`), _it is unused, so the _ silences a warning.
@@ -86,7 +88,10 @@ macro_rules! define_code {
                 format_assembly(mnemonic, AddressingMode::$addressing_mode, operands, address,
                     &[$($crate::codegen::isa::$reg.format_assembly),*]),
         };);
-    }
+    };
+
+    (@instr_class)                  => { None };
+    (@instr_class $class:ident)     => { Some($crate::codegen::code::InstrClass::$class) };
 }
 pub(super) use define_code;
 
