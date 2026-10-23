@@ -90,7 +90,8 @@ case $1 in
     watch)
         shift
         export NO_TTY=1 CARGO_TERM_COLOR=always       # colour survives the pipe to tee
-        log="target/watch-$(echo "$*" | tr ' /' '__').log"
+        mkdir -p logs
+        log="logs/watch-$(echo "$*" | tr ' /' '__').log"
         watchexec -w src -w test-cases -w Cargo.toml -c -- \
             "{ echo \"# \$(date '+%F %T')  ./admin $*\"; ./admin $*; echo \"# exit \$?\"; } 2>&1 | tee $log"
         ;;
@@ -106,11 +107,26 @@ case $1 in
         tokei
         ;;
 
-    cleanout-watchexec)
+    clean)
         # watchexecs left behind by closing a terminal tab without Ctrl-C: their parent is now
-        # launchd (or init), PID 1.
+        # launchd (or init), PID 1.  They go first, so they can't start a build mid-clean.
         pids=$(ps -e -o pid= -o ppid= -o args= | awk '$2 == 1 && /watchexec/ {print $1}')
         [ -n "$pids" ] && kill $pids
+        cargo clean
+        # The containers' build products; their downloaded crates are in separate volumes, and
+        # compose recreates these empty.  Docker refuses (and says so) while a container uses one.
+        docker volume rm -f footle_alpine-aarch64-target footle_alpine-riscv64-target > /dev/null
+        ;;
+
+    upgrade)
+        # Toolchains first, then clean out what the old ones built.  `cargo upgrade` (semver-
+        # compatible bumps only) goes last: its edit to Cargo.toml is what sets the watchers off,
+        # so they build once, with the new toolchains, into empty target directories.
+        rustup update \
+            && docker compose build --pull --no-cache \
+            && "$0" clean \
+            && cargo upgrade \
+            && git diff --stat Cargo.toml
         ;;
 
     **)
