@@ -183,19 +183,12 @@ mod display {
     pub(super) fn format_assembly(
         mnemonic:           &str,
         mode:               AddressingMode,
+        operand_strings:    &[String],
         operands:           &[u32],
-        address:            i32,
-        formatters:         &[fn(u32, i32) -> String]
     ) -> String {
         use AddressingMode::*;
-        if operands.is_empty() { return mnemonic.to_string() }
 
-        debug_assert_eq!(operands.len(), formatters.len());
-        let operand_strings: Vec<_> = formatters.iter().zip(operands)
-            .map(|(f, &v)| f(v, address))
-            .collect();
-
-        let operand_string = match (mode, operand_strings.as_slice()) {
+        let operand_string = match (mode, operand_strings) {
             (Offset,    [head @ .., base, _]) if operands.last() == Some(&0)
                                                     => format!("{}, [{base}]", head.join(", ")),
             (Offset,    [head @ .., base, offset])  => format!("{}, [{base}, {offset}]", head.join(", ")),

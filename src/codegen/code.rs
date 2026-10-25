@@ -11,9 +11,10 @@ pub(super) enum InstrClass { Call, Return, Store }
 
 #[derive(Debug)]
 pub(super) struct Code {
-    pub(super) encode:                      fn(&[Resolved]) -> u32,
+    pub(super) encode:                      fn(&[u32]) -> u32,
+
     pub(super) instr_class:                 Option<InstrClass>,
-    pub(super) has_output:                  bool,
+    pub(super) operand_classes:             &'static[OperandClass],
 
     pub(super) latency:                     u8,
     pub(super) units:                       EnumSet<Unit>,
@@ -21,16 +22,26 @@ pub(super) struct Code {
     #[cfg(feature = "dogfood")]
     pub(super) mnemonic:                    &'static str,
     #[cfg(feature = "dogfood")]
-    pub(super) format_assembly:             fn(&str, &[Resolved], i32) -> String,
+    pub(super) format_assembly:             fn(&str, &[String], &[u32]) -> String,
 }
 
 
 impl Code {
-    pub(super) fn encode(&self, operands: &[Resolved])-> u32   { (self.encode)(operands) }
+    pub(super) fn encode(&self, operands: &[Resolved])-> u32 {
+        debug_assert_eq!(self.operand_classes.len(), operands.len());
+
+        let bits: Vec<_> = self.operand_classes.iter().zip(operands)
+            .map(|(class, op)| op.bits(class.ty))
+            .collect();
+        (self.encode)(&bits)
+    }
 
     pub(super) fn is_call(&self) -> bool            { matches!(self.instr_class, Some(InstrClass::Call)) }
     pub(super) fn is_return(&self) -> bool          { matches!(self.instr_class, Some(InstrClass::Return)) }
-    pub(super) fn has_output(&self) -> bool         { self.has_output }
+    pub(super) fn has_output(&self) -> bool         {
+        !matches!(self.instr_class, Some(InstrClass::Store)) &&
+            self.operand_classes.iter().any(|c| c.implies_output)
+    }
 
     pub(super) fn clobbers_anything(&self) -> bool  { self.is_call() }
     pub(super) fn clobbers(&self, reg: MachineReg) -> bool {
@@ -50,7 +61,17 @@ impl Code {
 
     #[cfg(feature = "dogfood")]
     pub(super) fn format_assembly(&self, operands: &[Resolved], address: i32) -> String {
-        (self.format_assembly)(self.mnemonic, operands, address)
+        debug_assert_eq!(self.operand_classes.len(), operands.len());
+        if self.operand_classes.is_empty() { return self.mnemonic.to_string() }
+
+        let bits: Vec<_> = self.operand_classes.iter().zip(operands)
+            .map(|(class, op)| op.bits(class.ty))
+            .collect();
+        let operand_strings: Vec<_> = self.operand_classes.iter().zip(&bits)
+            .map(|(class, b)| (class.format_assembly)(*b, address))
+            .collect();
+
+        (self.format_assembly)(self.mnemonic, &operand_strings, &bits)
     }
 }
 
@@ -69,14 +90,13 @@ macro_rules! define_code {
         pub static [<$mnemonic $(_ $dotted)* $(_ $suffixes)*>]: $crate::codegen::code::Code =
             $crate::codegen::code::Code {
             instr_class:        define_code!(@instr_class $($instr_class)?),
-            has_output:         !matches!(define_code!(@instr_class $($instr_class)?), Some($crate::codegen::code::InstrClass::Store))
-                                    && ($($crate::codegen::isa::$operand.implies_output ||)* false),
+            operand_classes:    &[$($crate::codegen::isa::$operand,)*],
 
-            encode: |operands: &[$crate::codegen::Resolved]| -> u32 {
+            encode: |operands: &[u32]| -> u32 {
                 // If there's no operands (ie `ret`), _it is unused, so the _ silences a warning.
                 let mut _it = operands.iter().copied();
                 $pattern $(| {
-                    let bits = _it.next().unwrap().bits($crate::codegen::isa::$operand.ty);
+                    let bits = _it.next().unwrap();
                     encode_operand!($operand, bits)
                 })*
             },
@@ -87,13 +107,8 @@ macro_rules! define_code {
             #[cfg(feature = "dogfood")]
             mnemonic:           concat!(stringify!($mnemonic) $(, ".", stringify!($dotted))*),
             #[cfg(feature = "dogfood")]
-            format_assembly: |mnemonic, operands, address| {
-                let bits: Vec<_> = operands.iter()
-                    .zip([$($crate::codegen::isa::$operand.ty),*])
-                    .map(|(op, ty)| op.bits(ty))
-                    .collect();
-                format_assembly(mnemonic, AddressingMode::$addressing_mode, &bits, address,
-                    &[$($crate::codegen::isa::$operand.format_assembly),*])
+            format_assembly: |mnemonic, strings, bits| {
+                format_assembly(mnemonic, AddressingMode::$addressing_mode, strings, bits)
             },
         };);
     };
@@ -106,11 +121,13 @@ pub(super) use define_code;
 
 //-------------------------------------------------------------------------------------------------
 
+#[derive(Debug, Copy, Clone)]
 pub(super) enum OperandType {
     Reg(RegBank),
     Imm
 }
 
+#[derive(Debug)]
 pub(super) struct OperandClass {
     pub(super) ty:                          OperandType,
     pub(super) implies_output:              bool,

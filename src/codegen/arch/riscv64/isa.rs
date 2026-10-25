@@ -136,17 +136,10 @@ mod display {
     pub(super) fn format_assembly(
         mnemonic:           &str,
         mode:               AddressingMode,
+        operand_strings:    &[String],
         operands:           &[u32],
-        address:            i32,
-        formatters:         &[fn(u32, i32) -> String]
     ) -> String {
         use AddressingMode::*;
-        if operands.is_empty() { return mnemonic.to_string() }
-
-        debug_assert_eq!(operands.len(), formatters.len());
-        let operand_strings: Vec<_> = formatters.iter().zip(operands)
-            .map(|(f, &v)| f(v, address))
-            .collect();
 
         if mnemonic == "li" {
             if operands[1] == 0 { return format!("mv {}, zero", operand_strings[0]) }
