@@ -2,7 +2,7 @@
 
 use enumset::EnumSetType;
 
-use crate::codegen::{operand_class, define_code, regs, RegBank, RegFile, RegSet};
+use crate::codegen::{operand_class, define_code, regs, RegFile, RegSet};
 #[cfg(feature = "dogfood")]
 use display::*;
 
@@ -44,26 +44,26 @@ pub enum Unit {
 //-------------------------------------------------------------------------------------------------
 // Operand classes  used for defining instructions
 
-operand_class!(xd       Output  format_x_reg);
-operand_class!(xt       Output  format_x_reg);
-operand_class!(xt1      Output  format_x_reg);
-operand_class!(xt2              format_x_reg);
-operand_class!(xn               format_x_reg);
-operand_class!(xm               format_x_reg);
+operand_class!(xd,      Reg(Int),   format_x_reg, Output);
+operand_class!(xt,      Reg(Int),   format_x_reg, Output);
+operand_class!(xt1,     Reg(Int),   format_x_reg, Output);
+operand_class!(xt2,     Reg(Int),   format_x_reg);
+operand_class!(xn,      Reg(Int),   format_x_reg);
+operand_class!(xm,      Reg(Int),   format_x_reg);
 
-operand_class!(dd       Output  format_d_reg);
-operand_class!(dt       Output  format_d_reg);
-operand_class!(dt1      Output  format_d_reg);
-operand_class!(dt2              format_d_reg);
-operand_class!(dn               format_d_reg);
-operand_class!(dm               format_d_reg);
+operand_class!(dd,      Reg(Float), format_d_reg, Output);
+operand_class!(dt,      Reg(Float), format_d_reg, Output);
+operand_class!(dt1,     Reg(Float), format_d_reg, Output);
+operand_class!(dt2,     Reg(Float), format_d_reg);
+operand_class!(dn,      Reg(Float), format_d_reg);
+operand_class!(dm,      Reg(Float), format_d_reg);
 
-operand_class!(imm7             format_imm);
-operand_class!(imm9             format_imm);
-operand_class!(imm12            format_imm);
-operand_class!(imm16            format_imm);
-operand_class!(imm19            format_address);
-operand_class!(imm26            format_address);
+operand_class!(imm7,    Imm,        format_imm);
+operand_class!(imm9,    Imm,        format_imm);
+operand_class!(imm12,   Imm,        format_imm);
+operand_class!(imm16,   Imm,        format_imm);
+operand_class!(imm19,   Imm,        format_address);
+operand_class!(imm26,   Imm,        format_address);
 
 
 //-------------------------------------------------------------------------------------------------
@@ -144,26 +144,26 @@ macro_rules! code {
 use code;
 
 macro_rules! encode_operand {
-    (xd, $it:expr)    => { $it.reg_field(RegBank::Int) << 0 };
-    (xn, $it:expr)    => { $it.reg_field(RegBank::Int) << 5 };
-    (xm, $it:expr)    => { $it.reg_field(RegBank::Int) << 16 };
-    (xt, $it:expr)    => { $it.reg_field(RegBank::Int) << 0 };
-    (xt1, $it:expr)   => { $it.reg_field(RegBank::Int) << 0 };
-    (xt2, $it:expr)   => { $it.reg_field(RegBank::Int) << 10 };
+    (xd, $it:expr)    => { $it << 0 };
+    (xn, $it:expr)    => { $it << 5 };
+    (xm, $it:expr)    => { $it << 16 };
+    (xt, $it:expr)    => { $it << 0 };
+    (xt1, $it:expr)   => { $it << 0 };
+    (xt2, $it:expr)   => { $it << 10 };
 
-    (dd, $it:expr)    => { $it.reg_field(RegBank::Float) << 0 };
-    (dn, $it:expr)    => { $it.reg_field(RegBank::Float) << 5 };
-    (dm, $it:expr)    => { $it.reg_field(RegBank::Float) << 16 };
-    (dt, $it:expr)    => { $it.reg_field(RegBank::Float) << 0 };
-    (dt1, $it:expr)   => { $it.reg_field(RegBank::Float) << 0 };
-    (dt2, $it:expr)   => { $it.reg_field(RegBank::Float) << 10 };
+    (dd, $it:expr)    => { $it << 0 };
+    (dn, $it:expr)    => { $it << 5 };
+    (dm, $it:expr)    => { $it << 16 };
+    (dt, $it:expr)    => { $it << 0 };
+    (dt1, $it:expr)   => { $it << 0 };
+    (dt2, $it:expr)   => { $it << 10 };
 
-    (imm7, $it:expr)  => { (($it.imm_bits() >> 3) & 0x7F) << 15 };
-    (imm9, $it:expr)  => { ($it.imm_bits() & 0x01FF) << 12 };
-    (imm12, $it:expr) => { (($it.imm_bits() >> 3) & 0x0FFF) << 10 };
-    (imm16, $it:expr) => { ($it.imm_bits() & 0xFFFF) << 5 };
-    (imm19, $it:expr) => { (($it.imm_bits() >> 2) & 0x7_FFFF) << 5 };
-    (imm26, $it:expr) => { ($it.imm_bits() >> 2) & 0x03FF_FFFF };
+    (imm7, $it:expr)  => { (($it >> 3) & 0x7F) << 15 };
+    (imm9, $it:expr)  => { ($it & 0x01FF) << 12 };
+    (imm12, $it:expr) => { (($it >> 3) & 0x0FFF) << 10 };
+    (imm16, $it:expr) => { ($it & 0xFFFF) << 5 };
+    (imm19, $it:expr) => { (($it >> 2) & 0x7_FFFF) << 5 };
+    (imm26, $it:expr) => { ($it >> 2) & 0x03FF_FFFF };
 }
 use encode_operand;
 
@@ -172,8 +172,6 @@ use encode_operand;
 
 #[cfg(feature = "dogfood")]
 mod display {
-    use crate::codegen::Resolved;
-
     #[derive(Debug, Clone, Copy)]
     pub(super) enum AddressingMode {
         None,
@@ -185,9 +183,9 @@ mod display {
     pub(super) fn format_assembly(
         mnemonic:           &str,
         mode:               AddressingMode,
-        operands:           &[Resolved],
+        operands:           &[u32],
         address:            i32,
-        formatters:         &[fn(Resolved, i32) -> String]
+        formatters:         &[fn(u32, i32) -> String]
     ) -> String {
         use AddressingMode::*;
         if operands.is_empty() { return mnemonic.to_string() }
@@ -198,7 +196,7 @@ mod display {
             .collect();
 
         let operand_string = match (mode, operand_strings.as_slice()) {
-            (Offset,    [head @ .., base, _]) if operands.last() == Some(&Resolved::Imm(0))
+            (Offset,    [head @ .., base, _]) if operands.last() == Some(&0)
                                                     => format!("{}, [{base}]", head.join(", ")),
             (Offset,    [head @ .., base, offset])  => format!("{}, [{base}, {offset}]", head.join(", ")),
             (Pre,       [head @ .., base, offset])  => format!("{}, [{base}, {offset}]!", head.join(", ")),
@@ -209,22 +207,23 @@ mod display {
         format!("{mnemonic} {operand_string}")
     }
 
-    pub(super) fn format_x_reg(reg: Resolved, _address: i32) -> String {
-        match reg.reg().encoding() {
+    pub(super) fn format_x_reg(bits: u32, _address: i32) -> String {
+        match bits {
             31 => "sp".into(),
             n  => format!("x{n}"),
         }
     }
-    pub(super) fn format_d_reg(reg: Resolved, _address: i32) -> String {
-        format!("d{}", reg.reg().encoding())
+    pub(super) fn format_d_reg(bits: u32, _address: i32) -> String {
+        format!("d{bits}")
     }
-    pub(super) fn format_imm(imm: Resolved, _address: i32) -> String {
-        let n = imm.imm();
+    pub(super) fn format_imm(bits: u32, _address: i32) -> String {
+        let n = bits.cast_signed();
         if (-9..=9).contains(&n) { format!("#{n}") }
         else { format!("#{}{:#x}", if n < 0 { "-" } else { "" }, n.unsigned_abs()) }
     }
-    pub(super) fn format_address(addr: Resolved, address: i32) -> String {
-        format!("#{:#x}", address + addr.imm())
+    pub(super) fn format_address(bits: u32, address: i32) -> String {
+        let addr = bits.cast_signed();
+        format!("#{:#x}", address + addr)
     }
 }
 

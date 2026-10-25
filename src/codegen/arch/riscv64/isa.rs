@@ -2,7 +2,7 @@
 
 use enumset::EnumSetType;
 
-use crate::codegen::{operand_class, define_code, regs, RegBank, RegFile, RegSet};
+use crate::codegen::{operand_class, define_code, regs, RegFile, RegSet};
 #[cfg(feature = "dogfood")]
 use display::*;
 
@@ -37,19 +37,19 @@ pub enum Unit { U1, U2, U3}
 //-------------------------------------------------------------------------------------------------
 // Operand classes  used for defining instructions
 
-operand_class!(xd       Output  format_x_reg);
-operand_class!(xs1              format_x_reg);
-operand_class!(xs2              format_x_reg);
+operand_class!(xd,      Reg(Int),   format_x_reg, Output);
+operand_class!(xs1,     Reg(Int),   format_x_reg);
+operand_class!(xs2,     Reg(Int),   format_x_reg);
 
-operand_class!(fd       Output  format_f_reg);
-operand_class!(fs1              format_f_reg);
-operand_class!(fs2              format_f_reg);
-operand_class!(fs12             format_f_reg);
+operand_class!(fd,      Reg(Float), format_f_reg, Output);
+operand_class!(fs1,     Reg(Float), format_f_reg);
+operand_class!(fs2,     Reg(Float), format_f_reg);
+operand_class!(fs12,    Reg(Float), format_f_reg);
 
-operand_class!(imm_i            format_imm);
-operand_class!(imm_j            format_imm);
-operand_class!(imm_s            format_imm);
-operand_class!(imm_u            format_imm_u);
+operand_class!(imm_i,   Imm,        format_imm);
+operand_class!(imm_j,   Imm,        format_imm);
+operand_class!(imm_s,   Imm,        format_imm);
+operand_class!(imm_u,   Imm,        format_imm_u);
 
 
 //-------------------------------------------------------------------------------------------------
@@ -92,32 +92,32 @@ macro_rules! code {
 use code;
 
 macro_rules! encode_operand {
-    (xd, $it:expr)    => { $it.reg_field(RegBank::Int) << 7 };
-    (xs1, $it:expr)   => { $it.reg_field(RegBank::Int) << 15 };
-    (xs2, $it:expr)   => { $it.reg_field(RegBank::Int) << 20 };
+    (xd, $it:expr)    => { $it << 7 };
+    (xs1, $it:expr)   => { $it << 15 };
+    (xs2, $it:expr)   => { $it << 20 };
 
-    (fd, $it:expr)    => { $it.reg_field(RegBank::Float) << 7 };
-    (fs1, $it:expr)   => { $it.reg_field(RegBank::Float) << 15 };
-    (fs2, $it:expr)   => { $it.reg_field(RegBank::Float) << 20 };
-    (fs12, $it:expr)  => {{ let r = $it.reg_field(RegBank::Float); r << 15 | r << 20 }};
+    (fd, $it:expr)    => { $it << 7 };
+    (fs1, $it:expr)   => { $it << 15 };
+    (fs2, $it:expr)   => { $it << 20 };
+    (fs12, $it:expr)  => {{ let r = $it; r << 15 | r << 20 }};
 
-    (imm_i, $it:expr) => { ($it.imm_bits() & 0xFFF) << 20 };            // 31:20 = imm[11:0]
+    (imm_i, $it:expr) => { ($it & 0xFFF) << 20 };            // 31:20 = imm[11:0]
     (imm_j, $it:expr) => {{
-        let i = $it.imm_bits();
+        let i = $it;
         (i >> 20 & 0x1)   << 31 |                                       // 31    = imm[20]
         (i >>  1 & 0x3FF) << 21 |                                       // 30:21 = imm[10:1]
         (i >> 11 & 0x1)   << 20 |                                       // 20    = imm[11]
         (i >> 12 & 0xFF)  << 12                                         // 19:12 = imm[19:12]
     }};
     (imm_s, $it:expr) => {{
-        let i = $it.imm_bits();
+        let i = $it;
         (i >>  5 & 0x7F)  << 25 |                                       // 31:25 = imm[11:5]
         (i       & 0x1F)  <<  7                                         // 11:7  = imm[4:0]
     }};
     // The operand is the whole PC-relative distance; the instruction after the auipc takes its
     // low 12 bits, sign-extended, so round the upper 20 bits to make up for a negative low part.
     (imm_u, $it:expr) => {{
-        $it.imm_bits().wrapping_add(0x800) & 0xFFFF_F000                // 31:12 = imm[31:12]
+        $it.wrapping_add(0x800) & 0xFFFF_F000                // 31:12 = imm[31:12]
     }};
 }
 use encode_operand;
@@ -127,8 +127,6 @@ use encode_operand;
 
 #[cfg(feature = "dogfood")]
 mod display {
-    use crate::codegen::Resolved;
-
     #[derive(Debug, Clone, Copy)]
     pub(super) enum AddressingMode {
         None,
@@ -138,9 +136,9 @@ mod display {
     pub(super) fn format_assembly(
         mnemonic:           &str,
         mode:               AddressingMode,
-        operands:           &[Resolved],
+        operands:           &[u32],
         address:            i32,
-        formatters:         &[fn(Resolved, i32) -> String]
+        formatters:         &[fn(u32, i32) -> String]
     ) -> String {
         use AddressingMode::*;
         if operands.is_empty() { return mnemonic.to_string() }
@@ -151,7 +149,7 @@ mod display {
             .collect();
 
         if mnemonic == "li" {
-            if operands[1].imm() == 0 { return format!("mv {}, zero", operand_strings[0]) }
+            if operands[1] == 0 { return format!("mv {}, zero", operand_strings[0]) }
             return format!("addi {}, zero, {}", operand_strings[0], operand_strings[1])
         }
 
@@ -164,14 +162,14 @@ mod display {
         format!("{mnemonic} {operand_string}")
     }
 
-    pub(super) fn format_imm(imm: Resolved, _address: i32) -> String {
-        let n = imm.imm();
+    pub(super) fn format_imm(bits: u32, _address: i32) -> String {
+        let n = bits.cast_signed();
         if (-9..=9).contains(&n) { format!("{n}") }
         else { format!("{}{:#x}", if n < 0 { "-" } else { "" }, n.unsigned_abs()) }
     }
     // auipc's operand is the whole distance, but it shows the 20-bit field it actually encodes.
-    pub(super) fn format_imm_u(imm: Resolved, _address: i32) -> String {
-        let n = imm.imm();
+    pub(super) fn format_imm_u(bits: u32, _address: i32) -> String {
+        let n = bits.cast_signed();
         let field = n.cast_unsigned().wrapping_add(0x800) >> 12;
         if field <= 9 { format!("{field}") } else { format!("{field:#x}") }
     }
@@ -191,12 +189,12 @@ mod display {
         "fs8",  "fs9", "fs10", "fs11", "ft8", "ft9", "ft10", "ft11",
     ];
 
-    pub(super) fn format_x_reg(reg: Resolved, _address: i32) -> String {
-        X_REG_NAMES[usize::from(reg.reg().encoding())].into()
+    pub(super) fn format_x_reg(bits: u32, _address: i32) -> String {
+        X_REG_NAMES[bits as usize % 32].into()
     }
 
-    pub(super) fn format_f_reg(reg: Resolved, _address: i32) -> String {
-        F_REG_NAMES[usize::from(reg.reg().encoding())].into()
+    pub(super) fn format_f_reg(bits: u32, _address: i32) -> String {
+        F_REG_NAMES[bits as usize % 32].into()
     }
 }
 

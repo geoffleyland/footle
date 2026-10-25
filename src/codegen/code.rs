@@ -1,6 +1,6 @@
 use enumset::EnumSet;
 
-use crate::codegen::{MachineReg, RankSet, REGS, Unit, Resolved};
+use crate::codegen::{MachineReg, RankSet, RegBank, REGS, Unit, Resolved};
 
 
 //-------------------------------------------------------------------------------------------------
@@ -59,7 +59,7 @@ macro_rules! define_code {
     (
         ($mnemonic:ident $($dotted:ident)* ; $($suffixes:ident)*)
         $addressing_mode:ident
-        ($($reg:ident)*)
+        ($($operand:ident)*)
         $pattern:literal
         $($instr_class:ident)? ;
         $latency:literal
@@ -70,12 +70,15 @@ macro_rules! define_code {
             $crate::codegen::code::Code {
             instr_class:        define_code!(@instr_class $($instr_class)?),
             has_output:         !matches!(define_code!(@instr_class $($instr_class)?), Some($crate::codegen::code::InstrClass::Store))
-                                    && ($($crate::codegen::isa::$reg.implies_output ||)* false),
+                                    && ($($crate::codegen::isa::$operand.implies_output ||)* false),
 
             encode: |operands: &[$crate::codegen::Resolved]| -> u32 {
                 // If there's no operands (ie `ret`), _it is unused, so the _ silences a warning.
                 let mut _it = operands.iter().copied();
-                $pattern $(| { let value = _it.next().unwrap(); encode_operand!($reg, value) })*
+                $pattern $(| {
+                    let bits = _it.next().unwrap().bits($crate::codegen::isa::$operand.ty);
+                    encode_operand!($operand, bits)
+                })*
             },
 
             latency:            $latency,
@@ -84,9 +87,14 @@ macro_rules! define_code {
             #[cfg(feature = "dogfood")]
             mnemonic:           concat!(stringify!($mnemonic) $(, ".", stringify!($dotted))*),
             #[cfg(feature = "dogfood")]
-            format_assembly: |mnemonic, operands, address|
-                format_assembly(mnemonic, AddressingMode::$addressing_mode, operands, address,
-                    &[$($crate::codegen::isa::$reg.format_assembly),*]),
+            format_assembly: |mnemonic, operands, address| {
+                let bits: Vec<_> = operands.iter()
+                    .zip([$($crate::codegen::isa::$operand.ty),*])
+                    .map(|(op, ty)| op.bits(ty))
+                    .collect();
+                format_assembly(mnemonic, AddressingMode::$addressing_mode, &bits, address,
+                    &[$($crate::codegen::isa::$operand.format_assembly),*])
+            },
         };);
     };
 
@@ -98,18 +106,29 @@ pub(super) use define_code;
 
 //-------------------------------------------------------------------------------------------------
 
+pub(super) enum OperandType {
+    Reg(RegBank),
+    Imm
+}
+
 pub(super) struct OperandClass {
+    pub(super) ty:                          OperandType,
     pub(super) implies_output:              bool,
     #[cfg(feature = "dogfood")]
-    pub(super) format_assembly:             fn(Resolved, i32) -> String,
+    pub(super) format_assembly:             fn(u32, i32) -> String,
 }
 
 
 macro_rules! operand_class {
-    ($name:ident Output $($rest:tt)*) => { operand_class!(@define $name true  $($rest)*); };
-    ($name:ident        $($rest:tt)*) => { operand_class!(@define $name false $($rest)*); };
-    (@define $name:ident $output:ident $format:ident) => {
+    ($name:ident, $ty:expr, $format:ident, Output)    => { operand_class!(@define $name, $ty, $format, true); };
+    ($name:ident, $ty:expr, $format:ident)            => { operand_class!(@define $name, $ty, $format, false); };
+    (@define $name:ident, $ty:expr, $format:ident, $output:ident) => {
         const $name: $crate::codegen::code::OperandClass = $crate::codegen::code::OperandClass {
+            ty: {
+                #[allow(unused_imports)]
+                use $crate::codegen::{code::OperandType::*, RegBank::*};
+                $ty
+            },
             implies_output:                 $output,
             #[cfg(feature = "dogfood")]
             format_assembly:                $format,

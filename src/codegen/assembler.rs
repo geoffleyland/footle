@@ -1,7 +1,7 @@
 use typed_index_collections::TiVec;
 
 use super::{abi, allocator,
-    Code, ConstantIndex, Pool, Signature, ValueSlot, MachineReg, RegSet, RegBank, RelativeTo,
+    Code, OperandType, ConstantIndex, Pool, Signature, ValueSlot, MachineReg, RegSet, RegBank, RelativeTo,
     REGS};
 
 #[cfg(feature = "dogfood")]
@@ -89,21 +89,16 @@ pub(super) enum Resolved {
 }
 
 impl Resolved {
-    pub(super) fn reg(self) -> MachineReg {
-        if let Self::Reg(r) = self { r } else {
-            panic!("internal compiler error: immediate passed as register operand")
+    pub(super) fn bits(self, ty: OperandType) -> u32 {
+        match (self, ty) {
+            (Self::Imm(i), OperandType::Imm) => i.cast_unsigned(),
+            (Self::Reg(reg), OperandType::Reg(bank)) => {
+                assert_eq!(RegBank::of_reg(reg), bank,
+                    "internal compiler error: {reg:?} is in the wrong register bank");
+                u32::from(reg.encoding())
+            }
+            _ => panic!("internal compiler error: operand type mismatch")
         }
-    }
-    pub(super) fn imm(self) -> i32 {
-        if let Self::Imm(i) = self { i } else {
-            panic!("internal compiler error: register passed as immediate operand")
-        }
-    }
-    pub(super) fn imm_bits(self) -> u32 { self.imm().cast_unsigned() }
-    pub(super) fn reg_field(self, bank: RegBank) -> u32 {
-        let reg = self.reg();
-        assert_eq!(RegBank::of_reg(reg), bank, "internal compiler error: {reg:?} is in the wrong register bank");
-        u32::from(reg.encoding())
     }
 }
 
