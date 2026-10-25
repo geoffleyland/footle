@@ -5,6 +5,8 @@ use enumset::EnumSetType;
 use crate::codegen::{operand_class, define_code, regs, RegFile, RegSet};
 #[cfg(feature = "dogfood")]
 use display::*;
+#[cfg(feature = "dogfood")]
+pub use display::{AddressingMode, format_assembly};
 
 
 //-------------------------------------------------------------------------------------------------
@@ -44,26 +46,26 @@ pub enum Unit {
 //-------------------------------------------------------------------------------------------------
 // Operand classes  used for defining instructions
 
-operand_class!(xd,      Reg(Int),   format_x_reg, Output);
-operand_class!(xt,      Reg(Int),   format_x_reg, Output);
-operand_class!(xt1,     Reg(Int),   format_x_reg, Output);
-operand_class!(xt2,     Reg(Int),   format_x_reg);
-operand_class!(xn,      Reg(Int),   format_x_reg);
-operand_class!(xm,      Reg(Int),   format_x_reg);
+operand_class!(xd,      Reg(Int),   format_x_reg, Output,   |r| r);
+operand_class!(xt,      Reg(Int),   format_x_reg, Output,   |r| r);
+operand_class!(xt1,     Reg(Int),   format_x_reg, Output,   |r| r);
+operand_class!(xt2,     Reg(Int),   format_x_reg,           |r| r << 10);
+operand_class!(xn,      Reg(Int),   format_x_reg,           |r| r << 5);
+operand_class!(xm,      Reg(Int),   format_x_reg,           |r| r << 16);
 
-operand_class!(dd,      Reg(Float), format_d_reg, Output);
-operand_class!(dt,      Reg(Float), format_d_reg, Output);
-operand_class!(dt1,     Reg(Float), format_d_reg, Output);
-operand_class!(dt2,     Reg(Float), format_d_reg);
-operand_class!(dn,      Reg(Float), format_d_reg);
-operand_class!(dm,      Reg(Float), format_d_reg);
+operand_class!(dd,      Reg(Float), format_d_reg, Output,   |r| r);
+operand_class!(dt,      Reg(Float), format_d_reg, Output,   |r| r);
+operand_class!(dt1,     Reg(Float), format_d_reg, Output,   |r| r);
+operand_class!(dt2,     Reg(Float), format_d_reg,           |r| r << 10);
+operand_class!(dn,      Reg(Float), format_d_reg,           |r| r << 5);
+operand_class!(dm,      Reg(Float), format_d_reg,           |r| r << 16);
 
-operand_class!(imm7,    Imm,        format_imm);
-operand_class!(imm9,    Imm,        format_imm);
-operand_class!(imm12,   Imm,        format_imm);
-operand_class!(imm16,   Imm,        format_imm);
-operand_class!(imm19,   Imm,        format_address);
-operand_class!(imm26,   Imm,        format_address);
+operand_class!(imm7,    Imm,        format_imm,             |r| ((r >> 3) & 0x7F) << 15);
+operand_class!(imm9,    Imm,        format_imm,             |r| (r & 0x01FF) << 12);
+operand_class!(imm12,   Imm,        format_imm,             |r| ((r >> 3) & 0x0FFF) << 10);
+operand_class!(imm16,   Imm,        format_imm,             |r| (r & 0xFFFF) << 5);
+operand_class!(imm19,   Imm,        format_address,         |r| ((r >> 2) & 0x7_FFFF) << 5);
+operand_class!(imm26,   Imm,        format_address,         |r| (r >> 2) & 0x03FF_FFFF);
 
 
 //-------------------------------------------------------------------------------------------------
@@ -143,44 +145,20 @@ macro_rules! code {
 }
 use code;
 
-macro_rules! encode_operand {
-    (xd, $it:expr)    => { $it << 0 };
-    (xn, $it:expr)    => { $it << 5 };
-    (xm, $it:expr)    => { $it << 16 };
-    (xt, $it:expr)    => { $it << 0 };
-    (xt1, $it:expr)   => { $it << 0 };
-    (xt2, $it:expr)   => { $it << 10 };
-
-    (dd, $it:expr)    => { $it << 0 };
-    (dn, $it:expr)    => { $it << 5 };
-    (dm, $it:expr)    => { $it << 16 };
-    (dt, $it:expr)    => { $it << 0 };
-    (dt1, $it:expr)   => { $it << 0 };
-    (dt2, $it:expr)   => { $it << 10 };
-
-    (imm7, $it:expr)  => { (($it >> 3) & 0x7F) << 15 };
-    (imm9, $it:expr)  => { ($it & 0x01FF) << 12 };
-    (imm12, $it:expr) => { (($it >> 3) & 0x0FFF) << 10 };
-    (imm16, $it:expr) => { ($it & 0xFFFF) << 5 };
-    (imm19, $it:expr) => { (($it >> 2) & 0x7_FFFF) << 5 };
-    (imm26, $it:expr) => { ($it >> 2) & 0x03FF_FFFF };
-}
-use encode_operand;
-
 
 //-------------------------------------------------------------------------------------------------
 
 #[cfg(feature = "dogfood")]
 mod display {
     #[derive(Debug, Clone, Copy)]
-    pub(super) enum AddressingMode {
+    pub enum AddressingMode {
         None,
         Offset,
         Pre,
         Post,
     }
 
-    pub(super) fn format_assembly(
+    pub fn format_assembly(
         mnemonic:           &str,
         mode:               AddressingMode,
         operand_strings:    &[String],

@@ -11,7 +11,7 @@ pub(super) enum InstrClass { Call, Return, Store }
 
 #[derive(Debug)]
 pub(super) struct Code {
-    pub(super) encode:                      fn(&[u32]) -> u32,
+    pub(super) pattern:                     u32,
 
     pub(super) instr_class:                 Option<InstrClass>,
     pub(super) operand_classes:             &'static[OperandClass],
@@ -22,7 +22,7 @@ pub(super) struct Code {
     #[cfg(feature = "dogfood")]
     pub(super) mnemonic:                    &'static str,
     #[cfg(feature = "dogfood")]
-    pub(super) format_assembly:             fn(&str, &[String], &[u32]) -> String,
+    pub(super) addressing_mode:             crate::codegen::isa::AddressingMode,
 }
 
 
@@ -30,10 +30,8 @@ impl Code {
     pub(super) fn encode(&self, operands: &[Resolved])-> u32 {
         debug_assert_eq!(self.operand_classes.len(), operands.len());
 
-        let bits: Vec<_> = self.operand_classes.iter().zip(operands)
-            .map(|(class, op)| op.bits(class.ty))
-            .collect();
-        (self.encode)(&bits)
+        self.operand_classes.iter().zip(operands)
+            .fold(self.pattern, |acc, (class, op)| acc | (class.place)(op.bits(class.ty)))
     }
 
     pub(super) fn is_call(&self) -> bool            { matches!(self.instr_class, Some(InstrClass::Call)) }
@@ -71,7 +69,7 @@ impl Code {
             .map(|(class, b)| (class.format_assembly)(*b, address))
             .collect();
 
-        (self.format_assembly)(self.mnemonic, &operand_strings, &bits)
+        crate::codegen::isa::format_assembly(self.mnemonic, self.addressing_mode, &operand_strings, &bits)
     }
 }
 
@@ -89,17 +87,9 @@ macro_rules! define_code {
         ::paste::paste!(
         pub static [<$mnemonic $(_ $dotted)* $(_ $suffixes)*>]: $crate::codegen::code::Code =
             $crate::codegen::code::Code {
+            pattern:            $pattern,
             instr_class:        define_code!(@instr_class $($instr_class)?),
             operand_classes:    &[$($crate::codegen::isa::$operand,)*],
-
-            encode: |operands: &[u32]| -> u32 {
-                // If there's no operands (ie `ret`), _it is unused, so the _ silences a warning.
-                let mut _it = operands.iter().copied();
-                $pattern $(| {
-                    let bits = _it.next().unwrap();
-                    encode_operand!($operand, bits)
-                })*
-            },
 
             latency:            $latency,
             units:              ::enumset::enum_set!($(Unit::$unit)|*),
@@ -107,9 +97,7 @@ macro_rules! define_code {
             #[cfg(feature = "dogfood")]
             mnemonic:           concat!(stringify!($mnemonic) $(, ".", stringify!($dotted))*),
             #[cfg(feature = "dogfood")]
-            format_assembly: |mnemonic, strings, bits| {
-                format_assembly(mnemonic, AddressingMode::$addressing_mode, strings, bits)
-            },
+            addressing_mode:    $crate::codegen::isa::AddressingMode::$addressing_mode
         };);
     };
 
@@ -131,15 +119,21 @@ pub(super) enum OperandType {
 pub(super) struct OperandClass {
     pub(super) ty:                          OperandType,
     pub(super) implies_output:              bool,
+    pub(super) place:                       fn(u32) -> u32,
     #[cfg(feature = "dogfood")]
     pub(super) format_assembly:             fn(u32, i32) -> String,
 }
 
 
 macro_rules! operand_class {
-    ($name:ident, $ty:expr, $format:ident, Output)    => { operand_class!(@define $name, $ty, $format, true); };
-    ($name:ident, $ty:expr, $format:ident)            => { operand_class!(@define $name, $ty, $format, false); };
-    (@define $name:ident, $ty:expr, $format:ident, $output:ident) => {
+    ($name:ident, $ty:expr, $format:ident, Output, $($place:tt)*) => {
+        operand_class!(@define $name, $ty, $format, true, $($place)*);
+    };
+    ($name:ident, $ty:expr, $format:ident, $($place:tt)*) => {
+        operand_class!(@define $name, $ty, $format, false, $($place)*);
+    };
+
+    (@define $name:ident, $ty:expr, $format:ident, $output:ident, $($place:tt)*) => {
         const $name: $crate::codegen::code::OperandClass = $crate::codegen::code::OperandClass {
             ty: {
                 #[allow(unused_imports)]
@@ -147,6 +141,7 @@ macro_rules! operand_class {
                 $ty
             },
             implies_output:                 $output,
+            place:                          $($place)*,
             #[cfg(feature = "dogfood")]
             format_assembly:                $format,
         };

@@ -5,6 +5,8 @@ use enumset::EnumSetType;
 use crate::codegen::{operand_class, define_code, regs, RegFile, RegSet};
 #[cfg(feature = "dogfood")]
 use display::*;
+#[cfg(feature = "dogfood")]
+pub use display::{AddressingMode, format_assembly};
 
 
 //-------------------------------------------------------------------------------------------------
@@ -37,19 +39,31 @@ pub enum Unit { U1, U2, U3}
 //-------------------------------------------------------------------------------------------------
 // Operand classes  used for defining instructions
 
-operand_class!(xd,      Reg(Int),   format_x_reg, Output);
-operand_class!(xs1,     Reg(Int),   format_x_reg);
-operand_class!(xs2,     Reg(Int),   format_x_reg);
+operand_class!(xd,      Reg(Int),   format_x_reg,   Output, |r| r << 7);
+operand_class!(xs1,     Reg(Int),   format_x_reg,           |r| r << 15);
+operand_class!(xs2,     Reg(Int),   format_x_reg,           |r| r << 20);
 
-operand_class!(fd,      Reg(Float), format_f_reg, Output);
-operand_class!(fs1,     Reg(Float), format_f_reg);
-operand_class!(fs2,     Reg(Float), format_f_reg);
-operand_class!(fs12,    Reg(Float), format_f_reg);
+operand_class!(fd,      Reg(Float), format_f_reg,   Output, |r| r << 7);
+operand_class!(fs1,     Reg(Float), format_f_reg,           |r| r << 15);
+operand_class!(fs2,     Reg(Float), format_f_reg,           |r| r << 20);
+operand_class!(fs12,    Reg(Float), format_f_reg,           |r| r << 15 | r << 20);
 
-operand_class!(imm_i,   Imm,        format_imm);
-operand_class!(imm_j,   Imm,        format_imm);
-operand_class!(imm_s,   Imm,        format_imm);
-operand_class!(imm_u,   Imm,        format_imm_u);
+operand_class!(imm_i,   Imm,        format_imm,             |r| (r & 0xFFF) << 20);
+operand_class!(imm_j,   Imm,        format_imm,
+    |r|
+    (r >> 20 & 0x1)   << 31 |                               // 31    = imm[20]
+    (r >>  1 & 0x3FF) << 21 |                               // 30:21 = imm[10:1]
+    (r >> 11 & 0x1)   << 20 |                               // 20    = imm[11]
+    (r >> 12 & 0xFF)  << 12                                 // 19:12 = imm[19:12]
+);
+operand_class!(imm_s,   Imm,        format_imm,
+    |r|
+    (r >>  5 & 0x7F)  << 25 |                               // 31:25 = imm[11:5]
+    (r       & 0x1F)  <<  7                                 // 11:7  = imm[4:0]
+);
+operand_class!(imm_u,   Imm,        format_imm_u,
+    |r| r.wrapping_add(0x800) & 0xFFFF_F000                 // 31:12 = imm[31:12]
+);
 
 
 //-------------------------------------------------------------------------------------------------
@@ -91,49 +105,18 @@ macro_rules! code {
 }
 use code;
 
-macro_rules! encode_operand {
-    (xd, $it:expr)    => { $it << 7 };
-    (xs1, $it:expr)   => { $it << 15 };
-    (xs2, $it:expr)   => { $it << 20 };
-
-    (fd, $it:expr)    => { $it << 7 };
-    (fs1, $it:expr)   => { $it << 15 };
-    (fs2, $it:expr)   => { $it << 20 };
-    (fs12, $it:expr)  => {{ let r = $it; r << 15 | r << 20 }};
-
-    (imm_i, $it:expr) => { ($it & 0xFFF) << 20 };            // 31:20 = imm[11:0]
-    (imm_j, $it:expr) => {{
-        let i = $it;
-        (i >> 20 & 0x1)   << 31 |                                       // 31    = imm[20]
-        (i >>  1 & 0x3FF) << 21 |                                       // 30:21 = imm[10:1]
-        (i >> 11 & 0x1)   << 20 |                                       // 20    = imm[11]
-        (i >> 12 & 0xFF)  << 12                                         // 19:12 = imm[19:12]
-    }};
-    (imm_s, $it:expr) => {{
-        let i = $it;
-        (i >>  5 & 0x7F)  << 25 |                                       // 31:25 = imm[11:5]
-        (i       & 0x1F)  <<  7                                         // 11:7  = imm[4:0]
-    }};
-    // The operand is the whole PC-relative distance; the instruction after the auipc takes its
-    // low 12 bits, sign-extended, so round the upper 20 bits to make up for a negative low part.
-    (imm_u, $it:expr) => {{
-        $it.wrapping_add(0x800) & 0xFFFF_F000                // 31:12 = imm[31:12]
-    }};
-}
-use encode_operand;
-
 
 //-------------------------------------------------------------------------------------------------
 
 #[cfg(feature = "dogfood")]
 mod display {
     #[derive(Debug, Clone, Copy)]
-    pub(super) enum AddressingMode {
+    pub enum AddressingMode {
         None,
         Offset,
     }
 
-    pub(super) fn format_assembly(
+    pub fn format_assembly(
         mnemonic:           &str,
         mode:               AddressingMode,
         operand_strings:    &[String],
