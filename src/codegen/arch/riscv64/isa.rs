@@ -48,20 +48,24 @@ operand_class!(fs1,     Reg(Float), format_f_reg,           |r| r << 15);
 operand_class!(fs2,     Reg(Float), format_f_reg,           |r| r << 20);
 operand_class!(fs12,    Reg(Float), format_f_reg,           |r| r << 15 | r << 20);
 
-operand_class!(imm_i,   Imm,        format_imm,             |r| (r & 0xFFF) << 20);
-operand_class!(imm_j,   Imm,        format_imm,
+operand_class!(imm_i,   Imm(0),     format_imm,             |r| (r & 0xFFF) << 20);
+operand_class!(imm_j,   Imm(1),     format_imm,
     |r|
-    (r >> 20 & 0x1)   << 31 |                               // 31    = imm[20]
-    (r >>  1 & 0x3FF) << 21 |                               // 30:21 = imm[10:1]
-    (r >> 11 & 0x1)   << 20 |                               // 20    = imm[11]
-    (r >> 12 & 0xFF)  << 12                                 // 19:12 = imm[19:12]
+    (r >> 19 & 0x1)   << 31 |                               // 31    = imm[20]
+    (r       & 0x3FF) << 21 |                               // 30:21 = imm[10:1]
+    (r >> 10 & 0x1)   << 20 |                               // 20    = imm[11]
+    (r >> 11 & 0xFF)  << 12                                 // 19:12 = imm[19:12]
 );
-operand_class!(imm_s,   Imm,        format_imm,
+operand_class!(imm_s,   Imm(0),     format_imm,
     |r|
     (r >>  5 & 0x7F)  << 25 |                               // 31:25 = imm[11:5]
     (r       & 0x1F)  <<  7                                 // 11:7  = imm[4:0]
 );
-operand_class!(imm_u,   Imm,        format_imm_u,
+// `imm_u` is used by `auipc` and `lui` to supply the top 20 bits of a 32-bit value.
+// The operand is the 32-bit value; the instruction after the `auipc`/`lui` takes the same operand
+// and adds its low 12 bits, sign-extended, so round the upper 20 bits to make up for a negative
+// low part (hence the wrapping add)
+operand_class!(imm_u,   Imm(0),     format_imm_u,
     |r| r.wrapping_add(0x800) & 0xFFFF_F000                 // 31:12 = imm[31:12]
 );
 
@@ -120,7 +124,7 @@ mod display {
         mnemonic:           &str,
         mode:               AddressingMode,
         operand_strings:    &[String],
-        operands:           &[u32],
+        operands:           &[i32],
     ) -> String {
         use AddressingMode::*;
 
@@ -138,14 +142,12 @@ mod display {
         format!("{mnemonic} {operand_string}")
     }
 
-    pub(super) fn format_imm(bits: u32, _address: i32) -> String {
-        let n = bits.cast_signed();
+    pub(super) fn format_imm(n: i32, _address: i32) -> String {
         if (-9..=9).contains(&n) { format!("{n}") }
         else { format!("{}{:#x}", if n < 0 { "-" } else { "" }, n.unsigned_abs()) }
     }
     // auipc's operand is the whole distance, but it shows the 20-bit field it actually encodes.
-    pub(super) fn format_imm_u(bits: u32, _address: i32) -> String {
-        let n = bits.cast_signed();
+    pub(super) fn format_imm_u(n: i32, _address: i32) -> String {
         let field = n.cast_unsigned().wrapping_add(0x800) >> 12;
         if field <= 9 { format!("{field}") } else { format!("{field:#x}") }
     }
@@ -165,12 +167,12 @@ mod display {
         "fs8",  "fs9", "fs10", "fs11", "ft8", "ft9", "ft10", "ft11",
     ];
 
-    pub(super) fn format_x_reg(bits: u32, _address: i32) -> String {
-        X_REG_NAMES[bits as usize % 32].into()
+    pub(super) fn format_x_reg(reg: i32, _address: i32) -> String {
+        X_REG_NAMES[reg.cast_unsigned() as usize % 32].into()
     }
 
-    pub(super) fn format_f_reg(bits: u32, _address: i32) -> String {
-        F_REG_NAMES[bits as usize % 32].into()
+    pub(super) fn format_f_reg(reg: i32, _address: i32) -> String {
+        F_REG_NAMES[reg.cast_unsigned() as usize % 32].into()
     }
 }
 

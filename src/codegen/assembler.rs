@@ -1,7 +1,7 @@
 use typed_index_collections::TiVec;
 
 use super::{abi, allocator,
-    Code, OperandType, ConstantIndex, Pool, Signature, ValueSlot, MachineReg, RegSet, RegBank, RelativeTo,
+    Code, ConstantIndex, Pool, Signature, ValueSlot, MachineReg, RegSet, RegBank, RelativeTo,
     REGS};
 
 #[cfg(feature = "dogfood")]
@@ -86,20 +86,6 @@ impl Layout {
 pub(super) enum Resolved {
     Reg(MachineReg),
     Imm(i32),
-}
-
-impl Resolved {
-    pub(super) fn bits(self, ty: OperandType) -> u32 {
-        match (self, ty) {
-            (Self::Imm(i), OperandType::Imm) => i.cast_unsigned(),
-            (Self::Reg(reg), OperandType::Reg(bank)) => {
-                assert_eq!(RegBank::of_reg(reg), bank,
-                    "internal compiler error: {reg:?} is in the wrong register bank");
-                u32::from(reg.encoding())
-            }
-            _ => panic!("internal compiler error: operand type mismatch")
-        }
-    }
 }
 
 

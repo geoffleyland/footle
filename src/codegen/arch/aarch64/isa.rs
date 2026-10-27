@@ -60,12 +60,12 @@ operand_class!(dt2,     Reg(Float), format_d_reg,           |r| r << 10);
 operand_class!(dn,      Reg(Float), format_d_reg,           |r| r << 5);
 operand_class!(dm,      Reg(Float), format_d_reg,           |r| r << 16);
 
-operand_class!(imm7,    Imm,        format_imm,             |r| ((r >> 3) & 0x7F) << 15);
-operand_class!(imm9,    Imm,        format_imm,             |r| (r & 0x01FF) << 12);
-operand_class!(imm12,   Imm,        format_imm,             |r| ((r >> 3) & 0x0FFF) << 10);
-operand_class!(imm16,   Imm,        format_imm,             |r| (r & 0xFFFF) << 5);
-operand_class!(imm19,   Imm,        format_address,         |r| ((r >> 2) & 0x7_FFFF) << 5);
-operand_class!(imm26,   Imm,        format_address,         |r| (r >> 2) & 0x03FF_FFFF);
+operand_class!(imm7,    Imm(3),     format_imm,             |r| (r & 0x7F) << 15);
+operand_class!(imm9,    Imm(0),     format_imm,             |r| (r & 0x01FF) << 12);
+operand_class!(imm12,   Imm(3),     format_imm,             |r| (r & 0x0FFF) << 10);
+operand_class!(imm16,   Imm(0),     format_imm,             |r| (r & 0xFFFF) << 5);
+operand_class!(imm19,   Imm(2),     format_address,         |r| (r & 0x7_FFFF) << 5);
+operand_class!(imm26,   Imm(2),     format_address,         |r| r & 0x03FF_FFFF);
 
 
 //-------------------------------------------------------------------------------------------------
@@ -162,7 +162,7 @@ mod display {
         mnemonic:           &str,
         mode:               AddressingMode,
         operand_strings:    &[String],
-        operands:           &[u32],
+        operands:           &[i32],
     ) -> String {
         use AddressingMode::*;
 
@@ -178,22 +178,20 @@ mod display {
         format!("{mnemonic} {operand_string}")
     }
 
-    pub(super) fn format_x_reg(bits: u32, _address: i32) -> String {
+    pub(super) fn format_x_reg(bits: i32, _address: i32) -> String {
         match bits {
             31 => "sp".into(),
             n  => format!("x{n}"),
         }
     }
-    pub(super) fn format_d_reg(bits: u32, _address: i32) -> String {
+    pub(super) fn format_d_reg(bits: i32, _address: i32) -> String {
         format!("d{bits}")
     }
-    pub(super) fn format_imm(bits: u32, _address: i32) -> String {
-        let n = bits.cast_signed();
+    pub(super) fn format_imm(n: i32, _address: i32) -> String {
         if (-9..=9).contains(&n) { format!("#{n}") }
         else { format!("#{}{:#x}", if n < 0 { "-" } else { "" }, n.unsigned_abs()) }
     }
-    pub(super) fn format_address(bits: u32, address: i32) -> String {
-        let addr = bits.cast_signed();
+    pub(super) fn format_address(addr: i32, address: i32) -> String {
         format!("#{:#x}", address + addr)
     }
 }

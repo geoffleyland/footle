@@ -31,7 +31,7 @@ impl Code {
         debug_assert_eq!(self.operand_classes.len(), operands.len());
 
         self.operand_classes.iter().zip(operands)
-            .fold(self.pattern, |acc, (class, op)| acc | (class.place)(op.bits(class.ty)))
+            .fold(self.pattern, |acc, (class, op)| acc | (class.place)(class.ty.bits(*op)))
     }
 
     pub(super) fn is_call(&self) -> bool            { matches!(self.instr_class, Some(InstrClass::Call)) }
@@ -63,7 +63,7 @@ impl Code {
         if self.operand_classes.is_empty() { return self.mnemonic.to_string() }
 
         let bits: Vec<_> = self.operand_classes.iter().zip(operands)
-            .map(|(class, op)| op.bits(class.ty))
+            .map(|(class, op)| class.ty.value(*op))
             .collect();
         let operand_strings: Vec<_> = self.operand_classes.iter().zip(&bits)
             .map(|(class, b)| (class.format_assembly)(*b, address))
@@ -112,8 +112,37 @@ pub(super) use define_code;
 #[derive(Debug, Copy, Clone)]
 pub(super) enum OperandType {
     Reg(RegBank),
-    Imm
+    Imm(u8)
 }
+
+impl OperandType {
+    pub(super) fn value(self, operand: Resolved) -> i32 {
+        match (self, operand) {
+            (Self::Imm(right_shift), Resolved::Imm(value)) => {
+                let low_bits = (1 << right_shift) - 1;
+                assert!(value & low_bits == 0,
+                    "internal compiler error: {value} isn't a multiple of {}", 1 << right_shift);
+                value
+            }
+            (Self::Reg(bank), Resolved::Reg(reg)) => {
+                assert_eq!(RegBank::of_reg(reg), bank,
+                    "internal compiler error: {reg:?} is in the wrong register bank");
+                reg.encoding().into()
+            }
+            _ => panic!("internal compiler error: operand type mismatch")
+        }
+    }
+
+    pub(super) fn bits(self, operand: Resolved) -> u32 {
+        let value = self.value(operand);
+        match self {
+            Self::Imm(right_shift) => { (value >> right_shift).cast_unsigned() }
+            Self::Reg(..) => { value.cast_unsigned() }
+        }
+    }
+}
+
+
 
 #[derive(Debug)]
 pub(super) struct OperandClass {
@@ -121,7 +150,7 @@ pub(super) struct OperandClass {
     pub(super) implies_output:              bool,
     pub(super) place:                       fn(u32) -> u32,
     #[cfg(feature = "dogfood")]
-    pub(super) format_assembly:             fn(u32, i32) -> String,
+    pub(super) format_assembly:             fn(i32, i32) -> String,
 }
 
 
