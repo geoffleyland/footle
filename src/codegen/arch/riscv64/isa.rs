@@ -39,24 +39,26 @@ pub enum Unit { U1, U2, U3}
 //-------------------------------------------------------------------------------------------------
 // Operand classes  used for defining instructions
 
-operand_class!(xd,      Reg(Int),   format_x_reg,   Output, |r| r << 7);
-operand_class!(xs1,     Reg(Int),   format_x_reg,           |r| r << 15);
-operand_class!(xs2,     Reg(Int),   format_x_reg,           |r| r << 20);
+operand_class!(xd,      Reg(Int),       format_x_reg,   Output, |r| r << 7);
+operand_class!(xs1,     Reg(Int),       format_x_reg,           |r| r << 15);
+operand_class!(xs2,     Reg(Int),       format_x_reg,           |r| r << 20);
 
-operand_class!(fd,      Reg(Float), format_f_reg,   Output, |r| r << 7);
-operand_class!(fs1,     Reg(Float), format_f_reg,           |r| r << 15);
-operand_class!(fs2,     Reg(Float), format_f_reg,           |r| r << 20);
-operand_class!(fs12,    Reg(Float), format_f_reg,           |r| r << 15 | r << 20);
+operand_class!(fd,      Reg(Float),     format_f_reg,   Output, |r| r << 7);
+operand_class!(fs1,     Reg(Float),     format_f_reg,           |r| r << 15);
+operand_class!(fs2,     Reg(Float),     format_f_reg,           |r| r << 20);
+operand_class!(fs12,    Reg(Float),     format_f_reg,           |r| r << 15 | r << 20);
 
-operand_class!(imm_i,   Imm(0),     format_imm,             |r| (r & 0xFFF) << 20);
-operand_class!(imm_j,   Imm(1),     format_imm,
+// imm_i is used as the second half of an `auipc`/`lui` load pair, so sometimes we pass it a 32-bit
+// operand.  So here, we say it's a 32-bit operand, even though it's really 12.
+operand_class!(imm_i,   iimm(32, 0),    format_imm,             |r| r << 20);
+operand_class!(imm_j,   iimm(20, 1),    format_imm,
     |r|
     (r >> 19 & 0x1)   << 31 |                               // 31    = imm[20]
     (r       & 0x3FF) << 21 |                               // 30:21 = imm[10:1]
     (r >> 10 & 0x1)   << 20 |                               // 20    = imm[11]
     (r >> 11 & 0xFF)  << 12                                 // 19:12 = imm[19:12]
 );
-operand_class!(imm_s,   Imm(0),     format_imm,
+operand_class!(imm_s,   iimm(12, 0),    format_imm,
     |r|
     (r >>  5 & 0x7F)  << 25 |                               // 31:25 = imm[11:5]
     (r       & 0x1F)  <<  7                                 // 11:7  = imm[4:0]
@@ -65,7 +67,7 @@ operand_class!(imm_s,   Imm(0),     format_imm,
 // The operand is the 32-bit value; the instruction after the `auipc`/`lui` takes the same operand
 // and adds its low 12 bits, sign-extended, so round the upper 20 bits to make up for a negative
 // low part (hence the wrapping add)
-operand_class!(imm_u,   Imm(0),     format_imm_u,
+operand_class!(imm_u,   iimm(32, 0),    format_imm_u,
     |r| r.wrapping_add(0x800) & 0xFFFF_F000                 // 31:12 = imm[31:12]
 );
 

@@ -112,16 +112,28 @@ pub(super) use define_code;
 #[derive(Debug, Copy, Clone)]
 pub(super) enum OperandType {
     Reg(RegBank),
-    Imm(u8)
+    Imm(i32, i32, u8),
+}
+
+pub(super) const fn iimm(width: u8, right_shift: u8) -> OperandType {
+    // Shift right to avoid the overflow that would happen if we shifted left with a width of 32.
+    OperandType::Imm(i32::MIN >> (32 - width), i32::MAX >> (32 - width), right_shift)
+}
+#[cfg_attr(not(target_arch = "aarch64"),
+    expect(dead_code, reason = "only AArch64 has unsigned immediate fields"))]
+pub(super) const fn uimm(width: u8, right_shift: u8) -> OperandType {
+    OperandType::Imm(0, i32::MAX >> (31 - width), right_shift)
 }
 
 impl OperandType {
     pub(super) fn value(self, operand: Resolved) -> i32 {
         match (self, operand) {
-            (Self::Imm(right_shift), Resolved::Imm(value)) => {
+            (Self::Imm(min, max, right_shift), Resolved::Imm(value)) => {
                 let low_bits = (1 << right_shift) - 1;
                 assert!(value & low_bits == 0,
                     "internal compiler error: {value} isn't a multiple of {}", 1 << right_shift);
+                assert!((min..=max).contains(&(value >> right_shift)),
+                    "internal compiler error: {value} out of range");
                 value
             }
             (Self::Reg(bank), Resolved::Reg(reg)) => {
@@ -136,7 +148,10 @@ impl OperandType {
     pub(super) fn bits(self, operand: Resolved) -> u32 {
         let value = self.value(operand);
         match self {
-            Self::Imm(right_shift) => { (value >> right_shift).cast_unsigned() }
+            Self::Imm(min, max, right_shift) => {
+                let mask = max.wrapping_sub(min).cast_unsigned();      // 2^width - 1; all ones for the full range
+                (value >> right_shift).cast_unsigned() & mask
+            }
             Self::Reg(..) => { value.cast_unsigned() }
         }
     }
@@ -166,7 +181,7 @@ macro_rules! operand_class {
         const $name: $crate::codegen::code::OperandClass = $crate::codegen::code::OperandClass {
             ty: {
                 #[allow(unused_imports)]
-                use $crate::codegen::{code::OperandType::*, RegBank::*};
+                use $crate::codegen::{code::{OperandType::*, uimm, iimm}, RegBank::*};
                 $ty
             },
             implies_output:                 $output,

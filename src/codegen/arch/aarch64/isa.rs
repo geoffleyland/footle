@@ -46,26 +46,26 @@ pub enum Unit {
 //-------------------------------------------------------------------------------------------------
 // Operand classes  used for defining instructions
 
-operand_class!(xd,      Reg(Int),   format_x_reg, Output,   |r| r);
-operand_class!(xt,      Reg(Int),   format_x_reg, Output,   |r| r);
-operand_class!(xt1,     Reg(Int),   format_x_reg, Output,   |r| r);
-operand_class!(xt2,     Reg(Int),   format_x_reg,           |r| r << 10);
-operand_class!(xn,      Reg(Int),   format_x_reg,           |r| r << 5);
-operand_class!(xm,      Reg(Int),   format_x_reg,           |r| r << 16);
+operand_class!(xd,      Reg(Int),       format_x_reg, Output,   |r| r);
+operand_class!(xt,      Reg(Int),       format_x_reg, Output,   |r| r);
+operand_class!(xt1,     Reg(Int),       format_x_reg, Output,   |r| r);
+operand_class!(xt2,     Reg(Int),       format_x_reg,           |r| r << 10);
+operand_class!(xn,      Reg(Int),       format_x_reg,           |r| r << 5);
+operand_class!(xm,      Reg(Int),       format_x_reg,           |r| r << 16);
 
-operand_class!(dd,      Reg(Float), format_d_reg, Output,   |r| r);
-operand_class!(dt,      Reg(Float), format_d_reg, Output,   |r| r);
-operand_class!(dt1,     Reg(Float), format_d_reg, Output,   |r| r);
-operand_class!(dt2,     Reg(Float), format_d_reg,           |r| r << 10);
-operand_class!(dn,      Reg(Float), format_d_reg,           |r| r << 5);
-operand_class!(dm,      Reg(Float), format_d_reg,           |r| r << 16);
+operand_class!(dd,      Reg(Float),     format_d_reg, Output,   |r| r);
+operand_class!(dt,      Reg(Float),     format_d_reg, Output,   |r| r);
+operand_class!(dt1,     Reg(Float),     format_d_reg, Output,   |r| r);
+operand_class!(dt2,     Reg(Float),     format_d_reg,           |r| r << 10);
+operand_class!(dn,      Reg(Float),     format_d_reg,           |r| r << 5);
+operand_class!(dm,      Reg(Float),     format_d_reg,           |r| r << 16);
 
-operand_class!(imm7,    Imm(3),     format_imm,             |r| (r & 0x7F) << 15);
-operand_class!(imm9,    Imm(0),     format_imm,             |r| (r & 0x01FF) << 12);
-operand_class!(imm12,   Imm(3),     format_imm,             |r| (r & 0x0FFF) << 10);
-operand_class!(imm16,   Imm(0),     format_imm,             |r| (r & 0xFFFF) << 5);
-operand_class!(imm19,   Imm(2),     format_address,         |r| (r & 0x7_FFFF) << 5);
-operand_class!(imm26,   Imm(2),     format_address,         |r| r & 0x03FF_FFFF);
+operand_class!(imm7,    iimm(7, 3),     format_imm,             |r| r << 15);
+operand_class!(imm9,    iimm(9, 0),     format_imm,             |r| r << 12);
+operand_class!(imm12,   uimm(12, 3),    format_imm,             |r| r << 10);
+operand_class!(imm16,   uimm(16, 0),    format_imm,             |r| r << 5);
+operand_class!(imm19,   iimm(19, 2),    format_address,         |r| r << 5);
+operand_class!(imm26,   iimm(26, 2),    format_address,         |r| r);
 
 
 //-------------------------------------------------------------------------------------------------
