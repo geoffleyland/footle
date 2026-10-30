@@ -2,6 +2,7 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use crate::core::{BinaryOperator, Span};
+use super::PoolIndex;
 
 
 //-------------------------------------------------------------------------------------------------
@@ -89,21 +90,17 @@ impl From<InstrKind> for ExprKind { fn from(i: InstrKind) -> Self { Self::Instr(
 #[derive(Debug, Clone)]
 pub struct ExprEntry {
     kind:                                   ExprKind,
-    pool_index:                             usize,
+    pool_index:                             PoolIndex,
     span:                                   Span,
 }
 
 
 impl ExprEntry {
-    pub fn new(
-        kind:                               ExprKind,
-        pool_index:                         usize,
-        span:                               Span
-    ) -> Self {
+    pub fn new(kind: ExprKind, pool_index: PoolIndex, span: Span) -> Self {
         Self{ kind, pool_index, span }
     }
     pub fn kind(&self) -> &ExprKind         { &self.kind }
-    pub fn pool_index(&self) -> usize       { self.pool_index }
+    pub fn pool_index(&self) -> PoolIndex   { self.pool_index }
 
     pub fn span(&self) -> Span              { self.span }
 }
@@ -123,7 +120,7 @@ impl Expr {
     pub fn used_at(&self, use_span: Span) -> Self { Self { entry: self.entry.clone(), use_span } }
 
     pub fn kind(&self) -> &ExprKind         { self.entry.kind() }
-    pub fn pool_index(&self) -> usize       { self.entry.pool_index() }
+    pub fn pool_index(&self) -> PoolIndex   { self.entry.pool_index() }
     pub fn is_constant(&self) -> bool       { self.entry.kind().is_constant() }
 
     pub fn use_span(&self) -> Span          { self.use_span }
@@ -141,14 +138,14 @@ impl Expr {
 #[derive(Debug)]
 pub struct Instr {
     pub kind:                               InstrKind,
-    pub pool_index:                         usize,
+    pub pool_index:                         PoolIndex,
     pub definition_span:                    Span,
 }
 
 
 #[derive(Debug)]
 pub struct Arg {
-    pub pool_index:                         usize,
+    pub pool_index:                         PoolIndex,
     pub definition_span:                    Span,
 }
 

@@ -1,6 +1,8 @@
+use typed_index_collections::{ti_vec, TiVec};
+
 use crate::core::{BinaryOperator, ParseError};
 use crate::env::Env;
-use crate::vir;
+use crate::vir::{self, PoolIndex};
 use super::expr::InstrKind;
 use crate::parse_error;
 use crate::core::Span;
@@ -24,7 +26,7 @@ pub fn check_types(block: &vir::Block, env: &Env)
 
 /// Call-time inference: every argument type is known, so every type must resolve.
 pub fn infer_types(block: &vir::Block, arg_types: &[TypeInfo], env: &Env)
-    -> Result<Vec<TypeInfo>, Vec<ParseError>>
+    -> Result<Types, Vec<ParseError>>
 {
     let types = infer(block, Some(arg_types), env)?;
     Ok(types.into_iter()
@@ -37,7 +39,7 @@ fn infer(
     block:              &vir::Block,
     maybe_arg_types:    Option<&[TypeInfo]>,
     env:                &Env,
-) -> Result<Vec<Option<TypeInfo>>, Vec<ParseError>> {
+) -> Result<TiVec<PoolIndex, Option<TypeInfo>>, Vec<ParseError>> {
     let mut errors = TypeErrors(vec![]);
     let mut typer = Typer::new(block.exprs.len());
 
@@ -90,9 +92,10 @@ pub enum TypeInfo {
     #[display("f64")]  F64,
     #[display("bool")] Bool,
 }
+pub type Types = TiVec<PoolIndex, TypeInfo>;
 
 #[derive(Debug, Copy, Clone)]
-enum TypeNode { Root(Option<TypeInfo>, u8), Pointer(usize) }
+enum TypeNode { Root(Option<TypeInfo>, u8), Pointer(PoolIndex) }
 impl Default for TypeNode { fn default() -> Self { Self::Root(None, 0) } }
 
 #[derive(Debug, Copy, Clone, Default)]
@@ -103,15 +106,15 @@ struct TypeRecord {
 struct TypeConflict(TypeInfo, Span, TypeInfo, Span); // expected, where; found, where
 
 struct Typer {
-    records:        Vec<TypeRecord>
+    records:        TiVec<PoolIndex, TypeRecord>
 }
 
 impl Typer {
-    fn new(len: usize) -> Self { Self { records: vec![TypeRecord::default(); len]}}
+    fn new(len: usize) -> Self { Self { records: ti_vec![TypeRecord::default(); len]}}
 
-    fn extract_types(&mut self) -> Vec<Option<TypeInfo>> {
-        (0..self.records.len()).map(|i| {
-            let root = self.find_root(i);
+    fn extract_types(&mut self) -> TiVec<PoolIndex, Option<TypeInfo>> {
+        self.records.keys().map(|index| {   // use `keys`, not `enumerate` because find_root mutates.
+            let root = self.find_root(index);
             match self.records[root].node {
                 TypeNode::Pointer(..)   => panic!("internal compiler error: not all types were resolved"),
                 TypeNode::Root(t, ..)   => t
@@ -165,7 +168,7 @@ impl Typer {
     }
 
 
-    fn type_union(&mut self, index_1: usize, index_2: usize, span: Span) -> Result<(), TypeConflict> {
+    fn type_union(&mut self, index_1: PoolIndex, index_2: PoolIndex, span: Span) -> Result<(), TypeConflict> {
         use TypeNode::*;
         self.records[index_1].first_span.get_or_insert(span);
         self.records[index_2].first_span.get_or_insert(span);
@@ -202,7 +205,7 @@ impl Typer {
 
     fn set_type(
         &mut self,
-        index:          usize,
+        index:          PoolIndex,
         the_type:       TypeInfo,
         span:           Span
     ) -> Result<(), TypeConflict> {
@@ -226,7 +229,7 @@ impl Typer {
     }
 
 
-    fn find_root(&mut self, index: usize) -> usize {
+    fn find_root(&mut self, index: PoolIndex) -> PoolIndex {
         if let TypeRecord{ node: TypeNode::Pointer(next), .. } = self.records[index] {
             let root = self.find_root(next);
             self.records[index].node = TypeNode::Pointer(root);

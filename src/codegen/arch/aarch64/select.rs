@@ -10,7 +10,9 @@ impl Builder {
     pub(in crate::codegen) const RETURN: &'static Code = &isa::ret;
     pub(in crate::codegen) const CALL_REG: &'static Code = &isa::blr;
 
-    pub(in crate::codegen) fn select_instr(&mut self, instr: &vir::Instr, types: &[vir::TypeInfo]) -> Value {
+    pub(in crate::codegen) fn select_instr(&mut self,
+        instr:          &vir::Instr,
+        types:          &vir::Types) -> Value {
         let ty = Type::from(types[instr.pool_index]);
         let span = instr.definition_span;
         match &instr.kind {

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use typed_index_collections::TiVec;
 
 use crate::core::Span;
-use crate::vir;
+use crate::vir::{self, PoolIndex};
 use super::{Code, Instr, Arg, Value, ValueSlot, value::Operand, Type, Constant, ConstantIndex, MachineReg, REGS};
 
 
@@ -23,7 +23,7 @@ pub struct Pool {
 
 pub(super) fn run(
     input:                                  &vir::Block,
-    types:                                  &[vir::TypeInfo],
+    types:                                  &vir::Types,
 ) -> (Vec<Instr>, usize, Signature, Pool) {
     let mut builder = Builder::default();
     builder.lower_args(input, types);
@@ -81,7 +81,7 @@ pub struct Builder {
     slot_count:                             usize,
     pub(super) return_types:                Vec<Type>,
     pub(super) constants:                   TiVec<ConstantIndex, Constant>,
-    operand_map:                            HashMap<usize, Operand>,
+    operand_map:                            HashMap<PoolIndex, Operand>,
     pub(super) functions:                   Vec<(String, Value)>,
 }
 
@@ -92,7 +92,7 @@ impl Builder {
         slot
     }
 
-    fn lower_args(&mut self, input: &vir::Block, types: &[vir::TypeInfo]) {
+    fn lower_args(&mut self, input: &vir::Block, types: &vir::Types) {
         for vir_arg in &input.args {
             let ty = Type::from(types[vir_arg.pool_index]);
             let slot = self.new_slot();
@@ -126,7 +126,7 @@ impl Builder {
         Value::Instr(slot, ty)
     }
 
-    fn lower_return(&mut self, input: &vir::Block, types: &[vir::TypeInfo]) {
+    fn lower_return(&mut self, input: &vir::Block, types: &vir::Types) {
         let return_values = self.exprs_to_abi_regs(&input.return_values, types);
         self.return_types = return_values.iter().map(|(v, _)| v.ty()).collect();
         let slot = self.new_slot();
@@ -136,7 +136,7 @@ impl Builder {
     pub(super) fn exprs_to_abi_regs(
         &self,
         exprs:                                  &[vir::Expr],
-        types:                                  &[vir::TypeInfo],
+        types:                                  &vir::Types,
     ) -> Vec<(Value, MachineReg)> {
         exprs.iter()
             .zip(REGS.abi_regs(exprs.iter().map(|expr| Type::from(types[expr.pool_index()]))))
@@ -153,7 +153,7 @@ impl Builder {
         name:                                   &str,
         ty:                                     Type,
         arg_exprs:                              &[vir::Expr],
-        types:                                  &[vir::TypeInfo],
+        types:                                  &vir::Types,
         span:                                   Span,
     ) -> Value {
         let function_address =

@@ -6,7 +6,7 @@ use super::{lower, scheduler, allocator, assembler, binary};
 
 pub fn run<O:Observer>(
     vir_block:          &vir::Block,
-    types:              &[vir::TypeInfo],
+    types:              &vir::Types,
     observer:           &mut O,
 ) -> binary::CompiledFn {
     let (lowered, slot_count, signature, pool) = lower::run(vir_block, types);

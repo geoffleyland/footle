@@ -1,8 +1,9 @@
-use std::collections::HashSet;
+use typed_index_collections::{ti_vec, TiVec};
 
 use crate::env::{Env, FunctionDef};
 use crate::core::{BinaryOperator, ParseError};
 use crate::{ast, vir, nev};
+use super::PoolIndex;
 use super::symbol_table::{AssignmentError, SymbolTable};
 use super::expr_pool::ExprPool;
 use super::expr::{InstrKind, ExprKind, Instr, Arg};
@@ -192,7 +193,7 @@ impl Pass {
 
     pub fn flatten(&self) -> Flattened {
         let mut instrs = vec![];
-        let mut emitted = HashSet::<usize>::new();
+        let mut emitted = ti_vec![false; self.exprs.len()];
 
         let (return_values, return_span) = match self.stmts.last() {
             Some(vir::Stmt{ span, kind: vir::StmtKind::Return(exprs)}) => {
@@ -265,8 +266,8 @@ fn fold_call(name: &str, def: &FunctionDef, exprs: Vec<vir::Expr>) -> ExprKind {
 //-------------------------------------------------------------------------------------------------
 // Emit expressions for flattening
 
-fn emit_expr(expr: &vir::Expr, instrs: &mut Vec<Instr>, emitted: &mut HashSet<usize>) {
-    if let Some(instr) = expr.kind().instr() && !emitted.contains(&expr.pool_index()) {
+fn emit_expr(expr: &vir::Expr, instrs: &mut Vec<Instr>, emitted: &mut TiVec<PoolIndex, bool>) {
+    if let Some(instr) = expr.kind().instr() && !emitted[expr.pool_index()] {
         match instr {
             InstrKind::Binary(_, lhs, rhs) => {
                 emit_expr(lhs, instrs, emitted);
@@ -277,7 +278,7 @@ fn emit_expr(expr: &vir::Expr, instrs: &mut Vec<Instr>, emitted: &mut HashSet<us
             }
             _ => {}
         }
-        emitted.insert(expr.pool_index());
+        emitted[expr.pool_index()] = true;
         instrs.push(Instr{ kind: instr.clone(), pool_index: expr.pool_index(),
             definition_span: expr.definition_span() });
     }
@@ -298,7 +299,7 @@ mod display {
     impl Styleable for Block {
         fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
             let mut address = 0;
-            let mut address_map = HashMap::<usize, usize>::new();
+            let mut address_map = HashMap::<PoolIndex, usize>::new();
             for arg in &self.args {
                 address_map.insert(arg.pool_index, address);
                 let line = format!("{} I{address}", Token::Argument);

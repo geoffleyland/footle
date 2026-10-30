@@ -8,6 +8,7 @@ mod pass;
 mod typer;
 
 pub use expr::{InstrKind, Expr, Instr};
+pub use expr_pool::PoolIndex;
 pub use stmt::{Stmt, StmtKind};
 pub use pass::{Block, run};
-pub use typer::{TypeInfo, check_types, infer_types};
+pub use typer::{TypeInfo, Types, check_types, infer_types};
