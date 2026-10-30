@@ -38,7 +38,6 @@ fn main() {
 }
 
 
-#[cfg(not(feature = "dogfood"))]
 fn run(mut command_line: pico_args::Arguments) -> Result<()> {
     if command_line.contains(["-h", "--help"]) {
         show_help();
