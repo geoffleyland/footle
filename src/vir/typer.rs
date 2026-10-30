@@ -15,10 +15,10 @@ impl TypeErrors {
 
 /// Load-time check: argument types may be unknown, so some types may stay unresolved.
 /// Only conflicts are errors.
-pub fn check_types(block: &vir::Block, arg_types: &[Option<TypeInfo>], env: &Env)
+pub fn check_types(block: &vir::Block, env: &Env)
     -> Result<(), Vec<ParseError>>
 {
-    infer(block, arg_types, env).map(|_| ())
+    infer(block, None, env).map(|_| ())
 }
 
 
@@ -26,8 +26,7 @@ pub fn check_types(block: &vir::Block, arg_types: &[Option<TypeInfo>], env: &Env
 pub fn infer_types(block: &vir::Block, arg_types: &[TypeInfo], env: &Env)
     -> Result<Vec<TypeInfo>, Vec<ParseError>>
 {
-    let args: Vec<_> = arg_types.iter().copied().map(Some).collect();
-    let types = infer(block, &args, env)?;
+    let types = infer(block, Some(arg_types), env)?;
     Ok(types.into_iter()
         .map(|ty| ty.expect("internal compiler error: type unresolved with all argument types known"))
         .collect())
@@ -36,18 +35,19 @@ pub fn infer_types(block: &vir::Block, arg_types: &[TypeInfo], env: &Env)
 
 fn infer(
     block:              &vir::Block,
-    arg_types:          &[Option<TypeInfo>],
+    maybe_arg_types:    Option<&[TypeInfo]>,
     env:                &Env,
 ) -> Result<Vec<Option<TypeInfo>>, Vec<ParseError>> {
     let mut errors = TypeErrors(vec![]);
     let mut typer = Typer::new(block.exprs.len());
 
-    assert_eq!(block.args.len(), arg_types.len(), "internal compiler error: wrong number of arguments");
-    for (arg, ty) in block.args.iter()
-        .zip(arg_types)
-        .filter_map(|(a, maybe_ty)| maybe_ty.map(|ty| (a, ty))) {
-        assert!(typer.set_type(arg.pool_index, ty, arg.definition_span).is_ok(),
-            "internal compiler error: type conflict setting argument type");
+    if let Some(arg_types) = maybe_arg_types {
+        assert_eq!(block.args.len(), arg_types.len(),
+            "internal compiler error: wrong number of arguments");
+        for (arg, ty) in block.args.iter().zip(arg_types) {
+            assert!(typer.set_type(arg.pool_index, *ty, arg.definition_span).is_ok(),
+                "internal compiler error: type conflict setting argument type");
+        }
     }
 
     for expr in &block.exprs {

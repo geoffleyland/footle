@@ -125,7 +125,7 @@ fn parse_args(command_line: pico_args::Arguments) -> Result<Vec<runtime::Value>>
         .map(|s| {
             let s = s.to_str()
                 .with_context(|| format!("argument '{}' isn't valid UTF-8", s.display()))?;
-            Ok(s.parse::<runtime::Value>()?)
+            s.parse::<runtime::Value>()
         })
         .collect()
 }

@@ -1,4 +1,3 @@
-use std::collections::{HashMap, hash_map::Entry};
 use std::fmt;
 use std::sync::Arc;
 
@@ -8,8 +7,7 @@ use crate::core::{ParseError, SourceMap};
 use crate::ast;
 use crate::env;
 use crate::vir;
-use crate::codegen::{scheduler, assembler, Signature, Pool, CompiledFn};
-use crate::codegen;
+use crate::codegen::{self, scheduler, assembler, Signature, Pool, CompiledFn};
 
 
 //-------------------------------------------------------------------------------------------------
@@ -37,43 +35,32 @@ pub fn load<O: Observer>(
 ) -> Result<Block, Diagnostics> {
     let (stmts, errors, source_map) = ast::parse(file_name, source);
     let source_map = Arc::new(source_map);
-    if !errors.is_empty() {
-        return Err(Diagnostics { errors, source: source_map });
-    }
+    let diagnostics = |errors: Vec<ParseError>| Diagnostics { errors, source: source_map.clone() };
+    if !errors.is_empty() { return Err(diagnostics(errors)); }
 
     observer.source_map(source_map.clone());
     observer.stmts(&stmts);
 
     let env = env::Env::new();
-    let vir_block = match vir::run(&env, &stmts) {
-        Ok(block) => block,
-        Err(errors) => {
-            return Err(Diagnostics { errors, source: source_map });
-        }
-    };
+    let vir_block = vir::run(&env, &stmts).map_err(diagnostics)?;
     observer.vir(&vir_block);
 
     // Run type inference without any argument types.
     // This way we see any errors we can find at this point nice and early.
-    let arg_types = vec![None; vir_block.args.len()];
-    match vir::check_types(&vir_block, &arg_types, &env) {
-        Ok(..) => {},
-        Err(errors) => {
-            return Err(Diagnostics { errors, source: source_map });
-        }
-    }
+    vir::check_types(&vir_block, &env).map_err(diagnostics)?;
 
     Ok(Block{
         env,
         vir:                vir_block,
         source:             source_map,
-        funcs:              HashMap::new(),
+        funcs:              vec![],
     })
 }
 
 
 //-------------------------------------------------------------------------------------------------
 
+#[derive(derive_more::Display)]
 pub enum Value {
     Bool(bool),
     F64(f64),
@@ -90,47 +77,27 @@ impl From<&Value> for vir::TypeInfo {
 }
 
 
-impl fmt::Display for Value {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::Bool(b)           => write!(f, "{b}"),
-            Self::F64(v)            => write!(f, "{v}"),
-        }
-    }
-}
-
-
 impl std::str::FromStr for Value {
-    type Err = ParseValueError;
+    type Err = anyhow::Error;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> anyhow::Result<Self> {
         match s {
             "true"  => Ok(Self::Bool(true)),
             "false" => Ok(Self::Bool(false)),
-            _       => s.parse::<f64>().map(Self::F64).map_err(|_| ParseValueError(s.to_string())),
+            _       => s.parse::<f64>().map(Self::F64)
+                .or_else(|_| bail!("'{s}' is not a valid value (expected a number or a bool)")),
         }
     }
 }
-
-#[derive(Debug)]
-pub struct ParseValueError(String);
-
-impl fmt::Display for ParseValueError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "'{}' is not a valid value (expected a number or a bool)", self.0)
-    }
-}
-
-impl std::error::Error for ParseValueError {}
 
 
 //-------------------------------------------------------------------------------------------------
 
 pub struct Block {
-    env:                crate::env::Env,
-    pub vir:            vir::Block,
+    env:                env::Env,
+    vir:                vir::Block,
     source:             Arc<SourceMap>,
-    funcs:              HashMap<Vec<vir::TypeInfo>, CompiledFn>,
+    funcs:              Vec<(Vec<vir::TypeInfo>, CompiledFn)>,
 }
 
 
@@ -145,24 +112,20 @@ impl Block {
                 self.vir.args.len(), args.len())
         }
         let signature: Vec<vir::TypeInfo> = args.iter().map(Into::into).collect();
-        let func = match self.funcs.entry(signature) {
-            Entry::Occupied(entry)  => entry.into_mut(),
-            Entry::Vacant(entry) => {
-                // Observers only get called when we actually have to compile something, not every
-                // time it's called.
-                observer.signature(entry.key());
-                let types = match vir::infer_types(&self.vir, entry.key(), &self.env) {
-                    Ok(types) => types,
-                    Err(errors) => {
-                        return Err(Diagnostics { errors, source: self.source.clone() }.into());
-                    }
-                };
-                let func = codegen::run(&self.vir, &types, observer);
-                if !observer.safe_to_run() { bail!("not run: dissasembly doesn't match intended assembly") }
-                entry.insert(func)
-            }
-        };
-        func.call(args)
+        if let Some((_, func)) = self.funcs.iter().find(|(sig, _)| *sig == signature) {
+            return func.call(args);
+        }
+
+        // Observers only get called when we actually have to compile something, not every
+        // time it's called.
+        observer.signature(&signature);
+        let types = vir::infer_types(&self.vir, &signature, &self.env)
+            .map_err(|errors| Diagnostics { errors, source: self.source.clone() })?;
+        let func = codegen::run(&self.vir, &types, observer);
+        if !observer.safe_to_run() { bail!("not run: disassembly doesn't match intended assembly") }
+        let results = func.call(args);
+        self.funcs.push((signature, func));
+        results
     }
 }
 
