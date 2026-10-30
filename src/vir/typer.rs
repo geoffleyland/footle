@@ -1,5 +1,3 @@
-use std::fmt;
-
 use crate::core::{BinaryOperator, ParseError};
 use crate::env::Env;
 use crate::vir;
@@ -53,7 +51,7 @@ fn infer(
     }
 
     for expr in &block.exprs {
-        if let Err(TypeConflict{expected, expected_span, found, found_span}) =
+        if let Err(TypeConflict(expected, expected_span, found, found_span)) =
             typer.type_expr(expr, env) {
             parse_error!(errors,
                 format!("Expected `{expected}`, got `{found}`"),
@@ -67,7 +65,7 @@ fn infer(
     }
 
     for (name, old, new, span) in &block.reassignments {
-        if let Err(TypeConflict{expected, expected_span, found, found_span}) =
+        if let Err(TypeConflict(expected, expected_span, found, found_span)) =
             typer.type_union(old.pool_index(), new.pool_index(), *span) {
             parse_error!(errors,
                 format!("Reassignment of `{name}` from `{expected}` to `{found}`"),
@@ -84,62 +82,32 @@ fn infer(
 }
 
 
-
 //-------------------------------------------------------------------------------------------------
 // Type Figurer-outer
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum TypeInfo { F64, Bool }
-
-impl fmt::Display for TypeInfo {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        let s = match self {
-            Self::F64               => "f64",
-            Self::Bool              => "bool"
-        };
-        write!(fmt, "{s}")
-    }
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, derive_more::Display)]
+pub enum TypeInfo {
+    #[display("f64")]  F64,
+    #[display("bool")] Bool,
 }
-
 
 #[derive(Debug, Copy, Clone)]
 enum TypeNode { Root(Option<TypeInfo>, u8), Pointer(usize) }
+impl Default for TypeNode { fn default() -> Self { Self::Root(None, 0) } }
 
-impl TypeNode {
-    fn new() -> Self { Self::Root(None, 0) }
-}
-
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Default)]
 struct TypeRecord {
     node:           TypeNode,
     first_span:     Option<Span>
 }
-
-impl TypeRecord {
-    fn new() -> Self { Self { node: TypeNode::new(), first_span: None }}
-}
-
-
-struct TypeConflict {
-    expected:       TypeInfo,
-    expected_span:  Span,
-    found:          TypeInfo,
-    found_span:     Span
-}
-
-impl TypeConflict {
-    fn new(expected: TypeInfo, expected_span: Span, found: TypeInfo, found_span: Span) -> Self {
-        Self{ expected, expected_span, found, found_span }
-    }
-}
-
+struct TypeConflict(TypeInfo, Span, TypeInfo, Span); // expected, where; found, where
 
 struct Typer {
     records:        Vec<TypeRecord>
 }
 
 impl Typer {
-    fn new(len: usize) -> Self { Self { records: vec![TypeRecord::new(); len]}}
+    fn new(len: usize) -> Self { Self { records: vec![TypeRecord::default(); len]}}
 
     fn extract_types(&mut self) -> Vec<Option<TypeInfo>> {
         (0..self.records.len()).map(|i| {
@@ -179,15 +147,12 @@ impl Typer {
                         self.set_type(pool_index, TypeInfo::F64, span)?;
                         self.set_type(lhs.pool_index(), TypeInfo::F64, lhs.use_span())?;
                         self.set_type(rhs.pool_index(), TypeInfo::F64, rhs.use_span())?;
-                        self.type_union(pool_index, lhs.pool_index(), lhs.use_span())?;
-                        self.type_union(pool_index, rhs.pool_index(), rhs.use_span())?;
                     }
                     BinaryOperator::LessEqual | BinaryOperator::LessThan |
                     BinaryOperator::GreaterEqual | BinaryOperator::GreaterThan => {
                         self.set_type(lhs.pool_index(), TypeInfo::F64, lhs.use_span())?;
                         self.set_type(rhs.pool_index(), TypeInfo::F64, rhs.use_span())?;
                         self.set_type(pool_index, TypeInfo::Bool, span)?;
-                        self.type_union(lhs.pool_index(), rhs.pool_index(), span)?;
                     }
                     BinaryOperator::Equal | BinaryOperator::NotEqual => {
                         self.set_type(pool_index, TypeInfo::Bool, span)?;
@@ -226,7 +191,7 @@ impl Typer {
                 panic!("internal compiler error: find_root did not find a root")
             }
             (Root(Some(type_1), ..), Root(Some(type_2), ..)) => {
-                return Err(TypeConflict::new(
+                return Err(TypeConflict(
                     type_1, self.records[index_1].first_span.expect("internal compiler error"),
                     type_2, self.records[index_2].first_span.expect("internal compiler error")))
             }
@@ -251,7 +216,7 @@ impl Typer {
             },
             TypeNode::Root(Some(current_type), _) => {
                 if current_type != the_type {
-                    return Err(TypeConflict::new(
+                    return Err(TypeConflict(
                         current_type, self.records[index].first_span.expect("internal compiler error"),
                         the_type, span))
                 }
