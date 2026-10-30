@@ -2,6 +2,23 @@ use super::Type;
 
 //-------------------------------------------------------------------------------------------------
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct BankReg<const BANK: u8>(u8);
+
+impl<const BANK: u8> BankReg<BANK> {
+    pub(super) const fn new(r: u8) -> Self { assert!(r < 32); Self(r) }
+}
+
+impl<const BANK: u8> TryFrom<MachineReg> for BankReg<BANK> {
+    type Error = ();
+    fn try_from(m: MachineReg) -> Result<Self, Self::Error> {
+        if RegBank::of_reg(m).index() == BANK as usize { Ok(Self(m.encoding())) } else { Err(()) }
+    }
+}
+
+pub(super) type IntReg      = BankReg<{ RegBank::Int as u8 }>;
+pub(super) type FloatReg    = BankReg<{ RegBank::Float as u8 }>;
+
 /// Representation of a machine register.
 ///
 /// 0-31 are integer registers
@@ -25,6 +42,35 @@ impl From<usize> for MachineReg {
         #[allow(clippy::cast_possible_truncation)]  // We just checked it's under REG_COUNT.
         Self::new(index as u8)
     }
+}
+impl From<IntReg> for MachineReg { fn from(r: IntReg) -> Self       { RegBank::Int.reg(r.0) } }
+impl From<FloatReg> for MachineReg { fn from(r: FloatReg) -> Self   { RegBank::Float.reg(r.0) } }
+
+
+macro_rules! declare_regs {
+    ($ty:ident, $names:ident, $($regs:ident)*) => {
+        #[cfg(feature = "dogfood")]
+        pub(in crate::codegen) const $names: [&str; 32] = [$(stringify!($regs)),*];
+        declare_regs!(@const $ty, 0, $($regs)*);
+    };
+    (@const $ty:ident, $n:expr, $reg:ident $($rest:ident)*) => {
+        #[allow(dead_code, reason = "the whole register file is declared; most aren't named in code")]
+        pub(in crate::codegen) const $reg: $crate::codegen::regs::$ty =
+            $crate::codegen::regs::$ty::new($n);
+        declare_regs!(@const $ty, $n + 1, $($rest)*);
+    };
+    (@const $ty:ident, $n:expr,) => {};
+}
+pub(super) use declare_regs;
+
+
+#[cfg(feature = "dogfood")]
+pub(super) fn format_int_reg(reg: i32, _address: i32) -> String {
+    super::isa::INT_REG_NAMES[reg.cast_unsigned() as usize % 32].into()
+}
+#[cfg(feature = "dogfood")]
+pub(super) fn format_float_reg(reg: i32, _address: i32) -> String {
+    super::isa::FLOAT_REG_NAMES[reg.cast_unsigned() as usize % 32].into()
 }
 
 
@@ -120,6 +166,11 @@ impl RegBank {
             Type::F64                       => Self::Float,
         }
     }
+
+    pub(super) const fn reg(self, encoding: u8) -> MachineReg {
+        MachineReg::new(Self::SIZE * self as u8 + encoding)
+    }
+
     pub(super) const fn index(self) -> usize { self as usize }
     pub(super) const fn regs(self) -> RegSet {
         // The left part is 0xFF...       and the right part is 0 or 32.
@@ -132,9 +183,7 @@ impl RegBank {
 
 #[derive(Debug)]
 pub(super) struct RegFile {
-    pub(super) stack_reg:       MachineReg,
     pub(super) link_reg:        MachineReg,
-    pub(super) scratch_reg:     MachineReg,
     pub(super) callee_saved:    RegSet,             // Registers we have to save in our prologue
                                                     // and restore in our epilogue (if we use them)
     argument_regs:              [[MachineReg; 8]; RegBank::COUNT],
@@ -154,9 +203,7 @@ impl RegFile {
     pub(super) const REG_COUNT: usize = SetBits::BITS as usize;
 
     pub(super) const fn new(
-        stack_reg:          u8,
         link_reg:           u8,
-        scratch_reg:        u8,
         callee_saved:       RegSet,
         argument_regs:      [[MachineReg; 8]; RegBank::COUNT],
         u8_order:           &[u8],
@@ -185,9 +232,7 @@ impl RegFile {
         }
 
         Self {
-            stack_reg:          MachineReg::new(stack_reg),
             link_reg:           MachineReg::new(link_reg),
-            scratch_reg:        MachineReg::new(scratch_reg),
             callee_saved, argument_regs, order, rank, available_ranks, clobbered_ranks
         }
     }

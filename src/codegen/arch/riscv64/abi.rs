@@ -1,20 +1,8 @@
 use crate::codegen::{Signature, RegBank, MachineReg, RegSet, REGS,
     assembler::{assemble_instr, split_regs_by_bank, Instr, Operand}};
 
+use crate::codegen::isa::{sp, ra, t6, a0, a1};
 
-//-------------------------------------------------------------------------------------------------
-
-#[allow(non_upper_case_globals)]
-const sp: MachineReg = REGS.stack_reg;
-#[allow(non_upper_case_globals)]
-const ra: MachineReg = REGS.link_reg;
-#[allow(non_upper_case_globals)]
-const t6: MachineReg = REGS.scratch_reg;
-
-#[allow(non_upper_case_globals)]
-const a0: MachineReg = MachineReg::new(10);      // glue: the arguments pointer arrives here
-#[allow(non_upper_case_globals)]
-const a1: MachineReg = MachineReg::new(11);      // glue: the results pointer arrives here
 
 //-------------------------------------------------------------------------------------------------
 

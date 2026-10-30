@@ -1,7 +1,7 @@
 use typed_index_collections::TiVec;
 
 use super::{abi, allocator,
-    Code, ConstantIndex, Pool, Signature, ValueSlot, MachineReg, RegSet, RegBank, RelativeTo,
+    Code, ConstantIndex, Pool, Signature, ValueSlot, IntReg, FloatReg, MachineReg, RegSet, RegBank, RelativeTo,
     REGS};
 
 #[cfg(feature = "dogfood")]
@@ -25,6 +25,14 @@ impl From<i32> for Operand {
 impl From<MachineReg> for Operand {
     fn from(r: MachineReg) -> Self { Self::Reg(r) }
 }
+
+impl From<IntReg> for Operand {
+    fn from(r: IntReg) -> Self { Self::Reg(MachineReg::from(r)) }
+}
+impl From<FloatReg> for Operand {
+    fn from(r: FloatReg) -> Self { Self::Reg(MachineReg::from(r)) }
+}
+
 
 macro_rules! assemble_expr {
     ($instrs:expr, $op:expr $(, $($operand:expr),*)?) => {

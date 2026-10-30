@@ -2,7 +2,7 @@
 
 use enumset::EnumSetType;
 
-use crate::codegen::{operand_class, define_code, regs, RegFile, RegSet};
+use crate::codegen::{operand_class, define_code, declare_regs, regs, IntReg, RegFile, RegSet};
 #[cfg(feature = "dogfood")]
 use display::*;
 #[cfg(feature = "dogfood")]
@@ -11,7 +11,7 @@ pub use display::{AddressingMode, format_assembly};
 
 //-------------------------------------------------------------------------------------------------
 
-pub static REGS: RegFile = RegFile::new(31, 30, 16,
+pub static REGS: RegFile = RegFile::new(30,                             // x30 is the link reg.
     RegSet::new(0x0000_FF00_1FF8_0000),
     [
         regs::machine_regs([ 0,  1,  2,  3,  4,  5,  6,  7]),
@@ -26,6 +26,18 @@ pub static REGS: RegFile = RegFile::new(31, 30, 16,
         32, 33, 34, 35, 36, 37, 38, 39,                                 // d0-d7 (function args)
     ],
 );
+
+declare_regs!(IntReg, INT_REG_NAMES,
+    x0  x1  x2  x3  x4  x5  x6  x7   x8  x9  x10 x11 x12 x13 x14 x15
+    x16 x17 x18 x19 x20 x21 x22 x23  x24 x25 x26 x27 x28 x29 x30 sp);
+
+declare_regs!(FloatReg, FLOAT_REG_NAMES,
+    d0  d1  d2  d3  d4  d5  d6  d7   d8  d9  d10 d11 d12 d13 d14 d15
+    d16 d17 d18 d19 d20 d21 d22 d23  d24 d25 d26 d27 d28 d29 d30 d31);
+
+// Encoding 31 is `sp` or the zero register, depending on the instruction.
+#[allow(dead_code, reason = "named for listings; most instruction forms here use it implicitly")]
+pub(in crate::codegen) const xzr: IntReg = IntReg::new(31);
 
 
 //-------------------------------------------------------------------------------------------------
@@ -46,26 +58,30 @@ pub enum Unit {
 //-------------------------------------------------------------------------------------------------
 // Operand classes  used for defining instructions
 
-operand_class!(xd,      Reg(Int),       format_x_reg, Output,   |r| r);
-operand_class!(xt,      Reg(Int),       format_x_reg, Output,   |r| r);
-operand_class!(xt1,     Reg(Int),       format_x_reg, Output,   |r| r);
-operand_class!(xt2,     Reg(Int),       format_x_reg,           |r| r << 10);
-operand_class!(xn,      Reg(Int),       format_x_reg,           |r| r << 5);
-operand_class!(xm,      Reg(Int),       format_x_reg,           |r| r << 16);
+mod operand_classes {
+    use super::*;
 
-operand_class!(dd,      Reg(Float),     format_d_reg, Output,   |r| r);
-operand_class!(dt,      Reg(Float),     format_d_reg, Output,   |r| r);
-operand_class!(dt1,     Reg(Float),     format_d_reg, Output,   |r| r);
-operand_class!(dt2,     Reg(Float),     format_d_reg,           |r| r << 10);
-operand_class!(dn,      Reg(Float),     format_d_reg,           |r| r << 5);
-operand_class!(dm,      Reg(Float),     format_d_reg,           |r| r << 16);
+    operand_class!(xd,      Reg(Int),       format_int_reg,     Output,     |r| r);
+    operand_class!(xt,      Reg(Int),       format_int_reg,     Output,     |r| r);
+    operand_class!(xt1,     Reg(Int),       format_int_reg,     Output,     |r| r);
+    operand_class!(xt2,     Reg(Int),       format_int_reg,                 |r| r << 10);
+    operand_class!(xn,      Reg(Int),       format_int_reg,                 |r| r << 5);
+    operand_class!(xm,      Reg(Int),       format_int_reg,                 |r| r << 16);
 
-operand_class!(imm7,    iimm(7, 3),     format_imm,             |r| r << 15);
-operand_class!(imm9,    iimm(9, 0),     format_imm,             |r| r << 12);
-operand_class!(imm12,   uimm(12, 3),    format_imm,             |r| r << 10);
-operand_class!(imm16,   uimm(16, 0),    format_imm,             |r| r << 5);
-operand_class!(imm19,   iimm(19, 2),    format_address,         |r| r << 5);
-operand_class!(imm26,   iimm(26, 2),    format_address,         |r| r);
+    operand_class!(dd,      Reg(Float),     format_float_reg,   Output,     |r| r);
+    operand_class!(dt,      Reg(Float),     format_float_reg,   Output,     |r| r);
+    operand_class!(dt1,     Reg(Float),     format_float_reg,   Output,     |r| r);
+    operand_class!(dt2,     Reg(Float),     format_float_reg,               |r| r << 10);
+    operand_class!(dn,      Reg(Float),     format_float_reg,               |r| r << 5);
+    operand_class!(dm,      Reg(Float),     format_float_reg,               |r| r << 16);
+
+    operand_class!(imm7,    iimm(7, 3),     format_imm,                     |r| r << 15);
+    operand_class!(imm9,    iimm(9, 0),     format_imm,                     |r| r << 12);
+    operand_class!(imm12,   uimm(12, 3),    format_imm,                     |r| r << 10);
+    operand_class!(imm16,   uimm(16, 0),    format_imm,                     |r| r << 5);
+    operand_class!(imm19,   iimm(19, 2),    format_address,                 |r| r << 5);
+    operand_class!(imm26,   iimm(26, 2),    format_address,                 |r| r);
+}
 
 
 //-------------------------------------------------------------------------------------------------
@@ -178,15 +194,6 @@ mod display {
         format!("{mnemonic} {operand_string}")
     }
 
-    pub(super) fn format_x_reg(bits: i32, _address: i32) -> String {
-        match bits {
-            31 => "sp".into(),
-            n  => format!("x{n}"),
-        }
-    }
-    pub(super) fn format_d_reg(bits: i32, _address: i32) -> String {
-        format!("d{bits}")
-    }
     pub(super) fn format_imm(n: i32, _address: i32) -> String {
         if (-9..=9).contains(&n) { format!("#{n}") }
         else { format!("#{}{:#x}", if n < 0 { "-" } else { "" }, n.unsigned_abs()) }

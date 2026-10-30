@@ -2,7 +2,7 @@
 
 use enumset::EnumSetType;
 
-use crate::codegen::{operand_class, define_code, regs, RegFile, RegSet};
+use crate::codegen::{operand_class, define_code, regs, declare_regs, RegFile, RegSet};
 #[cfg(feature = "dogfood")]
 use display::*;
 #[cfg(feature = "dogfood")]
@@ -11,7 +11,7 @@ pub use display::{AddressingMode, format_assembly};
 
 //-------------------------------------------------------------------------------------------------
 
-pub static REGS: RegFile = RegFile::new(2, 1, 31,       // sp = x2, ra = x1, scratch = t6 (x31)
+pub static REGS: RegFile = RegFile::new(1,              // ra = x1 (link reg)
     RegSet::new(0x0FFC_0300_0FFC_0300),                 // s0-s11 (x8, x9, x18-27), fs0-fs11 likewise
     [
         regs::machine_regs([10, 11, 12, 13, 14, 15, 16, 17]),      // a0-a7
@@ -27,6 +27,14 @@ pub static REGS: RegFile = RegFile::new(2, 1, 31,       // sp = x2, ra = x1, scr
     ],
 );
 
+declare_regs!(IntReg, INT_REG_NAMES,
+    zero ra sp gp tp t0 t1 t2  s0 s1 a0 a1 a2 a3 a4 a5
+    a6 a7 s2 s3 s4 s5 s6 s7    s8 s9 s10 s11 t3 t4 t5 t6);
+
+declare_regs!(FloatReg, FLOAT_REG_NAMES,
+    ft0 ft1 ft2 ft3 ft4 ft5 ft6 ft7  fs0 fs1 fa0 fa1 fa2 fa3 fa4 fa5
+    fa6 fa7 fs2 fs3 fs4 fs5 fs6 fs7  fs8 fs9 fs10 fs11 ft8 ft9 ft10 ft11);
+
 
 //-------------------------------------------------------------------------------------------------
 // Architecture details.
@@ -39,37 +47,41 @@ pub enum Unit { U1, U2, U3}
 //-------------------------------------------------------------------------------------------------
 // Operand classes  used for defining instructions
 
-operand_class!(xd,      Reg(Int),       format_x_reg,   Output, |r| r << 7);
-operand_class!(xs1,     Reg(Int),       format_x_reg,           |r| r << 15);
-operand_class!(xs2,     Reg(Int),       format_x_reg,           |r| r << 20);
+mod operand_classes {
+    use super::*;
 
-operand_class!(fd,      Reg(Float),     format_f_reg,   Output, |r| r << 7);
-operand_class!(fs1,     Reg(Float),     format_f_reg,           |r| r << 15);
-operand_class!(fs2,     Reg(Float),     format_f_reg,           |r| r << 20);
-operand_class!(fs12,    Reg(Float),     format_f_reg,           |r| r << 15 | r << 20);
+    operand_class!(xd,      Reg(Int),       format_int_reg,     Output, |r| r << 7);
+    operand_class!(xs1,     Reg(Int),       format_int_reg,             |r| r << 15);
+    operand_class!(xs2,     Reg(Int),       format_int_reg,             |r| r << 20);
 
-// imm_i is used as the second half of an `auipc`/`lui` load pair, so sometimes we pass it a 32-bit
-// operand.  So here, we say it's a 32-bit operand, even though it's really 12.
-operand_class!(imm_i,   iimm(32, 0),    format_imm,             |r| r << 20);
-operand_class!(imm_j,   iimm(20, 1),    format_imm,
-    |r|
-    (r >> 19 & 0x1)   << 31 |                               // 31    = imm[20]
-    (r       & 0x3FF) << 21 |                               // 30:21 = imm[10:1]
-    (r >> 10 & 0x1)   << 20 |                               // 20    = imm[11]
-    (r >> 11 & 0xFF)  << 12                                 // 19:12 = imm[19:12]
-);
-operand_class!(imm_s,   iimm(12, 0),    format_imm,
-    |r|
-    (r >>  5 & 0x7F)  << 25 |                               // 31:25 = imm[11:5]
-    (r       & 0x1F)  <<  7                                 // 11:7  = imm[4:0]
-);
-// `imm_u` is used by `auipc` and `lui` to supply the top 20 bits of a 32-bit value.
-// The operand is the 32-bit value; the instruction after the `auipc`/`lui` takes the same operand
-// and adds its low 12 bits, sign-extended, so round the upper 20 bits to make up for a negative
-// low part (hence the wrapping add)
-operand_class!(imm_u,   iimm(32, 0),    format_imm_u,
-    |r| r.wrapping_add(0x800) & 0xFFFF_F000                 // 31:12 = imm[31:12]
-);
+    operand_class!(fd,      Reg(Float),     format_float_reg,   Output, |r| r << 7);
+    operand_class!(fs1,     Reg(Float),     format_float_reg,           |r| r << 15);
+    operand_class!(fs2,     Reg(Float),     format_float_reg,           |r| r << 20);
+    operand_class!(fs12,    Reg(Float),     format_float_reg,           |r| r << 15 | r << 20);
+
+    // imm_i is used as the second half of an `auipc`/`lui` load pair, so sometimes we pass it a
+    // 32-bit operand.  So here, we say it's a 32-bit operand, even though it's really 12.
+    operand_class!(imm_i,   iimm(32, 0),    format_imm,             |r| r << 20);
+    operand_class!(imm_j,   iimm(20, 1),    format_imm,
+        |r|
+        (r >> 19 & 0x1)   << 31 |                               // 31    = imm[20]
+        (r       & 0x3FF) << 21 |                               // 30:21 = imm[10:1]
+        (r >> 10 & 0x1)   << 20 |                               // 20    = imm[11]
+        (r >> 11 & 0xFF)  << 12                                 // 19:12 = imm[19:12]
+    );
+    operand_class!(imm_s,   iimm(12, 0),    format_imm,
+        |r|
+        (r >>  5 & 0x7F)  << 25 |                               // 31:25 = imm[11:5]
+        (r       & 0x1F)  <<  7                                 // 11:7  = imm[4:0]
+    );
+    // `imm_u` is used by `auipc` and `lui` to supply the top 20 bits of a 32-bit value.
+    // The operand is the 32-bit value; the instruction after the `auipc`/`lui` takes the same
+    // operand and adds its low 12 bits, sign-extended, so round the upper 20 bits to make up for a
+    // negative low part (hence the wrapping add)
+    operand_class!(imm_u,   iimm(32, 0),    format_imm_u,
+        |r| r.wrapping_add(0x800) & 0xFFFF_F000                 // 31:12 = imm[31:12]
+    );
+}
 
 
 //-------------------------------------------------------------------------------------------------
@@ -152,29 +164,6 @@ mod display {
     pub(super) fn format_imm_u(n: i32, _address: i32) -> String {
         let field = n.cast_unsigned().wrapping_add(0x800) >> 12;
         if field <= 9 { format!("{field}") } else { format!("{field:#x}") }
-    }
-
-    // ABI names, indexed by encoding.  `encoding()` is taken modulo 32, so the index is always in
-    // range.
-    const X_REG_NAMES: [&str; 32] = [
-        "zero", "ra",  "sp",  "gp",  "tp",  "t0",  "t1",  "t2",
-        "s0",   "s1",  "a0",  "a1",  "a2",  "a3",  "a4",  "a5",
-        "a6",   "a7",  "s2",  "s3",  "s4",  "s5",  "s6",  "s7",
-        "s8",   "s9",  "s10", "s11", "t3",  "t4",  "t5",  "t6",
-    ];
-    const F_REG_NAMES: [&str; 32] = [
-        "ft0",  "ft1", "ft2",  "ft3",  "ft4", "ft5", "ft6",  "ft7",
-        "fs0",  "fs1", "fa0",  "fa1",  "fa2", "fa3", "fa4",  "fa5",
-        "fa6",  "fa7", "fs2",  "fs3",  "fs4", "fs5", "fs6",  "fs7",
-        "fs8",  "fs9", "fs10", "fs11", "ft8", "ft9", "ft10", "ft11",
-    ];
-
-    pub(super) fn format_x_reg(reg: i32, _address: i32) -> String {
-        X_REG_NAMES[reg.cast_unsigned() as usize % 32].into()
-    }
-
-    pub(super) fn format_f_reg(reg: i32, _address: i32) -> String {
-        F_REG_NAMES[reg.cast_unsigned() as usize % 32].into()
     }
 }
 

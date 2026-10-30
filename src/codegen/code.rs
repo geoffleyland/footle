@@ -89,7 +89,7 @@ macro_rules! define_code {
             $crate::codegen::code::Code {
             pattern:            $pattern,
             instr_class:        define_code!(@instr_class $($instr_class)?),
-            operand_classes:    &[$($crate::codegen::isa::$operand,)*],
+            operand_classes:    &[$($crate::codegen::isa::operand_classes::$operand,)*],
 
             latency:            $latency,
             units:              ::enumset::enum_set!($(Unit::$unit)|*),
@@ -178,7 +178,7 @@ macro_rules! operand_class {
     };
 
     (@define $name:ident, $ty:expr, $format:ident, $output:ident, $($place:tt)*) => {
-        const $name: $crate::codegen::code::OperandClass = $crate::codegen::code::OperandClass {
+        pub(super) const $name: $crate::codegen::code::OperandClass = $crate::codegen::code::OperandClass {
             ty: {
                 #[allow(unused_imports)]
                 use $crate::codegen::{code::{OperandType::*, uimm, iimm}, RegBank::*};
@@ -187,7 +187,11 @@ macro_rules! operand_class {
             implies_output:                 $output,
             place:                          $($place)*,
             #[cfg(feature = "dogfood")]
-            format_assembly:                $format,
+            format_assembly: {
+                #[allow(unused_imports)]
+                use $crate::codegen::regs::{format_int_reg, format_float_reg};
+                $format
+            },
         };
     }
 }

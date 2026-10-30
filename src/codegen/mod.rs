@@ -16,7 +16,7 @@ pub use binary::CompiledFn;
 pub use lower::{Pool, Signature};
 
 use value::{Arg, Instr, Value, ValueSlot, Type, Constant};
-use regs::{MachineReg, RegBank, RegFile, RegSet, RankSet};
+use regs::{declare_regs, IntReg, FloatReg, MachineReg, RegBank, RegFile, RegSet, RankSet};
 use arch::{isa, isa::REGS, isa::Unit, abi};
 use code::{operand_class, define_code, Code};
 use scheduler::SchedulePosition;
