@@ -59,7 +59,7 @@ fn run(mut command_line: pico_args::Arguments) -> Result<()> {
     let args = parse_args(command_line)?;
 
     #[cfg(feature = "dogfood")]
-    if verbose { run_file(&file_or_dir, &args, &mut dogfood::Printer::new(2, 40, true))?; }
+    if verbose { return run_file(&file_or_dir, &args, &mut dogfood::Printer::new(2, 40, true)); }
 
     run_file(&file_or_dir, &args, &mut runtime::Silent)?;
     Ok(())
