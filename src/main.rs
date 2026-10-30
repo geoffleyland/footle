@@ -45,17 +45,31 @@ fn run(mut command_line: pico_args::Arguments) -> Result<()> {
         return Ok(());
     }
 
+    #[cfg(feature = "dogfood")]
+    let (verbose, test) = (command_line.contains(["-v", "--verbose"]),
+        command_line.contains(["-t", "--test"]));
+
     let Some(file_or_dir): Option<PathBuf> = command_line.opt_free_from_str()? else { return Ok(()); };
     if !file_or_dir.try_exists()? {
         bail!("couldn't read {}: No such file or directory", file_or_dir.display());
     }
-    run_file(&file_or_dir, &parse_args(command_line)?, &mut runtime::Silent)?;
+
+    #[cfg(feature = "dogfood")]
+    if test { return dogfood::run_tests(&file_or_dir); }
+
+    let args = parse_args(command_line)?;
+
+    #[cfg(feature = "dogfood")]
+    if verbose { run_file(&file_or_dir, &args, &mut dogfood::Printer::new(2, 40, true))?; }
+
+    run_file(&file_or_dir, &args, &mut runtime::Silent)?;
     Ok(())
 }
 
-#[cfg(not(feature = "dogfood"))]
+
 fn show_help() {
     let name: &str = env!("CARGO_PKG_NAME");
+    #[cfg(not(feature = "dogfood"))]
     eprintln!("\
 Usage: {name} [<file> [<arguments...>]]
        {name} -h
@@ -63,40 +77,7 @@ Usage: {name} [<file> [<arguments...>]]
 Options:
   -h, --help     display usage information
 ");
-}
-
-
-#[cfg(feature = "dogfood")]
-fn run(mut command_line: pico_args::Arguments) -> Result<()> {
-    if command_line.contains(["-h", "--help"]) {
-        show_help();
-        return Ok(());
-    }
-
-    let verbose = command_line.contains(["-v", "--verbose"]);
-    let test = command_line.contains(["-t", "--test"]);
-    let Some(file_or_dir): Option<PathBuf> = command_line.opt_free_from_str()? else { return Ok(()); };
-    if !file_or_dir.try_exists()? {
-        bail!("couldn't read {}: No such file or directory", file_or_dir.display());
-    }
-    if test {
-        dogfood::run_tests(&file_or_dir)?;
-    } else {
-        let args = parse_args(command_line)?;
-        if verbose {
-            run_file(&file_or_dir, &args, &mut dogfood::Printer::new(2, 40, true))?;
-        } else {
-            run_file(&file_or_dir, &args, &mut runtime::Silent)?;
-        }
-    }
-
-    Ok(())
-}
-
-
-#[cfg(feature = "dogfood")]
-fn show_help() {
-    let name: &str = env!("CARGO_PKG_NAME");
+    #[cfg(feature = "dogfood")]
     eprintln!("\
 Usage: {name} [-v] [<file> [<arguments...>]]
        {name} -t <file_or_dir>
