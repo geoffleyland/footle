@@ -54,7 +54,7 @@ impl IntoOperand for Value {
     fn into_operand(self, _: &Builder) -> Operand { Operand::Reg(self) }
 }
 
-impl IntoOperand for &vir::Expr {
+impl IntoOperand for &vir::ExprUse {
     fn into_operand(self, builder: &Builder) -> Operand {
         builder.operand_map[&self.pool_index()].clone()
     }
@@ -127,7 +127,8 @@ impl Builder {
     }
 
     fn lower_return(&mut self, input: &vir::Block, types: &vir::Types) {
-        let return_values = self.exprs_to_abi_regs(&input.return_values, types);
+        let return_values = self.exprs_to_abi_regs(
+            input.return_values.iter().map(|e| e.pool_index()), types);
         self.return_types = return_values.iter().map(|(v, _)| v.ty()).collect();
         let slot = self.new_slot();
         self.instrs.push(Instr::new(slot, None, Self::RETURN, vec![], return_values, None, input.return_span));
@@ -135,13 +136,12 @@ impl Builder {
 
     pub(super) fn exprs_to_abi_regs(
         &self,
-        exprs:                                  &[vir::Expr],
+        pool_indices:                           impl Iterator<Item = PoolIndex> + Clone,
         types:                                  &vir::Types,
     ) -> Vec<(Value, MachineReg)> {
-        exprs.iter()
-            .zip(REGS.abi_regs(exprs.iter().map(|expr| Type::from(types[expr.pool_index()]))))
-            .map(|(expr, reg)| (
-                if let Operand::Reg(v) = self.operand_map[&expr.pool_index()] { v } else {
+        let regs = REGS.abi_regs(pool_indices.clone().map(|index| Type::from(types[index])));
+        pool_indices.zip(regs).map(|(index, reg)| (
+                if let Operand::Reg(v) = self.operand_map[&index] { v } else {
                     panic!("internal compiler error: constant as an ABI argument")
                 },
                 reg)
@@ -152,7 +152,7 @@ impl Builder {
         &mut self,
         name:                                   &str,
         ty:                                     Type,
-        arg_exprs:                              &[vir::Expr],
+        arg_exprs:                              &[vir::ExprUse],
         types:                                  &vir::Types,
         span:                                   Span,
     ) -> Value {
@@ -162,7 +162,7 @@ impl Builder {
             self.functions.push((name.into(), a));
             a
         };
-        let args = self.exprs_to_abi_regs(arg_exprs, types);
+        let args = self.exprs_to_abi_regs(arg_exprs.iter().map(vir::ExprUse::pool_index), types);
         let output_reg = REGS.abi_result_reg(ty);
         self.emit_abi_instr(ty, Self::CALL_REG, operands!(self, function_address), args, Some(output_reg), span)
     }

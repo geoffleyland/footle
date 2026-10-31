@@ -1,16 +1,11 @@
-use crate::core::Nev;
+use crate::core::{Nev, Span};
 use super::expr::Expr;
-
-use crate::core::Span;
 
 
 //-------------------------------------------------------------------------------------------------
 
 #[derive(Debug)]
-pub enum StmtKind {
-    Return(Nev<Expr>),
-}
-
+pub enum StmtKind { Return(Nev<Expr>) }
 
 #[derive(Debug)]
 pub struct Stmt {
@@ -18,14 +13,11 @@ pub struct Stmt {
     pub span:                               Span,
 }
 
-
 impl Stmt {
-    pub fn return_stmt(
-        exprs:                              Nev<Expr>,
-        span:                               Span,
-    ) -> Self {
-        Self{kind: StmtKind::Return(exprs), span }
+    pub fn return_stmt(exprs: Nev<Expr>, span: Span) -> Self {
+        Self{ kind: StmtKind::Return(exprs), span }
     }
 }
+
 
 //-------------------------------------------------------------------------------------------------

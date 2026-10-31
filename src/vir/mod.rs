@@ -7,7 +7,7 @@ mod symbol_table;
 mod pass;
 mod typer;
 
-pub use expr::{InstrKind, Expr, Instr};
+pub use expr::{InstrKind, Expr, ExprUse, Instr};
 pub use expr_pool::PoolIndex;
 pub use stmt::{Stmt, StmtKind};
 pub use pass::{Block, run};

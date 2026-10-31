@@ -82,7 +82,7 @@ impl Pass {
             }
             ast::StmtKind::Return(exprs) => {
                 let maybe_exprs = exprs.into_iter()
-                    .map(|expr| self.transform_expr(env, expr).ok())
+                    .map(|expr| self.transform_expr(env, expr).ok().map(vir::ExprUse::into_expr))
                     .collect::<Option<Vec<_>>>();
                 if let Some(exprs) = maybe_exprs {
                     self.stmts.push(vir::Stmt::return_stmt(exprs.try_into().unwrap(), stmt.span));
@@ -118,6 +118,7 @@ impl Pass {
 
                 for (name, span, value) in transformed_assignments {
                     if let Ok(v) = value {
+                        let v = v.into_expr();
                         if assignment.declaration.is_declaring() {
                             self.symbols.insert(assignment.declaration.is_mutable(), name, *span,
                                 nev![v]);
@@ -145,7 +146,7 @@ impl Pass {
     }
 
 
-    fn transform_expr(&mut self, env: &Env, expr: &ast::Expr) -> Result<vir::Expr, ()> {
+    fn transform_expr(&mut self, env: &Env, expr: &ast::Expr) -> Result<vir::ExprUse, ()> {
         match expr.kind() {
             ast::ExprKind::Number(value) => {
                 Ok(self.exprs.number(*value, *expr.span()))
@@ -219,7 +220,7 @@ impl Pass {
 ///  * if the operator is commutable then:
 ///    * if there's a constant, try to get it on the right
 ///    * if they're both expressions, put the one with the lower index on the left.
-fn fold_binary(op: BinaryOperator, lhs: vir::Expr, rhs: vir::Expr) -> ExprKind {
+fn fold_binary(op: BinaryOperator, lhs: vir::ExprUse, rhs: vir::ExprUse) -> ExprKind {
     // See if we can fold to a constant
     if let Some(lhs_instr) = lhs.kind().instr()
         && let Some(rhs_instr) = rhs.kind().instr()
@@ -246,14 +247,14 @@ fn fold_binary(op: BinaryOperator, lhs: vir::Expr, rhs: vir::Expr) -> ExprKind {
 }
 
 
-fn all_constants(exprs: &[vir::Expr]) -> Option<Vec<f64>> {
+fn all_constants(exprs: &[vir::ExprUse]) -> Option<Vec<f64>> {
     exprs.iter()
         .map(|e| if let Some(InstrKind::Number(v)) = e.kind().instr() { Some(*v) } else { None })
         .collect()
 }
 
 
-fn fold_call(name: &str, def: &FunctionDef, exprs: Vec<vir::Expr>) -> ExprKind {
+fn fold_call(name: &str, def: &FunctionDef, exprs: Vec<vir::ExprUse>) -> ExprKind {
     if let Some(fold) = def.const_fold &&
         let Some(args) = all_constants(&exprs) {
         InstrKind::Number((fold)(&args)).into()
@@ -270,11 +271,11 @@ fn emit_expr(expr: &vir::Expr, instrs: &mut Vec<Instr>, emitted: &mut TiVec<Pool
     if let Some(instr) = expr.kind().instr() && !emitted[expr.pool_index()] {
         match instr {
             InstrKind::Binary(_, lhs, rhs) => {
-                emit_expr(lhs, instrs, emitted);
-                emit_expr(rhs, instrs, emitted);
+                emit_expr(lhs.expr(), instrs, emitted);
+                emit_expr(rhs.expr(), instrs, emitted);
             }
             InstrKind::Call(_, exprs) => {
-                for e in exprs { emit_expr(e, instrs, emitted); }
+                for e in exprs { emit_expr(e.expr(), instrs, emitted); }
             }
             _ => {}
         }

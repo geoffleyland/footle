@@ -11,8 +11,8 @@ use super::PoolIndex;
 pub enum InstrKind {
     Number(f64),
     Bool(bool),
-    Binary(BinaryOperator, Expr, Expr),
-    Call(String, Vec<Expr>),
+    Binary(BinaryOperator, ExprUse, ExprUse),
+    Call(String, Vec<ExprUse>),
 }
 
 impl Hash for InstrKind {
@@ -23,12 +23,12 @@ impl Hash for InstrKind {
             Bool(value)                 => { value.hash(state); }
             Binary(op, lhs, rhs) => {
                 op.hash(state);
-                Rc::as_ptr(&lhs.entry).hash(state);
-                Rc::as_ptr(&rhs.entry).hash(state);
+                lhs.pool_index().hash(state);
+                rhs.pool_index().hash(state);
             }
             Call(name, exprs) => {
                 name.hash(state);
-                for e in exprs { Rc::as_ptr(&e.entry).hash(state); }
+                for e in exprs { e.pool_index().hash(state); }
             }
         }
     }
@@ -42,8 +42,8 @@ impl PartialEq for InstrKind {
             (Bool(a), Bool(b))          => { a == b }
             (Binary(op1, lhs1, rhs1), Binary(op2, lhs2, rhs2)) => {
                 op1 == op2 &&
-                Rc::ptr_eq(&lhs1.entry, &lhs2.entry) &&
-                Rc::ptr_eq(&rhs1.entry, &rhs2.entry)
+                lhs1.pool_index() == lhs2.pool_index() &&
+                rhs1.pool_index() == rhs2.pool_index()
             }
             // We don't do CSE on calls (until we can work out if functions are pure)
             _ => false
@@ -99,8 +99,13 @@ impl ExprEntry {
     pub fn new(kind: ExprKind, pool_index: PoolIndex, definition_span: Span) -> Self {
         Self{ kind, pool_index, definition_span }
     }
+    pub fn used_at(self: &Rc<Self>, use_span: Span) -> ExprUse {
+        ExprUse { expr: Rc::clone(self), use_span }
+    }
+
     pub fn kind(&self) -> &ExprKind         { &self.kind }
     pub fn pool_index(&self) -> PoolIndex   { self.pool_index }
+    pub fn is_constant(&self) -> bool       { self.kind().is_constant() }
 
     pub fn definition_span(&self) -> Span   { self.definition_span }
 }
@@ -108,23 +113,24 @@ impl ExprEntry {
 
 //-------------------------------------------------------------------------------------------------
 
+pub type Expr = Rc<ExprEntry>;
+
 #[derive(Debug, Clone)]
-pub struct Expr {
-    entry:                                  Rc<ExprEntry>,
+pub struct ExprUse {
+    expr:                                   Expr,
     use_span:                               Span,
 }
 
 
-impl Expr {
-    pub fn new(entry: Rc<ExprEntry>, use_span: Span) -> Self { Self { entry, use_span } }
-    pub fn used_at(&self, use_span: Span) -> Self { Self { entry: self.entry.clone(), use_span } }
+impl ExprUse {
+    pub fn kind(&self) -> &ExprKind         { self.expr.kind() }
+    pub fn pool_index(&self) -> PoolIndex   { self.expr.pool_index() }
+    pub fn is_constant(&self) -> bool       { self.expr.is_constant() }
 
-    pub fn kind(&self) -> &ExprKind         { self.entry.kind() }
-    pub fn pool_index(&self) -> PoolIndex   { self.entry.pool_index() }
-    pub fn is_constant(&self) -> bool       { self.entry.kind().is_constant() }
-
-    pub fn definition_span(&self) -> Span   { self.entry.definition_span() }
     pub fn use_span(&self) -> Span          { self.use_span }
+
+    pub fn expr(&self) -> &Expr              { &self.expr }
+    pub fn into_expr(self) -> Expr          { self.expr }
 }
 
 
