@@ -91,18 +91,18 @@ impl From<InstrKind> for ExprKind { fn from(i: InstrKind) -> Self { Self::Instr(
 pub struct ExprEntry {
     kind:                                   ExprKind,
     pool_index:                             PoolIndex,
-    span:                                   Span,
+    definition_span:                        Span,
 }
 
 
 impl ExprEntry {
-    pub fn new(kind: ExprKind, pool_index: PoolIndex, span: Span) -> Self {
-        Self{ kind, pool_index, span }
+    pub fn new(kind: ExprKind, pool_index: PoolIndex, definition_span: Span) -> Self {
+        Self{ kind, pool_index, definition_span }
     }
     pub fn kind(&self) -> &ExprKind         { &self.kind }
     pub fn pool_index(&self) -> PoolIndex   { self.pool_index }
 
-    pub fn span(&self) -> Span              { self.span }
+    pub fn definition_span(&self) -> Span   { self.definition_span }
 }
 
 
@@ -123,8 +123,8 @@ impl Expr {
     pub fn pool_index(&self) -> PoolIndex   { self.entry.pool_index() }
     pub fn is_constant(&self) -> bool       { self.entry.kind().is_constant() }
 
+    pub fn definition_span(&self) -> Span   { self.entry.definition_span() }
     pub fn use_span(&self) -> Span          { self.use_span }
-    pub fn definition_span(&self) -> Span   { self.entry.span() }
 }
 
 
