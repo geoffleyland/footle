@@ -6,7 +6,7 @@ edition = "2024"
 
 [dependencies]
 git-version = "0.3.9"
-enumset = "1.1.14"
+enumset = "1.1.15"
 bit-set = "0.11"
 libc = "0.2"
 paste = "1.0.15"
