@@ -38,7 +38,7 @@ pub fn run(env: &Env, stmts: &[ast::Stmt]) -> Result<Block, Vec<ParseError>> {
 //-------------------------------------------------------------------------------------------------
 
 pub struct Block {
-    pub exprs:                  Vec<vir::Expr>,
+    pub exprs:                  TiVec<PoolIndex, vir::Expr>,
     pub args:                   Vec<Arg>,
     pub instrs:                 Vec<Instr>,
     pub return_values:          Vec<vir::Expr>,
@@ -294,7 +294,6 @@ fn emit_expr(expr: &vir::Expr, instrs: &mut Vec<Instr>, emitted: &mut TiVec<Pool
 #[cfg(any(feature = "dogfood", test))]
 mod display {
     use std::fmt;
-    use std::collections::HashMap;
     use super::*;
     use crate::lex::Token;
     use crate::core::{Styleable, LineStyle};
@@ -302,30 +301,30 @@ mod display {
     impl Styleable for Block {
         fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
             let mut address = 0;
-            let mut address_map = HashMap::<PoolIndex, usize>::new();
+            let mut address_map = ti_vec![None; self.exprs.len()];
             for arg in &self.args {
-                address_map.insert(arg.pool_index, address);
+                address_map[arg.pool_index] = Some(address);
                 let line = format!("{} I{address}", Token::Argument);
                 writer.writeln(f, indent, Some(arg.definition_span), &line)?;
                 address += 1;
             }
             for instr in &self.instrs {
-                address_map.insert(instr.pool_index, address);
+                address_map[instr.pool_index] = Some(address);
                 let line = match &instr.kind {
                     InstrKind::Number(value)    => format!("{} I{address} = {value}", Token::Local),
                     InstrKind::Bool(value)      => format!("{} I{address} = {value}", Token::Local),
                     InstrKind::Binary(op, lhs, rhs) =>
                         format!("{} I{address} = I{} {op} I{}",
-                            Token::Local, address_map[&lhs.pool_index()], address_map[&rhs.pool_index()]),
+                            Token::Local, address_map[lhs.pool_index()].unwrap(), address_map[rhs.pool_index()].unwrap()),
                     InstrKind::Call(name, exprs, _) =>
                         format!("{} I{address} = {name}({})", Token::Local,
-                             exprs.iter().map(|e| format!("I{}", address_map[&e.pool_index()])).collect::<Vec<_>>().join(", ")),
+                             exprs.iter().map(|e| format!("I{}", address_map[e.pool_index()].unwrap())).collect::<Vec<_>>().join(", ")),
                 };
                 writer.writeln(f, indent, Some(instr.definition_span), &line)?;
                 address += 1;
             }
             let line = format!("{} {}", Token::Return,
-                self.return_values.iter().map(|e| format!("I{}", address_map[&e.pool_index()])).collect::<Vec<_>>().join(", "));
+                self.return_values.iter().map(|e| format!("I{}", address_map[e.pool_index()].unwrap())).collect::<Vec<_>>().join(", "));
             writer.write(f, indent, Some(self.return_span), &line)
         }
     }

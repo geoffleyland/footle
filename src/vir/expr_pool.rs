@@ -9,7 +9,7 @@ use super::expr::{InstrKind, ExprKind, ExprEntry, Expr, ExprUse};
 
 //-------------------------------------------------------------------------------------------------
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, derive_more::From, derive_more::Into)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, derive_more::From, derive_more::Into)]
 pub struct PoolIndex(usize);
 
 
