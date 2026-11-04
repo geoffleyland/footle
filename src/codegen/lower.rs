@@ -30,7 +30,7 @@ pub(super) fn run(
     for instr in &input.instrs {
         // Call arch-specific instruction selection.
         let value = builder.select_instr(instr, types);
-        builder.operand_map.insert(instr.pool_index, value.into_operand(&builder));
+        builder.value_map.insert(instr.pool_index, value);
     }
     builder.lower_return(input, types);
 
@@ -49,19 +49,14 @@ pub(super) fn run(
 //-------------------------------------------------------------------------------------------------
 
 pub(super) trait IntoOperand { fn into_operand(self, builder: &Builder) -> Operand; }
+impl IntoOperand for Operand { fn into_operand(self, _: &Builder) -> Self { self } }
 
 impl IntoOperand for Value {
     fn into_operand(self, _: &Builder) -> Operand { Operand::Reg(self) }
 }
 
 impl IntoOperand for &vir::ExprUse {
-    fn into_operand(self, builder: &Builder) -> Operand {
-        builder.operand_map[&self.pool_index()].clone()
-    }
-}
-
-impl IntoOperand for Operand {
-    fn into_operand(self, _: &Builder) -> Self { self }
+    fn into_operand(self, builder: &Builder) -> Operand { builder.value(self.pool_index()).into_operand(builder) }
 }
 
 macro_rules! operands {
@@ -81,11 +76,15 @@ pub struct Builder {
     slot_count:                             usize,
     pub(super) return_types:                Vec<Type>,
     pub(super) constants:                   TiVec<ConstantIndex, Constant>,
-    operand_map:                            HashMap<PoolIndex, Operand>,
+    value_map:                              HashMap<PoolIndex, Value>,
     pub(super) functions:                   Vec<(String, Value)>,
 }
 
 impl Builder {
+    fn value(&self, index: PoolIndex) -> Value {
+        *self.value_map.get(&index).expect("internal compiler error: value used before it was lowered")
+    }
+
     fn new_slot(&mut self) -> ValueSlot {
         let slot = ValueSlot::from(self.slot_count);
         self.slot_count += 1;
@@ -97,8 +96,7 @@ impl Builder {
             let ty = Type::from(types[vir_arg.pool_index]);
             let slot = self.new_slot();
             self.args.push(Arg{ slot, ty, span: vir_arg.definition_span });
-            let operand = Operand::Reg(Value::Arg(slot, ty));
-            self.operand_map.insert(vir_arg.pool_index, operand);
+            self.value_map.insert(vir_arg.pool_index, Value::Arg(slot, ty));
         }
     }
 
@@ -140,12 +138,7 @@ impl Builder {
         types:                                  &vir::Types,
     ) -> Vec<(Value, MachineReg)> {
         let regs = REGS.abi_regs(pool_indices.clone().map(|index| Type::from(types[index])));
-        pool_indices.zip(regs).map(|(index, reg)| (
-                if let Operand::Reg(v) = self.operand_map[&index] { v } else {
-                    panic!("internal compiler error: constant as an ABI argument")
-                },
-                reg)
-            ).collect()
+        pool_indices.zip(regs).map(|(index, reg)| (self.value(index), reg)).collect()
     }
 
     pub(super) fn lower_call(
