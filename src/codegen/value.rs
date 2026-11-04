@@ -79,7 +79,7 @@ impl Operand {
 /// them.
 /// Only use `TiVec`s, not `TiSlice`s (even when passing references to `TiVec`s) - `TiSlices` risk
 /// re-setting the zero on a slice and the numbering going out the window.
-#[derive(Debug, Copy, Clone, From, Into, Display, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, From, Into, Display, PartialEq, Eq)]
 pub(super) struct ValueSlot(usize);
 
 #[derive(Debug)]

@@ -87,7 +87,7 @@ fn infer(
 //-------------------------------------------------------------------------------------------------
 // Type Figurer-outer
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, derive_more::Display)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, derive_more::Display)]
 pub enum TypeInfo {
     #[display("f64")]  F64,
     #[display("bool")] Bool,
@@ -129,7 +129,7 @@ impl Typer {
         match instr {
             InstrKind::Number(..)   => self.set_type(pool_index, TypeInfo::F64, span)?,
             InstrKind::Bool(..)     => self.set_type(pool_index, TypeInfo::Bool, span)?,
-            InstrKind::Call(name, exprs) => {
+            InstrKind::Call(name, exprs, _) => {
                 // vir already checked the function exists and the arguments list is the right
                 // length
                 let Some(def) = env.module.functions.get(name) else {

@@ -3,7 +3,7 @@ use typed_index_collections::{ti_vec, TiVec};
 use crate::env::{Env, FunctionDef};
 use crate::core::{BinaryOperator, ParseError};
 use crate::{ast, vir, nev};
-use super::PoolIndex;
+use super::{PoolIndex, CallId};
 use super::symbol_table::{AssignmentError, SymbolTable};
 use super::expr_pool::ExprPool;
 use super::expr::{InstrKind, ExprKind, Instr, Arg};
@@ -187,7 +187,9 @@ impl Pass {
                     .map(|e| self.transform_expr(env, e).ok())
                     .collect::<Option<Vec<_>>>()
                     .ok_or(())?;
-                Ok(self.exprs.intern(fold_call(name, def, exprs), *expr.span()))
+                // Pass a unique id (self.exprs.len()) to the Call so that Calls are all unique
+                // (for now...)
+                Ok(self.exprs.intern(fold_call(name, def, exprs, self.exprs.len().into()), *expr.span()))
             }
         }
     }
@@ -254,12 +256,12 @@ fn all_constants(exprs: &[vir::ExprUse]) -> Option<Vec<f64>> {
 }
 
 
-fn fold_call(name: &str, def: &FunctionDef, exprs: Vec<vir::ExprUse>) -> ExprKind {
+fn fold_call(name: &str, def: &FunctionDef, exprs: Vec<vir::ExprUse>, id: CallId) -> ExprKind {
     if let Some(fold) = def.const_fold &&
         let Some(args) = all_constants(&exprs) {
         InstrKind::Number((fold)(&args)).into()
     } else {
-        InstrKind::Call(name.to_string(), exprs).into()
+        InstrKind::Call(name.to_string(), exprs, id).into()
     }
 }
 
@@ -274,7 +276,7 @@ fn emit_expr(expr: &vir::Expr, instrs: &mut Vec<Instr>, emitted: &mut TiVec<Pool
                 emit_expr(lhs.expr(), instrs, emitted);
                 emit_expr(rhs.expr(), instrs, emitted);
             }
-            InstrKind::Call(_, exprs) => {
+            InstrKind::Call(_, exprs, _) => {
                 for e in exprs { emit_expr(e.expr(), instrs, emitted); }
             }
             _ => {}
@@ -315,7 +317,7 @@ mod display {
                     InstrKind::Binary(op, lhs, rhs) =>
                         format!("{} I{address} = I{} {op} I{}",
                             Token::Local, address_map[&lhs.pool_index()], address_map[&rhs.pool_index()]),
-                    InstrKind::Call(name, exprs) =>
+                    InstrKind::Call(name, exprs, _) =>
                         format!("{} I{address} = {name}({})", Token::Local,
                              exprs.iter().map(|e| format!("I{}", address_map[&e.pool_index()])).collect::<Vec<_>>().join(", ")),
                 };

@@ -1,5 +1,4 @@
-use std::hash::{Hash, Hasher};
-use std::rc::Rc;
+use std::{rc::Rc, cmp::Ordering};
 
 use crate::core::{BinaryOperator, Span};
 use super::PoolIndex;
@@ -7,48 +6,37 @@ use super::PoolIndex;
 
 //-------------------------------------------------------------------------------------------------
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, derive_more::From)]
+pub struct CallId(usize);
+
 #[derive(Debug, Clone)]
 pub enum InstrKind {
     Number(f64),
     Bool(bool),
     Binary(BinaryOperator, ExprUse, ExprUse),
-    Call(String, Vec<ExprUse>),
+    Call(String, Vec<ExprUse>, CallId),
 }
 
-impl Hash for InstrKind {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        use InstrKind::*;
-        match self {
-            Number(value)               => { value.to_bits().hash(state); }
-            Bool(value)                 => { value.hash(state); }
-            Binary(op, lhs, rhs) => {
-                op.hash(state);
-                lhs.pool_index().hash(state);
-                rhs.pool_index().hash(state);
-            }
-            Call(name, exprs) => {
-                name.hash(state);
-                for e in exprs { e.pool_index().hash(state); }
-            }
-        }
-    }
-}
-
-impl PartialEq for InstrKind {
-    fn eq(&self, other: &Self) -> bool {
+impl Ord for InstrKind {
+    fn cmp(&self, other: &Self) -> Ordering {
         use InstrKind::*;
         match (self, other) {
-            (Number(a), Number(b))      => { a.to_bits() == b.to_bits() }
-            (Bool(a), Bool(b))          => { a == b }
-            (Binary(op1, lhs1, rhs1), Binary(op2, lhs2, rhs2)) => {
-                op1 == op2 &&
-                lhs1.pool_index() == lhs2.pool_index() &&
-                rhs1.pool_index() == rhs2.pool_index()
-            }
-            // We don't do CSE on calls (until we can work out if functions are pure)
-            _ => false
+            (Number(a), Number(b))      => a.to_bits().cmp(&b.to_bits()),
+            (Bool(a), Bool(b))          => a.cmp(b),
+            (Binary(op1, lhs1, rhs1), Binary(op2, lhs2, rhs2)) =>
+                (op1, lhs1.pool_index(), rhs1.pool_index())
+                    .cmp(&(op2, lhs2.pool_index(), rhs2.pool_index())),
+            // A call's id is unique, so we never CSE them (until we can work out if functions are pure)
+            (Call(.., id1), Call(.., id2)) => id1.cmp(id2),
+            _                           => self.rank().cmp(&other.rank()),
         }
     }
+}
+impl PartialOrd for InstrKind {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
+}
+impl PartialEq for InstrKind {
+    fn eq(&self, other: &Self) -> bool { self.cmp(other) == Ordering::Equal }
 }
 impl Eq for InstrKind {}
 
@@ -56,10 +44,21 @@ impl InstrKind {
     fn is_constant(&self) -> bool {
         matches!(self, Self::Number(..) | Self::Bool(..))
     }
+
+    fn rank(&self) -> u8 {
+        match self {
+            Self::Number(..)    => 0,
+            Self::Bool(..)      => 1,
+            Self::Binary(..)    => 2,
+            Self::Call(..)      => 3,
+        }
+    }
 }
 
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+//-------------------------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq)]
 pub enum ExprKind {
     Arg(usize),
     Instr(InstrKind),

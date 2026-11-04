@@ -5,7 +5,7 @@ use crate::lex::Token;
 
 //-------------------------------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
 pub enum BinaryOperator {
     // Math operators
     Add,

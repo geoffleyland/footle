@@ -1,4 +1,4 @@
-use std::collections::{HashMap, hash_map::Entry};
+use std::collections::{BTreeMap, btree_map::Entry};
 use std::rc::Rc;
 
 use typed_index_collections::TiVec;
@@ -15,7 +15,7 @@ pub struct PoolIndex(usize);
 
 #[derive(Debug, Default)]
 pub struct ExprPool {
-    exprs:                      HashMap<ExprKind, Expr>,
+    exprs:                      BTreeMap<ExprKind, Expr>,
     ordered:                    TiVec<PoolIndex, Expr>,
 }
 

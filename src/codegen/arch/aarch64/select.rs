@@ -44,7 +44,7 @@ impl Builder {
                     self.emit_instr(ty, machine_instr, operands!(self, lhs, rhs), span)
                 }
             }
-            vir::InstrKind::Call(name, exprs) => self.lower_call(name, ty, exprs, types, span)
+            vir::InstrKind::Call(name, exprs, _) => self.lower_call(name, ty, exprs, types, span)
         }
     }
 

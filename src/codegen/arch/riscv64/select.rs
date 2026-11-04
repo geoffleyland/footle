@@ -41,7 +41,7 @@ impl Builder {
                     _                           => todo!("More machine ops")
                 }
             }
-            vir::InstrKind::Call(name, exprs) => self.lower_call(name, ty, exprs, types, span)
+            vir::InstrKind::Call(name, exprs, _) => self.lower_call(name, ty, exprs, types, span)
         }
     }
 

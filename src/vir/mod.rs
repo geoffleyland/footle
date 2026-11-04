@@ -12,3 +12,5 @@ pub use expr_pool::PoolIndex;
 pub use stmt::{Stmt, StmtKind};
 pub use pass::{Block, run};
 pub use typer::{TypeInfo, Types, check_types, infer_types};
+
+use expr::CallId;
