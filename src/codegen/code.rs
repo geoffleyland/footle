@@ -62,14 +62,14 @@ impl Code {
         debug_assert_eq!(self.operand_classes.len(), operands.len());
         if self.operand_classes.is_empty() { return self.mnemonic.to_string() }
 
-        let bits: Vec<_> = self.operand_classes.iter().zip(operands)
+        let values: Vec<_> = self.operand_classes.iter().zip(operands)
             .map(|(class, op)| class.ty.value(*op))
             .collect();
-        let operand_strings: Vec<_> = self.operand_classes.iter().zip(&bits)
-            .map(|(class, b)| (class.format_assembly)(*b, address))
+        let operand_strings: Vec<_> = self.operand_classes.iter().zip(&values)
+            .map(|(class, v)| (class.format_assembly)(*v, address))
             .collect();
 
-        crate::codegen::isa::format_assembly(self.mnemonic, self.addressing_mode, &operand_strings, &bits)
+        crate::codegen::isa::format_assembly(self.mnemonic, self.addressing_mode, &operand_strings, &values)
     }
 }
 
