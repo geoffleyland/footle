@@ -113,7 +113,8 @@ impl Block {
         }
         let signature: Vec<vir::TypeInfo> = args.iter().map(Into::into).collect();
         if let Some((_, func)) = self.funcs.iter().find(|(sig, _)| *sig == signature) {
-            return func.call(args);
+            // SAFETY: we checked the arg count above, and found a `func` that matches the args.
+            return Ok(unsafe { func.call(args) });
         }
 
         // Observers only get called when we actually have to compile something, not every
@@ -123,9 +124,10 @@ impl Block {
             .map_err(|errors| Diagnostics { errors, source: self.source.clone() })?;
         let func = codegen::run(&self.vir, &types, observer);
         if !observer.safe_to_run() { bail!("not run: disassembly doesn't match intended assembly") }
-        let results = func.call(args);
+        // SAFETY: we checked the arg count above, compiled to match the args.
+        let results = unsafe { func.call(args) };
         self.funcs.push((signature, func));
-        results
+        Ok(results)
     }
 }
 

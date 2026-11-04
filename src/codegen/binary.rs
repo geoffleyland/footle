@@ -1,9 +1,6 @@
 use std::mem;
 
-use anyhow::{bail, Result};
-use typed_index_collections::TiVec;
-
-use super::{assembler, sys, Constant, ConstantIndex, Pool, Signature, Type, Layout, Resolved};
+use super::{assembler, sys, Pool, Signature, Type, Layout, Resolved};
 use crate::runtime::Value;
 
 
@@ -13,7 +10,7 @@ pub struct CompiledFn {
     ptr:                            *mut u32,
     pub(super) layout:              Layout,
     signature:                      Signature,
-    func:                           fn(*const u64, *mut u64),
+    func:                           unsafe extern "C" fn(*const u64, *mut u64),
 }
 
 
@@ -23,37 +20,37 @@ impl CompiledFn {
         layout:                     Layout,
         signature:                  Signature,
     ) -> Self {
-        let func = unsafe { mem::transmute::<*mut u32, fn(*const u64, *mut u64)>(ptr.add(layout.glue_start_words)) };
-
+        let func = unsafe {
+            mem::transmute::<*mut u32, unsafe extern "C" fn(*const u64, *mut u64)>(
+                ptr.add(layout.glue_start_words)) };
         Self { ptr, layout, signature, func }
     }
 
-    pub fn call(&self, input: &[Value]) -> Result<Vec<Value>> {
-        if self.signature.args.len() != input.len() {
-            bail!("wrong number of arguments: expected {}, got {}",
-                self.signature.args.len(), input.len());
-        }
-        let mut lowered_input = vec![];
-        for (index, (e, i)) in self.signature.args.iter().map(|a| a.ty).zip(input).enumerate() {
-            let bits = match (e, i) {
-                (Type::F64, Value::F64(v))  => { v.to_bits() },
-                (Type::I64, Value::Bool(v)) => { (*v).into() },
-                _ => {
-                    bail!("wrong type for argument #{}.  Expected `{e}`, got `{i}`", index+1);
-                }
-            };
-            lowered_input.push(bits);
-        }
+    /// # Safety
+    ///
+    /// `input` must match `self.signature.args` in length and types: the compiled code reads its
+    /// arguments through a raw pointer.  Our only caller (`runtime::Block::call`) has to get it
+    /// right because it dispatches off the arguments.
+    pub unsafe fn call(&self, input: &[Value]) -> Vec<Value> {
+        debug_assert_eq!(self.signature.args.len(), input.len(), "wrong number of arguments");
+        debug_assert!(self.signature.args.iter().map(|a| a.ty).zip(input)
+            .all(|p| matches!(p, (Type::F64, Value::F64(..)) | (Type::I64, Value::Bool(..)))),
+            "wrong type for argument");
+
+        let lowered_input: Vec<_> = input.iter().map(|i| match i {
+            Value::F64(v)           => { v.to_bits() },
+            Value::Bool(v)          => { (*v).into() },
+        }).collect();
 
         let mut output = vec![0u64; self.signature.return_types.len()];
-        (self.func)(lowered_input.as_ptr(), output.as_mut_ptr());
-        let result = output.iter().zip(&self.signature.return_types).map(|(&bits, &ty)| match ty {
+        unsafe { (self.func)(lowered_input.as_ptr(), output.as_mut_ptr()) };
+        output.iter().zip(&self.signature.return_types).map(|(&bits, &ty)| match ty {
             Type::F64           => Value::F64(f64::from_bits(bits)),
+            // FIXME: at the moment our only I64 is a bool, but it won't always be that way.
             Type::I64           => Value::Bool(bits != 0),
             // FIXME: a pointer type shouldn't even get to here.
             Type::Pointer       => unreachable!("internal compiler error: not a return type"),
-        }).collect();
-        Ok(result)
+        }).collect()
     }
 
     #[cfg(feature = "dogfood")]
@@ -81,8 +78,8 @@ pub fn emit(
     sys::start_jit_compile();
 
     encode_instrs(&block.instrs, words);
-    encode_constants(&pool.constants, words, block.layout.constant_start_words);
-    encode_functions(&pool.functions, words, block.layout.function_start_words);
+    encode_u64s(pool.constants.iter().map(|c| c.value.to_bits()), words, block.layout.constant_start_words);
+    encode_u64s(pool.functions.iter().map(|f| sys::resolve_symbol(f)), words, block.layout.function_start_words);
 
     sys::finish_jit_compile(ptr, block.layout.total_bytes);
 
@@ -99,26 +96,11 @@ fn encode_instrs(
 }
 
 
-fn encode_constants(constants: &TiVec<ConstantIndex, Constant>, words: &mut [u32], constant_start_words: usize) {
-    let mut index = constant_start_words;
-    for c in constants {
-        let bits = c.value.to_bits();
-        let (lo, hi) = u64_words(bits);
-        words[index] = lo;
-        words[index+1] = hi;
-        index += 2;
-    }
-}
-
-
-fn encode_functions(functions: &[String], words: &mut [u32], function_start_words: usize) {
-    let mut index = function_start_words;
-    for f in functions {
-        let ptr = sys::resolve_symbol(f);
-        let (lo, hi) = u64_words(ptr);
-        words[index] = lo;
-        words[index+1] = hi;
-        index += 2;
+fn encode_u64s(values: impl Iterator<Item = u64>, words: &mut [u32], start_words: usize) {
+    for (index, value) in values.enumerate() {
+        let (lo, hi) = u64_words(value);
+        words[start_words + 2 * index] = lo;
+        words[start_words + 2 * index + 1] = hi;
     }
 }
 
