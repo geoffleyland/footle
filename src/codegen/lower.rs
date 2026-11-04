@@ -1,6 +1,4 @@
-use std::collections::HashMap;
-
-use typed_index_collections::TiVec;
+use typed_index_collections::{ti_vec, TiVec};
 
 use crate::core::Span;
 use crate::vir::{self, PoolIndex};
@@ -25,12 +23,15 @@ pub(super) fn run(
     input:                                  &vir::Block,
     types:                                  &vir::Types,
 ) -> (Vec<Instr>, usize, Signature, Pool) {
-    let mut builder = Builder::default();
+    let mut builder = Builder{
+        value_map:                          ti_vec![None; input.exprs.len()],
+        ..Default::default()
+    };
     builder.lower_args(input, types);
     for instr in &input.instrs {
         // Call arch-specific instruction selection.
         let value = builder.select_instr(instr, types);
-        builder.value_map.insert(instr.pool_index, value);
+        builder.value_map.insert(instr.pool_index, Some(value));
     }
     builder.lower_return(input, types);
 
@@ -76,13 +77,13 @@ pub struct Builder {
     slot_count:                             usize,
     pub(super) return_types:                Vec<Type>,
     pub(super) constants:                   TiVec<ConstantIndex, Constant>,
-    value_map:                              HashMap<PoolIndex, Value>,
+    value_map:                              TiVec<PoolIndex, Option<Value>>,
     pub(super) functions:                   Vec<(String, Value)>,
 }
 
 impl Builder {
     fn value(&self, index: PoolIndex) -> Value {
-        *self.value_map.get(&index).expect("internal compiler error: value used before it was lowered")
+        self.value_map[index].expect("internal compiler error: value used before it was lowered")
     }
 
     fn new_slot(&mut self) -> ValueSlot {
@@ -96,7 +97,7 @@ impl Builder {
             let ty = Type::from(types[vir_arg.pool_index]);
             let slot = self.new_slot();
             self.args.push(Arg{ slot, ty, span: vir_arg.definition_span });
-            self.value_map.insert(vir_arg.pool_index, Value::Arg(slot, ty));
+            self.value_map.insert(vir_arg.pool_index, Some(Value::Arg(slot, ty)));
         }
     }
 
