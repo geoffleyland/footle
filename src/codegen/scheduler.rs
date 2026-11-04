@@ -42,7 +42,7 @@ pub(super) fn run(
     // find that the depths of our users that we need are already calculated.
     let depths: TiVec<ValueSlot, _> = instrs.iter().rev()
         .fold(vec![0usize; slot_count].into(), |mut d, instr| {
-            d[instr.slot] = usize::from(instr.latency()) +
+            d[instr.slot] = usize::from(instr.code.latency) +
                 users[instr.slot].iter().map(|user| d[user.slot]).max().unwrap_or(0);
             d
         });
@@ -88,7 +88,7 @@ pub(super) fn run(
                 .expect("internal compiler error: no free unit");
 
             // Mark that the results of this instruction will be ready in the appropriate cycle.
-            let ready_cycle = cycle + usize::from(best_instr.latency());
+            let ready_cycle = cycle + usize::from(best_instr.code.latency);
             if results_by_cycle.len() <= ready_cycle {
                 results_by_cycle.resize_with(ready_cycle+1, Vec::new);
             }

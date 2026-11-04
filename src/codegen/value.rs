@@ -95,20 +95,6 @@ pub(super) struct Instr {
 }
 
 impl Instr {
-    pub(super) fn new(
-        slot:                               ValueSlot,
-        ty:                                 Option<Type>,
-        code:                               &'static Code,
-        operands:                           Vec<Operand>,
-        abi_args:                           Vec<(Value, MachineReg)>,
-        abi_output:                         Option<MachineReg>,
-        span:                               Span
-    ) -> Self {
-        Self { slot, ty, code, operands, abi_args, abi_output, span }
-    }
-
-    pub(super) fn latency(&self) -> u8                 { self.code.latency() }
-
     fn predecessors(&self) -> impl Iterator<Item = Value> {
         self.operands.iter().filter_map(Operand::value)
             .chain(self.abi_args.iter().map(|(v, _)| *v))

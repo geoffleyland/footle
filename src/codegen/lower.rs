@@ -121,7 +121,7 @@ impl Builder {
         span:                                   Span,
     ) -> Value {
         let slot = self.new_slot();
-        self.instrs.push(Instr::new(slot, Some(ty), code, operands, abi_args, abi_output, span));
+        self.instrs.push(Instr{ slot, ty: Some(ty), code, operands, abi_args, abi_output, span });
         Value::Instr(slot, ty)
     }
 
@@ -130,7 +130,8 @@ impl Builder {
             input.return_values.iter().map(|e| e.pool_index()), types);
         self.return_types = return_values.iter().map(|(v, _)| v.ty()).collect();
         let slot = self.new_slot();
-        self.instrs.push(Instr::new(slot, None, Self::RETURN, vec![], return_values, None, input.return_span));
+        self.instrs.push(Instr{ slot, ty: None, code: Self::RETURN, operands: vec![],
+            abi_args: return_values, abi_output: None, span: input.return_span });
     }
 
     pub(super) fn exprs_to_abi_regs(

@@ -49,7 +49,6 @@ impl Code {
         if self.is_call() { REGS.clobbered_ranks } else { RankSet::EMPTY }
     }
 
-    pub(super) fn latency(&self) -> u8              { self.latency }
     pub(super) fn try_pick_unit(&self, free_units: EnumSet<Unit>) -> Option<Unit> {
         (self.units & free_units).iter().next()
     }
