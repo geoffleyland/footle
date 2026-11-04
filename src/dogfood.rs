@@ -29,9 +29,8 @@ impl Printer {
         Self{tab, width, highlight, style: None}
     }
 
-    fn file_name(&self) -> &str { self.style.as_ref().unwrap().file_name() }
-    fn source(&self) -> &str { self.style.as_ref().unwrap().source() }
     fn style(&self) -> &core::SourceStyle { self.style.as_ref().unwrap() }
+    fn file_name(&self) -> &str { self.style().file_name() }
 }
 
 
@@ -40,7 +39,7 @@ impl runtime::Observer for Printer {
         self.style = Some(core::SourceStyle::new(self.tab, self.width, self.highlight, map));
 
         eprintln!("\nContents of '{}':", self.file_name());
-        eprintln!("  {}", self.source().lines().collect::<Vec<_>>().join("\n  "));
+        eprintln!("  {}", self.style().source().lines().collect::<Vec<_>>().join("\n  "));
     }
     fn stmts(&mut self, stmts: &[ast::Stmt]) {
         eprintln!("\nStatements from '{}':", self.file_name());
