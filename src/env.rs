@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use crate::vir::TypeInfo;
 use crate::vir::TypeInfo::F64;
@@ -14,13 +14,13 @@ impl Env {
 
 
 pub struct Module {
-    pub functions:      HashMap<String, FunctionDef>,
+    pub functions:      BTreeMap<String, FunctionDef>,
 }
 
 impl Module {
     fn new() -> Self {
         Self {
-            functions: HashMap::from(
+            functions: BTreeMap::from(
                 FUNCTIONS.map(|(n, a, r, f)| (n.to_string(),
                     FunctionDef{ arg_types: a.to_vec(), result_types: r.to_vec(), const_fold: f}))
             ),
