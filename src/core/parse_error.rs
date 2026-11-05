@@ -18,10 +18,9 @@ impl From<Span> for ErrorPart           { fn from(item: Span) -> Self           
 impl fmt::Display for ErrorPart {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::Message(msg)          => { write!(f, "{msg}")?; }
-            Self::Span(span)            => { write!(f, "{span}")?; }
+            Self::Message(msg)          => write!(f, "{msg}"),
+            Self::Span(span)            => write!(f, "{span}"),
         }
-        Ok(())
     }
 }
 
