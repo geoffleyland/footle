@@ -14,7 +14,7 @@ pub enum InstrKind {
     Number(f64),
     Bool(bool),
     Binary(BinaryOperator, ExprUse, ExprUse),
-    Call(String, Vec<ExprUse>, CallId),
+    Call(String, Vec<ExprUse>, Option<CallId>),
 }
 
 impl Ord for InstrKind {
@@ -26,8 +26,13 @@ impl Ord for InstrKind {
             (Binary(op1, lhs1, rhs1), Binary(op2, lhs2, rhs2)) =>
                 (op1, lhs1.pool_index(), rhs1.pool_index())
                     .cmp(&(op2, lhs2.pool_index(), rhs2.pool_index())),
-            // A call's id is unique, so we never CSE them (until we can work out if functions are pure)
-            (Call(.., id1), Call(.., id2)) => id1.cmp(id2),
+            // If the name and arguments are the same, and there's no id (the function is pure),
+            // then they're the same.  Otherwise not.
+            (Call(name1, exprs1, id1), Call(name2, exprs2, id2)) =>
+                name1.cmp(name2)
+                    .then_with(|| exprs1.iter().map(ExprUse::pool_index)
+                        .cmp(exprs2.iter().map(ExprUse::pool_index)))
+                    .then_with(|| id1.cmp(id2)),
             _                           => self.rank().cmp(&other.rank()),
         }
     }

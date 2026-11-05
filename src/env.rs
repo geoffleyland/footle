@@ -36,6 +36,12 @@ pub struct FunctionDef {
     pub const_fold:         Option<ConstFnFolder>,
 }
 
+impl FunctionDef {
+    // FIXME: any functions we can fold are pure... for now.
+    pub fn is_pure(&self) -> bool { self.const_fold.is_some() }
+}
+
+
 #[allow(clippy::type_complexity)]
 const FUNCTIONS: [(&str, &[TypeInfo], &[TypeInfo], Option<ConstFnFolder>); 1] = [
     ("sin", &[F64], &[F64], Some(|args| args[0].sin()))

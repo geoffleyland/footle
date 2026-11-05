@@ -261,7 +261,7 @@ fn fold_call(name: &str, def: &FunctionDef, exprs: Vec<vir::ExprUse>, id: CallId
         let Some(args) = all_constants(&exprs) {
         InstrKind::Number((fold)(&args)).into()
     } else {
-        InstrKind::Call(name.to_string(), exprs, id).into()
+        InstrKind::Call(name.to_string(), exprs, (!def.is_pure()).then_some(id)).into()
     }
 }
 
