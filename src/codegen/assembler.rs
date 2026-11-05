@@ -1,11 +1,9 @@
 use typed_index_collections::TiVec;
 
+use crate::core::Span;
 use super::{abi, allocator,
     Code, Pool, Signature, ValueSlot, IntReg, FloatReg, MachineReg, RegSet, RegBank,
     ConstantIndex, FunctionIndex, RelativeTo, REGS};
-
-#[cfg(feature = "dogfood")]
-use crate::core::Span;
 
 
 //-------------------------------------------------------------------------------------------------
@@ -23,7 +21,6 @@ macro_rules! assemble_expr {
         $instrs.push(Instr {
             code:                   $op,
             operands:               vec![$($($operand.into()),*)?],
-            #[cfg(feature = "dogfood")]
             span:                   None,
         })
     }
@@ -44,19 +41,18 @@ pub(super) use assemble_instr;
 pub(super) struct Instr<OP> {
     pub(super) code:                &'static Code,
     pub(super) operands:            Vec<OP>,
-    #[cfg(feature = "dogfood")]
     pub(super) span:                Option<Span>,
 }
 
 
 #[derive(Debug, Copy, Clone)]
 pub(super) struct Layout {
+    #[cfg_attr(not(feature = "dogfood"), expect(dead_code, reason = "only the disassembler reads instr_words"))]
+    pub(super) instr_words:         usize,
     pub(super) glue_start_words:    usize,
     pub(super) constant_start_words:usize,
     pub(super) function_start_words:usize,
     pub(super) total_bytes:         usize,
-    #[cfg(feature = "dogfood")]
-    pub(super) instr_words:         usize,
 }
 impl Layout {
     fn new(glue_start_words: usize, instr_words: usize, constant_count:usize, function_count:usize) -> Self {
@@ -64,10 +60,8 @@ impl Layout {
         let function_start_words = constant_start_words + constant_count * 2;
 
         Self {
-            glue_start_words, constant_start_words, function_start_words,
+            instr_words, glue_start_words, constant_start_words, function_start_words,
             total_bytes:            function_start_words * 4 + function_count * 8,
-            #[cfg(feature = "dogfood")]
-            instr_words,
         }
     }
     fn constant_words(&self, index: ConstantIndex) -> usize { self.constant_start_words + 2 * usize::from(index) }
@@ -134,10 +128,7 @@ fn emit_function(
             .collect();
 
         value_words[instr.value_slot] = Some(instrs.len());
-        instrs.push(Instr{ code: instr.code, operands,
-        #[cfg(feature = "dogfood")]
-            span: Some(instr.span)
-        });
+        instrs.push(Instr{ code: instr.code, operands, span: Some(instr.span) });
     }
     value_words
 }
@@ -189,12 +180,10 @@ fn resolve(
                     Function(i, r)          => offset(layout.function_words(i), r),
                 }
             }).collect();
-            Instr{ operands, code: instr.code,
-                #[cfg(feature = "dogfood")]
-                span: instr.span,
-            }
+            Instr{ operands, code: instr.code, span: instr.span }
         }).collect()
 }
+
 
 //-------------------------------------------------------------------------------------------------
 // Text output for assembler
@@ -223,7 +212,7 @@ mod display {
             Ok(())
         }
     }
-
 }
+
 
 //-------------------------------------------------------------------------------------------------

@@ -4,10 +4,8 @@ use bit_set::BitSet;
 use typed_index_collections::TiVec;
 use derive_more::{From, Into};
 
-use super::{value, scheduler, Signature, Code, ValueSlot, Type, MachineReg, RegFile, RegSet, RankSet, SchedulePosition, REGS};
-
-#[cfg(feature = "dogfood")]
 use crate::core::Span;
+use super::{value, scheduler, Signature, Code, ValueSlot, Type, MachineReg, RegFile, RegSet, RankSet, SchedulePosition, REGS};
 
 
 //-------------------------------------------------------------------------------------------------
@@ -49,7 +47,6 @@ struct SlotInstr {
     abi_output:                         Option<MachineReg>,
     slot_moves:                         Vec<(AllocatorSlot, AllocatorSlot)>,
     value_slot:                         ValueSlot,
-    #[cfg(feature = "dogfood")]
     span:                               Span,
 }
 
@@ -144,8 +141,6 @@ fn lower_to_slots_and_split(
             slot:                           new_slot,
             abi_output:                     instr.abi_output,
             value_slot:                     instr.slot,
-
-            #[cfg(feature = "dogfood")]
             span:                           instr.span,
         });
         slot_map[instr.slot] = Some(new_slot);
@@ -278,8 +273,6 @@ pub(super) struct Instr {
     pub(super) operands:                Vec<Operand>,
     pub(super) moves:                   Vec<(MachineReg, MachineReg)>,
     pub(super) value_slot:              ValueSlot,
-
-    #[cfg(feature = "dogfood")]
     pub(super) span:                    Span,
 }
 
@@ -335,7 +328,6 @@ fn lower_to_regs(
             code:                       instr.code,
             result_reg:                 regs[instr.slot],
             value_slot:                 instr.value_slot,
-            #[cfg(feature = "dogfood")]
             span:                       instr.span,
         });
     }

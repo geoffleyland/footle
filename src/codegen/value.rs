@@ -90,7 +90,6 @@ pub(super) struct Instr {
     pub(super) operands:                    Vec<Operand>,
     pub(super) abi_args:                    Vec<(Value, MachineReg)>,
     pub(super) abi_output:                  Option<MachineReg>,
-    #[cfg_attr(not(feature = "dogfood"), expect(dead_code, reason = "only dogfood displays spans"))]
     pub(super) span:                        Span,
 }
 
