@@ -19,13 +19,15 @@ pub(super) enum RelativeTo {
 
 #[derive(Debug, Copy, Clone, From, Into, Display)]
 pub(super) struct ConstantIndex(usize);
+#[derive(Debug, Copy, Clone, From, Into, Display)]
+pub(super) struct FunctionIndex(usize);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub(super) enum Operand<REG> {
     Reg(REG),
     ImmU16(u16),
     PooledF64(ConstantIndex, RelativeTo),
-    Function(String, RelativeTo),
+    Function(FunctionIndex, RelativeTo),
 }
 
 impl<REG> Operand<REG> {
@@ -40,8 +42,8 @@ impl<REG> Operand<REG> {
     pub(super) fn constant(index: ConstantIndex, relative_to: RelativeTo) -> Self {
         Self::PooledF64(index, relative_to)
     }
-    pub(super) fn function(name: &str, relative_to: RelativeTo) -> Self {
-        Self::Function(name.into(), relative_to)
+    pub(super) fn function(index: FunctionIndex, relative_to: RelativeTo) -> Self {
+        Self::Function(index, relative_to)
     }
 }
 
@@ -59,7 +61,7 @@ pub mod display {
             match self {
                 Self::PooledF64(i, ..)          => write!(f, "K{i}"),
                 Self::ImmU16(v)                 => write!(f, "#{v}"),
-                Self::Function(s, ..)           => write!(f, "{s}"),
+                Self::Function(i, ..)           => write!(f, "F{i}"),
                 Self::Reg(r)                    => r.fmt_operand(f),
             }
         }

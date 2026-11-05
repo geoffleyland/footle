@@ -1,5 +1,5 @@
 use crate::{vir, core::{Span, BinaryOperator}};
-use crate::codegen::{isa, Code, RelativeTo, Constant, Value, Type,
+use crate::codegen::{isa, Code, RelativeTo, Constant, FunctionIndex, Value, Type,
     lower::{Builder, operands}, value::Operand};
 
 
@@ -48,9 +48,9 @@ impl Builder {
         }
     }
 
-    pub(in crate::codegen) fn load_function_address(&mut self, name: &str, span: Span) -> Value {
+    pub(in crate::codegen) fn load_function_address(&mut self, index: FunctionIndex, span: Span) -> Value {
         self.emit_instr(Type::Pointer,
-            &isa::ldr_x_literal, vec![Operand::function(name, RelativeTo::ThisInstr)],
+            &isa::ldr_x_literal, vec![Operand::function(index, RelativeTo::ThisInstr)],
             span)
     }
 }

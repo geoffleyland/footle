@@ -1,8 +1,8 @@
 use typed_index_collections::TiVec;
 
 use super::{abi, allocator,
-    Code, ConstantIndex, Pool, Signature, ValueSlot, IntReg, FloatReg, MachineReg, RegSet, RegBank, RelativeTo,
-    REGS};
+    Code, ConstantIndex, FunctionIndex, Pool, Signature, ValueSlot, IntReg, FloatReg, MachineReg,
+    RegSet, RegBank, RelativeTo, REGS};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -15,7 +15,7 @@ pub(super) enum Operand {
     ImmU16(u16),
     Offset(i32),
     PooledF64(ConstantIndex, RelativeTo),
-    Function(usize, RelativeTo),
+    Function(FunctionIndex, RelativeTo),
 }
 
 impl From<i32> for Operand {
@@ -112,7 +112,7 @@ pub(super) fn run(
     pool:                           &Pool,
 ) -> Block{
     let mut draft_instrs = Vec::new();
-    let value_words = emit_function(allocated, slot_count, &mut draft_instrs, &pool.functions);
+    let value_words = emit_function(allocated, slot_count, &mut draft_instrs);
     let glue_start_words = draft_instrs.len();
     abi::emit_glue(signature, &mut draft_instrs);
 
@@ -128,7 +128,6 @@ fn emit_function(
     allocated:                      allocator::Block,
     slot_count:                     usize,
     instrs:                         &mut Vec<Instr<Operand>>,
-    functions:                      &[String],
 ) -> TiVec<ValueSlot, Option<usize>> {
     let mut value_words: TiVec<_, _> = vec![None; slot_count].into();
 
@@ -149,11 +148,7 @@ fn emit_function(
                 allocator::Operand::Reg(r)              => (*r).into(),
                 allocator::Operand::PooledF64(i, r)     => Operand::PooledF64(*i, *r),
                 allocator::Operand::ImmU16(v)           => Operand::ImmU16(*v),
-                allocator::Operand::Function(name, r)   => {
-                    let index = functions.iter().position(|s| s == name)
-                        .expect("internal compiler error: unknown function name");
-                    Operand::Function(index, *r)
-                }
+                allocator::Operand::Function(index, r)  => Operand::Function(*index, *r),
             }))
         .collect();
 
@@ -214,7 +209,7 @@ fn resolve(
                                                     i.into(), word_index, r)),
                     Function(i, r)          => Resolved::Imm(compute_offset(
                                                     value_words, layout.function_start_words,
-                                                    i, word_index, r)),
+                                                    i.into(), word_index, r)),
                     Offset(o)               => Resolved::Imm(o),
                 }
             }).collect();

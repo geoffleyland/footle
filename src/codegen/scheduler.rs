@@ -129,7 +129,7 @@ mod display {
     use std::fmt;
 
     use super::*;
-    use crate::codegen::{Pool, Signature};
+    use crate::codegen::{Pool, Signature, value};
     use crate::core::{Styleable, LineStyle};
 
     impl Styleable for (&Block<'_>, &Signature, &Pool) {
@@ -138,7 +138,10 @@ mod display {
                 writer.writeln(f, indent, Some(a.span), &format!("I{}: argument", a.slot))?;
             }
             for instr in &self.0.0 {
-                let operands = instr.operands.iter().map(|o| format!("{o}")).collect::<Vec<_>>();
+                let operands = instr.operands.iter().map(|o| match o {
+                    value::Operand::Function(i,..)  => self.2.functions[*i].clone(),
+                    _                               => format!("{o}")
+                }).collect::<Vec<_>>();
                 writer.writeln(f, indent, Some(instr.span), &format!("I{}: {}{}{}{}{}",
                     instr.slot,
                     instr.code.mnemonic(),

@@ -2,7 +2,8 @@ use typed_index_collections::{ti_vec, TiVec};
 
 use crate::core::Span;
 use crate::vir::{self, PoolIndex};
-use super::{Code, Instr, Arg, Value, ValueSlot, value::Operand, Type, Constant, ConstantIndex, MachineReg, REGS};
+use super::{Code, Instr, Arg, Value, ValueSlot, value::Operand, Type, Constant,
+    ConstantIndex, FunctionIndex, MachineReg, REGS};
 
 
 //-------------------------------------------------------------------------------------------------
@@ -16,7 +17,7 @@ pub struct Signature {
 /// The constant pool - floats and function pointers.
 pub struct Pool {
     pub(super) constants:                   TiVec<ConstantIndex, Constant>,
-    pub(super) functions:                   Vec<String>,
+    pub(super) functions:                   TiVec<FunctionIndex, String>,
 }
 
 pub(super) fn run(
@@ -76,9 +77,9 @@ pub struct Builder {
     instrs:                                 Vec<Instr>,
     slot_count:                             usize,
     pub(super) return_types:                Vec<Type>,
-    pub(super) constants:                   TiVec<ConstantIndex, Constant>,
     value_map:                              TiVec<PoolIndex, Option<Value>>,
-    pub(super) functions:                   Vec<(String, Value)>,
+    pub(super) constants:                   TiVec<ConstantIndex, Constant>,
+    pub(super) functions:                   TiVec<FunctionIndex, (String, Value)>,
 }
 
 impl Builder {
@@ -153,10 +154,10 @@ impl Builder {
     ) -> Value {
         let function_address =
             if let Some(&(_, a)) = self.functions.iter().find(|(n, _)| n == name) { a } else {
-            let a = self.load_function_address(name, span);
-            self.functions.push((name.into(), a));
-            a
-        };
+                let a = self.load_function_address(self.functions.next_key(), span);
+                self.functions.push((name.into(), a));
+                a
+            };
         let args = self.exprs_to_abi_regs(arg_exprs.iter().map(vir::ExprUse::pool_index), types);
         let output_reg = REGS.abi_result_reg(ty);
         self.emit_abi_instr(ty, Self::CALL_REG, operands!(self, function_address), args, Some(output_reg), span)

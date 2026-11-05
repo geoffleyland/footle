@@ -21,7 +21,7 @@ use arch::{isa, isa::REGS, isa::Unit, abi};
 use code::{operand_class, define_code, Code};
 use scheduler::SchedulePosition;
 use assembler::{Layout, Resolved};
-use operand::{ConstantIndex, RelativeTo};
+use operand::{ConstantIndex, FunctionIndex, RelativeTo};
 
 #[cfg(feature = "dogfood")]
 mod disassembler;

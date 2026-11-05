@@ -106,7 +106,7 @@ fn lower_to_slots_and_split(
     let mut new_schedule = vec![];
 
     for (i, instr) in scheduled.iter_enumerated() {
-        let operands = instr.operands.iter().cloned()
+        let operands = instr.operands.iter()
             .map(|o| o.map_reg::<AllocatorSlot>(|v| slot_map[v.slot()].unwrap())).collect();
 
         // Renumber the ABI arguments' slots.
@@ -293,7 +293,7 @@ fn lower_to_regs(
     let mut written_regs = RegSet::EMPTY;
 
     for instr in &block.instrs {
-        let operands: Vec<Operand> = instr.operands.iter().cloned().map(|o| o.map_reg(|s|
+        let operands: Vec<Operand> = instr.operands.iter().map(|o| o.map_reg(|s|
             regs[s].expect("internal compiler error: no register assigned for slot"))).collect();
 
         // Unify the ABI argument moves and slot_moves and transform them into an ordered list of
