@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::Write as fmtWrite,
     fs,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
@@ -7,6 +8,7 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
+use similar::{TextDiff, ChangeTag};
 
 use crate::{FOOTLE_FILE_EXTENSION, core, codegen, codegen::{assembler, scheduler, Signature, Pool}};
 use crate::core::{Styleable, join_format};
@@ -372,12 +374,66 @@ fn compare_lines(
     output: &str,
 ) -> Result<()> {
     if actual != expected {
+        let diff_text = format_diff(expected, actual);
         bail!(
-            "Mismatch between expected and obtained {output} from {input}.  Test output:\n\
+            "Mismatch between expected and obtained {output} from {input}:\n\n{diff_text}\nTest output:\n\
             #( expected {output}\n\n  {}\n\n#)",
             actual.join("\n  "))
     }
     Ok(())
+}
+
+
+/// Colour the differences between two lists of lines, with a little context.
+///
+/// Labels aren't part of the comparison, or inserting one instruction would mark every later line
+/// as changed.  If labels are all that differ, then they're compared after all.
+fn format_diff(old: &[String], new: &[String]) -> String {
+    let bodies = |lines: &[String]| lines.iter().map(|line| split_label(line).1.to_string()).collect::<Vec<_>>();
+    let split: fn(&str) -> (&str, &str) =
+        if bodies(old) == bodies(new) { |line| ("", line) } else { split_label };
+    let (old_labels, old_bodies): (Vec<_>, Vec<_>) = old.iter().map(|line| split(line)).unzip();
+    let (new_labels, new_bodies): (Vec<_>, Vec<_>) = new.iter().map(|line| split(line)).unzip();
+
+    let diff = TextDiff::from_slices(&old_bodies, &new_bodies);
+    let mut text = String::new();
+    for group in diff.grouped_ops(2) {
+        if !text.is_empty() { text +=  "\x1b[2m  ...\x1b[0m\n"; }
+        for op in group {
+            for change in diff.iter_inline_changes(&op) {
+                let (sign, colour) = match change.tag() {
+                    ChangeTag::Delete   => ('-', "31"),
+                    ChangeTag::Insert   => ('+', "32"),
+                    ChangeTag::Equal    => (' ', "2"),
+                };
+                let label = change.new_index().map(|i| new_labels[i])
+                    .or_else(|| change.old_index().map(|i| old_labels[i]))
+                    .unwrap_or_default();
+                let _ = write!(text, "\x1b[{colour}m{sign} {label}");
+                for (emphasized, part) in change.iter_strings_lossy() {
+                    let style = if emphasized { "0;7" } else { "0" };
+                    let _ = write!(text, "\x1b[{style};{colour}m{part}");
+                }
+                text += "\x1b[0m\n";
+            }
+        }
+    }
+    text
+}
+
+
+/// Split `0x1000: ldr x9, #0x1038` or `I3: ret I2` into its label (with the `: `) and the rest.
+fn split_label(line: &str) -> (&str, &str) {
+    match line.split_once(": ") {
+        Some((label, _)) if is_label(label) => line.split_at(label.len() + 2),
+        _                                   => ("", line),
+    }
+}
+
+
+fn is_label(text: &str) -> bool {
+    text.starts_with("0x") || text.strip_prefix(['I', 'K']).is_some_and(|number|
+        !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()))
 }
 
 
