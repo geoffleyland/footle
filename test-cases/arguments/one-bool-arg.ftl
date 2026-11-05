@@ -1,7 +1,14 @@
 argument a
 return a
 
-#( expected schedule
+#( expected schedule aarch64
+
+  I0: argument
+  I1: ret I0
+
+#)
+
+#( expected schedule riscv64
 
   I0: argument
   I1: ret I0

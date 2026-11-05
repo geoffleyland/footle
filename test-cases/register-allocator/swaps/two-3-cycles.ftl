@@ -1,7 +1,19 @@
 argument a, b, c, d, e, f
 return b, c, a, f, d, e
 
-#( expected schedule
+#( expected schedule aarch64
+
+  I0: argument
+  I1: argument
+  I2: argument
+  I3: argument
+  I4: argument
+  I5: argument
+  I6: ret I1 I2 I0 I5 I3 I4
+
+#)
+
+#( expected schedule riscv64
 
   I0: argument
   I1: argument

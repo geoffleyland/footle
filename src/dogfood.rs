@@ -256,15 +256,12 @@ fn run_test(path: &Path) -> Result<()> {
 
 const ARCHITECTURES: [&str; 2] = ["aarch64", "riscv64"];
 
-fn check_mode_for_arch(mode: String) -> Result<Option<String>> {
-    let this_arch = std::env::consts::ARCH;
+fn check_mode_for_arch(mode: String) -> Option<String> {
     let mut words = mode.split_whitespace();
     match (words.next(), words.next()) {
-        (Some("schedule"), None) => Ok(Some(format!("schedule {this_arch}"))),
-        (Some("assembly"), None) => bail!("expected assembly section is missing arch"),
         (Some("schedule" | "assembly"), Some(arch))
-            if arch != this_arch && ARCHITECTURES.contains(&arch) => Ok(None),
-        _ => Ok(Some(mode))
+            if arch != std::env::consts::ARCH && ARCHITECTURES.contains(&arch) => None,
+        _ => Some(mode)
     }
 }
 
@@ -282,7 +279,7 @@ fn read_test_file(path: &Path) -> Result<(HashMap<String, Vec<String>>, Vec<Stri
 
     for line in BufReader::new(file).lines().map_while(Result::ok) {
         if let Some(header) = line.strip_prefix("#( expected") {
-            mode = check_mode_for_arch(header.trim().to_lowercase())?;
+            mode = check_mode_for_arch(header.trim().to_lowercase());
             if let Some(m) = &mode {
                 if sections.contains(m) { bail!("Repeated expected section '{m}'"); }
                 sections.push(m.clone());
