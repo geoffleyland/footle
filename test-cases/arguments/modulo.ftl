@@ -90,5 +90,5 @@ return b % a
 #)
 
 #( expected results
-    3 7 -> 1
+  3 7 -> 1
 #)

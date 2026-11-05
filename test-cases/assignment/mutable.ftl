@@ -4,16 +4,16 @@ return a
 
 #( expected statements
 
-    mutable local a = 1
-    a = 2
-    return a
+  mutable local a = 1
+  a = 2
+  return a
 
 #)
 
 #( expected vir
 
-    local I0 = 2
-    return I0
+  local I0 = 2
+  return I0
 
 #)
 
@@ -69,6 +69,6 @@ return a
 
 #( expected results
 
-    -> 2
+  -> 2
 
 #)

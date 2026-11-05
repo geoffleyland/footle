@@ -116,5 +116,5 @@ return x, y, z
 #)
 
 #( expected results
-    -> 5 2 6
+  -> 5 2 6
 #)

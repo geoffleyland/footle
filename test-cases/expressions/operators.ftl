@@ -9,13 +9,13 @@ return c, d, e, f, g, h
 
 #( expected statements
 
-    local a, b = 1, 2
-    local c = (a + b)
-    local d = (b - a)
-    local e = (a * b)
-    local f = (a / b)
-    local g = (a ^ b)
-    local h = (a % b)
-    return c, d, e, f, g, h
+  local a, b = 1, 2
+  local c = (a + b)
+  local d = (b - a)
+  local e = (a * b)
+  local f = (a / b)
+  local g = (a ^ b)
+  local h = (a % b)
+  return c, d, e, f, g, h
 
 #)

@@ -289,7 +289,8 @@ fn read_test_file(path: &Path) -> Result<(HashMap<String, Vec<String>>, Vec<Stri
         } else if line.starts_with("#)") && mode.as_deref() != Some("source") {
             mode = Some("source".to_string());
         } else if let Some(m) = &mode && !line.is_empty() {
-            expected.entry(m.clone()).or_default().push(line);
+            let line = if m == "source" { &line } else { line.strip_prefix("  ").unwrap_or(&line) };
+            expected.entry(m.clone()).or_default().push(line.to_string());
         }
     }
     Ok((expected, sections))
@@ -335,7 +336,9 @@ fn test_lines(
                 }
             };
 
-            obtained_lines.push(format!("{} -> {outcome}", join_format(&args, " ")));
+            let line = format!("{} -> {outcome}", join_format(&args, " "));
+            // Trim the start of the line - If there are no arguments, start at the "->"
+            obtained_lines.push(line.trim_start().to_string());
         }
         if let Err(e) = compare_lines(&obtained_lines, &eater.expected["results"], section, "results") {
             eprintln!("\n{e:#}");
@@ -368,8 +371,7 @@ fn compare_lines(
     input: &str,
     output: &str,
 ) -> Result<()> {
-    if actual.len() != expected.len()
-        || actual.iter().zip(expected).any(|(a, e)| a.trim() != e.trim()) {
+    if actual != expected {
         bail!(
             "Mismatch between expected and obtained {output} from {input}.  Test output:\n\
             #( expected {output}\n\n  {}\n\n#)",

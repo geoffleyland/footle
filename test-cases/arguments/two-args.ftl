@@ -3,16 +3,16 @@ return a, b
 
 #( expected statements
 
-    argument a, b
-    return a, b
+  argument a, b
+  return a, b
 
 #)
 
 #( expected vir
 
-    argument I0
-    argument I1
-    return I0, I1
+  argument I0
+  argument I1
+  return I0, I1
 
 #)
 

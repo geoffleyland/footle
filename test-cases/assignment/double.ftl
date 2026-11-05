@@ -3,15 +3,15 @@ return a + b
 
 #( expected statements
 
-    local a, b = 1, 2
-    return (a + b)
+  local a, b = 1, 2
+  return (a + b)
 
 #)
 
 #( expected vir
 
-    local I0 = 3
-    return I0
+  local I0 = 3
+  return I0
 
 #)
 
@@ -67,6 +67,6 @@ return a + b
 
 #( expected results
 
-    -> 3
+  -> 3
 
 #)

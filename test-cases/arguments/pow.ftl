@@ -90,5 +90,5 @@ return b ^ a
 #)
 
 #( expected results
-    2 6 -> 36
+  2 6 -> 36
 #)

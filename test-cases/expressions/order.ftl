@@ -6,11 +6,11 @@ return d, e, f
 
 #( expected statements
 
-    local a, b, c = 1, 2, 3
-    local d = (a + (b * c))
-    local e = ((a * b) + c)
-    local f = ((a + b) * c)
-    return d, e, f
+  local a, b, c = 1, 2, 3
+  local d = (a + (b * c))
+  local e = ((a * b) + c)
+  local f = ((a + b) * c)
+  return d, e, f
 
 #)
 

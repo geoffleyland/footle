@@ -70,9 +70,9 @@ return a
 
 #( expected results
 
-   -> error: wrong number of arguments: expected 1, got 0
-   2 -> 2
-   true -> true
-   3 4 -> error: wrong number of arguments: expected 1, got 2
+  -> error: wrong number of arguments: expected 1, got 0
+  2 -> 2
+  true -> true
+  3 4 -> error: wrong number of arguments: expected 1, got 2
 
 #)

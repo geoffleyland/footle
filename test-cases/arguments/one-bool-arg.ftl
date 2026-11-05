@@ -40,7 +40,7 @@ return a
 
 #( expected results
 
-    true -> true
-    false -> false
+  true -> true
+  false -> false
 
 #)

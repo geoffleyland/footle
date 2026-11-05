@@ -58,5 +58,5 @@ return true
 #)
 
 #( expected results
-    -> true
+  -> true
 #)

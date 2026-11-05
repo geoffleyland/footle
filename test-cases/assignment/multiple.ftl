@@ -4,16 +4,16 @@ return a + b
 
 #( expected statements
 
-    local a = 1
-    local b = 2
-    return (a + b)
+  local a = 1
+  local b = 2
+  return (a + b)
 
 #)
 
 #( expected vir
 
-    local I0 = 3
-    return I0
+  local I0 = 3
+  return I0
 
 #)
 
@@ -69,6 +69,6 @@ return a + b
 
 #( expected results
 
-    -> 3
+  -> 3
 
 #)

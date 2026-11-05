@@ -1,6 +1,6 @@
 use std::{convert::From, fmt};
 
-use super::source::{SourceMap, Span};
+use super::{join_format, source::{SourceMap, Span}};
 
 //-------------------------------------------------------------------------------------------------
 
@@ -10,11 +10,20 @@ pub enum ErrorPart {
     Span(Span),
 }
 
-
 impl From<&str> for ErrorPart           { fn from(item: &str) -> Self           { Self::Message(item.to_string()) }}
 impl From<String> for ErrorPart         { fn from(item: String) -> Self         { Self::Message(item) }}
 impl From<(usize, usize)> for ErrorPart { fn from(item: (usize, usize)) -> Self { Self::Span(item.into()) }}
 impl From<Span> for ErrorPart           { fn from(item: Span) -> Self           { Self::Span(item) }}
+
+impl fmt::Display for ErrorPart {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Message(msg)          => { write!(f, "{msg}")?; }
+            Self::Span(span)            => { write!(f, "{span}")?; }
+        }
+        Ok(())
+    }
+}
 
 
 #[derive(Debug)]
@@ -29,26 +38,17 @@ macro_rules! parse_error {
     }};
 }
 
-
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for m_or_l in &self.parts {
-            match m_or_l {
-                ErrorPart::Message(msg) => { write!(f, "{msg} ")?; }
-                ErrorPart::Span(span)   => { write!(f, "{span} ")?; }
-            }
-        }
-        Ok(())
+        write!(f, "{}", join_format(&self.parts, " "))
     }
 }
-
 
 impl ParseError {
     pub fn show_in_source<'a>(&'a self, map: &'a SourceMap) -> ShowParseError<'a> {
         ShowParseError::new(self, map)
     }
 }
-
 
 #[cfg(test)]
 impl ParseError {

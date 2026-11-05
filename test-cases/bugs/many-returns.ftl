@@ -142,5 +142,5 @@ return 1, 2, 3, 4, 5, 6, 7, 8, b
 #)
 
 #( expected results
-    true -> 1 2 3 4 5 6 7 8 true
+  true -> 1 2 3 4 5 6 7 8 true
 #)

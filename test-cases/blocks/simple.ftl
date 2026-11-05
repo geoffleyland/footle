@@ -5,9 +5,9 @@ end
 
 #( expected statements
 
-    begin
-      local a = 1
-      return a
-    end
+  begin
+    local a = 1
+    return a
+  end
 
 #)
