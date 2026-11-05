@@ -6,7 +6,7 @@ use crate::codegen::isa::{sp, x0, x1, x16};
 
 //-------------------------------------------------------------------------------------------------
 
-pub fn emit_moves(instrs: &mut Vec<Instr<Operand>>, moves: &[(MachineReg, MachineReg)]) {
+pub fn moves(instrs: &mut Vec<Instr<Operand>>, moves: &[(MachineReg, MachineReg)]) {
     for &(source, destination) in moves {
         debug_assert_eq!(RegBank::of_reg(source), RegBank::of_reg(destination));
         match RegBank::of_reg(source) {
@@ -19,14 +19,14 @@ pub fn emit_moves(instrs: &mut Vec<Instr<Operand>>, moves: &[(MachineReg, Machin
 
 //-------------------------------------------------------------------------------------------------
 
-pub fn emit_save_regs(instrs: &mut Vec<Instr<Operand>>, regs: RegSet) {
+pub fn save_regs(instrs: &mut Vec<Instr<Operand>>, regs: RegSet) {
     let (int_regs, float_regs) =  split_regs_by_bank(regs);
     for pair in int_regs.chunks(2)          { save_restore(instrs, pair, &isa::stp_x_pre, &isa::str_x_pre, sp.into(), -16) }
     for pair in float_regs.chunks(2)        { save_restore(instrs, pair, &isa::stp_d_pre, &isa::str_d_pre, sp.into(), -16) }
 }
 
 
-pub fn emit_restore_regs(instrs: &mut Vec<Instr<Operand>>, regs: RegSet) {
+pub fn restore_regs(instrs: &mut Vec<Instr<Operand>>, regs: RegSet) {
     let (int_regs, float_regs) = split_regs_by_bank(regs);
     for pair in float_regs.chunks(2).rev()  { save_restore(instrs, pair, &isa::ldp_d_post, &isa::ldr_d_post, sp.into(), 16) }
     for pair in int_regs.chunks(2).rev()    { save_restore(instrs, pair, &isa::ldp_x_post, &isa::ldr_x_post, sp.into(), 16) }
@@ -50,7 +50,7 @@ fn save_restore(
 
 //-------------------------------------------------------------------------------------------------
 
-pub fn emit_glue(signature: &Signature, instrs: &mut Vec<Instr<Operand>>) {
+pub fn glue(signature: &Signature, instrs: &mut Vec<Instr<Operand>>) {
     // Move the input buffer pointer to x16 so it doesn't get clobbered by arguments to our function.
     assemble_instr!(instrs, mov_x, x16, x0);
 

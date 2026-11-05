@@ -6,7 +6,7 @@ use crate::codegen::isa::{sp, ra, t6, a0, a1};
 
 //-------------------------------------------------------------------------------------------------
 
-pub fn emit_moves(instrs: &mut Vec<Instr<Operand>>, moves: &[(MachineReg, MachineReg)]) {
+pub fn moves(instrs: &mut Vec<Instr<Operand>>, moves: &[(MachineReg, MachineReg)]) {
     for &(source, destination) in moves {
         debug_assert_eq!(RegBank::of_reg(source), RegBank::of_reg(destination));
         match RegBank::of_reg(source) {
@@ -24,7 +24,7 @@ fn frame_size(regs: RegSet) -> i32 {
         .expect("internal compiler error: frame too big")
 }
 
-pub fn emit_save_regs(instrs: &mut Vec<Instr<Operand>>, regs: RegSet) {
+pub fn save_regs(instrs: &mut Vec<Instr<Operand>>, regs: RegSet) {
     if regs.is_empty() { return }
     assemble!(instrs, addi sp, sp, -frame_size(regs));
     let (int_regs, float_regs) = split_regs_by_bank(regs);
@@ -34,7 +34,7 @@ pub fn emit_save_regs(instrs: &mut Vec<Instr<Operand>>, regs: RegSet) {
 }
 
 
-pub fn emit_restore_regs(instrs: &mut Vec<Instr<Operand>>, regs: RegSet) {
+pub fn restore_regs(instrs: &mut Vec<Instr<Operand>>, regs: RegSet) {
     if regs.is_empty() { return }
     let (int_regs, float_regs) = split_regs_by_bank(regs);
     let mut offset = 0;
@@ -46,7 +46,7 @@ pub fn emit_restore_regs(instrs: &mut Vec<Instr<Operand>>, regs: RegSet) {
 
 //-------------------------------------------------------------------------------------------------
 
-pub fn emit_glue(signature: &Signature, instrs: &mut Vec<Instr<Operand>>) {
+pub fn glue(signature: &Signature, instrs: &mut Vec<Instr<Operand>>) {
     assemble!(instrs,
         mv t6, a0;                  // Move the input buffer pointer to t6 so it doesn't get
                                     // clobbered as we write arguments to the function.

@@ -1,7 +1,7 @@
 use typed_index_collections::TiVec;
 
 use crate::core::Span;
-use super::{abi, allocator,
+use super::{emit, allocator,
     Code, Pool, Signature, ValueSlot, IntReg, FloatReg, MachineReg, RegSet, RegBank,
     ConstantIndex, FunctionIndex, RelativeTo, REGS};
 
@@ -94,7 +94,7 @@ pub(super) fn run(
     let mut draft_instrs = Vec::new();
     let value_words = emit_function(allocated, slot_count, &mut draft_instrs);
     let glue_start_words = draft_instrs.len();
-    abi::emit_glue(signature, &mut draft_instrs);
+    emit::glue(signature, &mut draft_instrs);
 
     let layout = Layout::new(glue_start_words, draft_instrs.len(), pool.constants.len(), pool.functions.len());
 
@@ -112,13 +112,13 @@ fn emit_function(
     let mut value_words: TiVec<_, _> = vec![None; slot_count].into();
 
     let regs_to_save = REGS.regs_to_save(allocated.written_regs);
-    abi::emit_save_regs(instrs, regs_to_save);
+    emit::save_regs(instrs, regs_to_save);
 
     for instr in allocated.instrs {
-        abi::emit_moves(instrs, &instr.moves);
+        emit::moves(instrs, &instr.moves);
 
         // Restore callee saved registers before a `ret`.
-        if instr.code.is_return() { abi::emit_restore_regs(instrs, regs_to_save); }
+        if instr.code.is_return() { emit::restore_regs(instrs, regs_to_save); }
 
         let operands = instr.code.has_output()
             .then(|| Operand::from(instr.result_reg
