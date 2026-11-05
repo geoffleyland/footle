@@ -23,7 +23,7 @@ impl Builder {
             }
             vir::InstrKind::Bool(value) => {
                 self.emit_instr(ty,
-                    &isa::mov_x_imm, vec![Operand::ImmU16((*value).into())], span)
+                    &isa::mov_x_imm, vec![Operand::Imm((*value).into())], span)
             },
             vir::InstrKind::Binary(op, lhs, rhs) => {
                 if *op == BinaryOperator::Power {

@@ -25,7 +25,7 @@ pub(super) struct FunctionIndex(usize);
 #[derive(Debug, Copy, Clone)]
 pub(super) enum Operand<REG> {
     Reg(REG),
-    ImmU16(u16),
+    Imm(i32),
     PooledF64(ConstantIndex, RelativeTo),
     Function(FunctionIndex, RelativeTo),
 }
@@ -34,9 +34,9 @@ impl<REG> Operand<REG> {
     pub(super) fn map_reg<R2>(self, f: impl FnOnce(REG) -> R2) -> Operand<R2> {
         match self {
             Self::Reg(r)            => Operand::Reg(f(r)),
-            Self::ImmU16(v)         => Operand::ImmU16(v),
+            Self::Imm(v)            => Operand::Imm(v),
             Self::PooledF64(c, r)   => Operand::PooledF64(c, r),
-            Self::Function(s, r)    => Operand::Function(s, r),
+            Self::Function(i, r)    => Operand::Function(i, r),
         }
     }
     pub(super) fn constant(index: ConstantIndex, relative_to: RelativeTo) -> Self {
@@ -60,7 +60,7 @@ pub mod display {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             match self {
                 Self::PooledF64(i, ..)          => write!(f, "K{i}"),
-                Self::ImmU16(v)                 => write!(f, "#{v}"),
+                Self::Imm(v)                    => write!(f, "#{v}"),
                 Self::Function(i, ..)           => write!(f, "F{i}"),
                 Self::Reg(r)                    => r.fmt_operand(f),
             }

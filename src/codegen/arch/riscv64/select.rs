@@ -24,7 +24,7 @@ impl Builder {
                 )
             }
             vir::InstrKind::Bool(value) => {
-                assemble!(self, span, li :ty, Operand::ImmU16((*value).into()))
+                assemble!(self, span, li :ty, Operand::Imm((*value).into()))
             },
             vir::InstrKind::Binary(op, lhs, rhs) => {
                 match op {

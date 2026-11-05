@@ -1,8 +1,8 @@
 use typed_index_collections::TiVec;
 
 use super::{abi, allocator,
-    Code, ConstantIndex, FunctionIndex, Pool, Signature, ValueSlot, IntReg, FloatReg, MachineReg,
-    RegSet, RegBank, RelativeTo, REGS};
+    Code, Pool, Signature, ValueSlot, IntReg, FloatReg, MachineReg, RegSet, RegBank,
+    ConstantIndex, FunctionIndex, RelativeTo, REGS};
 
 #[cfg(feature = "dogfood")]
 use crate::core::Span;
@@ -10,28 +10,12 @@ use crate::core::Span;
 
 //-------------------------------------------------------------------------------------------------
 
-pub(super) enum Operand {
-    Reg(MachineReg),
-    ImmU16(u16),
-    Offset(i32),
-    PooledF64(ConstantIndex, RelativeTo),
-    Function(FunctionIndex, RelativeTo),
-}
+pub(super) type Operand = super::operand::Operand<MachineReg>;
 
-impl From<i32> for Operand {
-    fn from(offset: i32) -> Self { Self::Offset(offset) }
-}
-
-impl From<MachineReg> for Operand {
-    fn from(r: MachineReg) -> Self { Self::Reg(r) }
-}
-
-impl From<IntReg> for Operand {
-    fn from(r: IntReg) -> Self { Self::Reg(MachineReg::from(r)) }
-}
-impl From<FloatReg> for Operand {
-    fn from(r: FloatReg) -> Self { Self::Reg(MachineReg::from(r)) }
-}
+impl From<i32> for Operand          { fn from(imm: i32) -> Self { Self::Imm(imm) } }
+impl From<MachineReg> for Operand   { fn from(r: MachineReg) -> Self { Self::Reg(r) } }
+impl From<IntReg> for Operand       { fn from(r: IntReg) -> Self { Self::Reg(MachineReg::from(r)) } }
+impl From<FloatReg> for Operand     { fn from(r: FloatReg) -> Self { Self::Reg(MachineReg::from(r)) } }
 
 
 macro_rules! assemble_expr {
@@ -86,6 +70,8 @@ impl Layout {
             instr_words,
         }
     }
+    fn constant_words(&self, index: ConstantIndex) -> usize { self.constant_start_words + 2 * usize::from(index) }
+    fn function_words(&self, index: FunctionIndex) -> usize { self.function_start_words + 2 * usize::from(index) }
 }
 
 
@@ -144,13 +130,8 @@ fn emit_function(
             .then(|| Operand::from(instr.result_reg
                 .expect("internal compiler error: no register allocated for instruction result")))
             .into_iter()
-            .chain(instr.operands.iter().map(|op| match op {
-                allocator::Operand::Reg(r)              => (*r).into(),
-                allocator::Operand::PooledF64(i, r)     => Operand::PooledF64(*i, *r),
-                allocator::Operand::ImmU16(v)           => Operand::ImmU16(*v),
-                allocator::Operand::Function(index, r)  => Operand::Function(*index, *r),
-            }))
-        .collect();
+            .chain(instr.operands.iter().copied())
+            .collect();
 
         value_words[instr.value_slot] = Some(instrs.len());
         instrs.push(Instr{ code: instr.code, operands,
@@ -172,8 +153,7 @@ pub(super) fn split_regs_by_bank(regs: RegSet) -> (Vec<MachineReg>, Vec<MachineR
 
 fn compute_offset(
     value_words:                            &TiVec<ValueSlot, Option<usize>>,
-    table_start_words:                      usize,
-    entry_index:                            usize,
+    target_word:                            usize,
     word_index:                             usize,
     relative_to:                            RelativeTo,
 ) -> i32 {
@@ -184,8 +164,7 @@ fn compute_offset(
                 .expect("internal compiler error: InstrOf names a value with no instruction")
         }
     };
-    i32::try_from((table_start_words - from_word) * 4 + (entry_index * 8))
-        .expect("internal compiler error: pool offset too large")
+    i32::try_from((target_word - from_word) * 4).expect("internal compiler error: pool offset too large")
 }
 
 
@@ -196,21 +175,18 @@ fn resolve(
     layout:                                 &Layout,
     value_words:                            &TiVec<ValueSlot, Option<usize>>,
 ) -> Vec<Instr<Resolved>> {
-    use Operand::*;
+    use super::operand::Operand::*;
 
     instrs.into_iter().enumerate()
         .map(|(word_index, instr)| {
+            let offset = |target_word, relative_to|
+                Resolved::Imm(compute_offset(value_words, target_word, word_index, relative_to));
             let operands: Vec<_> = instr.operands.into_iter().map(|op| {
                 match op {
                     Reg(r)                  => Resolved::Reg(r),
-                    ImmU16(v)               => Resolved::Imm(v.into()),
-                    PooledF64(i, r)         => Resolved::Imm(compute_offset(
-                                                    value_words, layout.constant_start_words,
-                                                    i.into(), word_index, r)),
-                    Function(i, r)          => Resolved::Imm(compute_offset(
-                                                    value_words, layout.function_start_words,
-                                                    i.into(), word_index, r)),
-                    Offset(o)               => Resolved::Imm(o),
+                    Imm(o)                  => Resolved::Imm(o),
+                    PooledF64(i, r)         => offset(layout.constant_words(i), r),
+                    Function(i, r)          => offset(layout.function_words(i), r),
                 }
             }).collect();
             Instr{ operands, code: instr.code,
@@ -233,16 +209,15 @@ mod display {
         fn write<W: LineStyle>(&self, f: &mut fmt::Formatter, indent: u16, writer: &W) -> fmt::Result {
             for (i, instr) in self.0.instrs.iter().enumerate() {
                 let address = i32::try_from(0x1000 + i * 4).unwrap();
-                writer.writeln(f, indent, instr.span, &format!("{:#06x}: {}",
-                    address,
+                writer.writeln(f, indent, instr.span, &format!("{:#06x}: {}", address,
                     instr.code.format_assembly(&instr.operands, address)))?;
             }
-            for (i, c) in self.1.constants.iter().enumerate() {
-                let address = 0x1000 + self.0.layout.constant_start_words * 4 + i * 8;
+            for (i, c) in self.1.constants.iter_enumerated() {
+                let address = 0x1000 + self.0.layout.constant_words(i) * 4;
                 writer.writeln(f, indent, Some(c.span), &format!("{address:#06x}: {:?}", c.value))?;
             }
-            for (i, func) in self.1.functions.iter().enumerate() {
-                let address = 0x1000 + self.0.layout.function_start_words * 4 + i * 8;
+            for (i, func) in self.1.functions.iter_enumerated() {
+                let address = 0x1000 + self.0.layout.function_words(i) * 4;
                 writer.writeln(f, indent, None, &format!("{address:#06x}: {func}"))?;
             }
             Ok(())
