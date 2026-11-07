@@ -7,6 +7,6 @@ comment #)
 
 #( expected errors
 
-  unfinished block comment (47, 77)
+  unfinished block comment (48, 79)
 
 #)

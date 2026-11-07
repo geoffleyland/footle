@@ -14,7 +14,6 @@ return c, d
 
 #)
 
-# can I put a comment here?
 #( expected vir
 
   argument I0

@@ -11,7 +11,7 @@
 
 #( expected errors
 
-  invalid suffix for number literal (36, 38)
-  unexpected character '.' (39, 40)
+  invalid suffix for number literal (37, 39)
+  unexpected character '.' (40, 41)
 
 #)

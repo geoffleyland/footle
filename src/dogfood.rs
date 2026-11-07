@@ -286,9 +286,11 @@ fn read_test_file(path: &Path) -> Result<(HashMap<String, Vec<String>>, Vec<Stri
                 expected.entry(m.clone()).or_default();
             }
         } else if line.starts_with("#)") && mode.as_deref() != Some("source") {
-            mode = Some("source".to_string());
+            mode = None;
+        } else if mode.as_deref() == Some("source") {
+            expected.entry("source".into()).or_default().push(line);
         } else if let Some(m) = &mode && !line.is_empty() {
-            let line = if m == "source" { &line } else { line.strip_prefix("  ").unwrap_or(&line) };
+            let line = line.strip_prefix("  ").unwrap_or(&line);
             expected.entry(m.clone()).or_default().push(line.to_string());
         }
     }
@@ -364,17 +366,12 @@ fn parse_expected_results(expected: &[String]) -> Result<Vec<Vec<runtime::Value>
 }
 
 
-fn compare_lines(
-    actual: &[String],
-    expected: &[String],
-    input: &str,
-    output: &str,
-) -> Result<()> {
+fn compare_lines(actual: &[String], expected: &[String], input: &str, output: &str) -> Result<()> {
     if actual != expected {
         let diff_text = format_diff(expected, actual);
         bail!(
-            "Mismatch between expected and obtained {output} from {input}:\n\n{diff_text}\nTest output:\n\
-            #( expected {output}\n\n  {}\n\n#)",
+            "Mismatch between expected and obtained {output} from {input}:\n\n\
+            {diff_text}\nTest output:\n#( expected {output}\n\n  {}\n\n#)",
             actual.join("\n  "))
     }
     Ok(())
