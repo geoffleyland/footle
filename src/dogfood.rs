@@ -197,7 +197,7 @@ impl runtime::Observer for DogfoodEater {
     }
     fn func(&mut self, func: &codegen::CompiledFn) {
         let disassembly = codegen::disassemble(func);
-        let expected_disassembly = &self.expected[&self.assembly_key("disassembly")][0..disassembly.len()];
+        let expected_disassembly = &self.expected[&self.assembly_key("disassembly")][0..func.instr_words()];
         let check = compare_lines(&disassembly, expected_disassembly, self.section, "disassembly");
         self.safe_to_run = check.is_ok();
         if let Err(e) = check {

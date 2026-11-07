@@ -47,7 +47,7 @@ pub(super) struct Instr<OP> {
 
 #[derive(Debug, Copy, Clone)]
 pub(super) struct Layout {
-    #[cfg_attr(not(feature = "dogfood"), expect(dead_code, reason = "only the disassembler reads instr_words"))]
+    #[cfg_attr(not(feature = "dogfood"), expect(dead_code, reason = "only dogfood reads instr_words"))]
     pub(super) instr_words:         usize,
     pub(super) glue_start_words:    usize,
     pub(super) constant_start_words:usize,

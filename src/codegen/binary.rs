@@ -57,6 +57,9 @@ impl CompiledFn {
     pub(super) fn bytes(&self) -> &[u8] {
         unsafe { std::slice::from_raw_parts(self.ptr.cast::<u8>(), self.layout.total_bytes) }
     }
+
+    #[cfg(feature = "dogfood")]
+    pub fn instr_words(&self) -> usize { self.layout.instr_words }
 }
 
 
