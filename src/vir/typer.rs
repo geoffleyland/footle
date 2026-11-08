@@ -87,7 +87,7 @@ fn infer(
 //-------------------------------------------------------------------------------------------------
 // Type Figurer-outer
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, derive_more::Display)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, derive_more::Display, derive_more::FromStr)]
 pub enum TypeInfo {
     #[display("f64")]  F64,
     #[display("bool")] Bool,

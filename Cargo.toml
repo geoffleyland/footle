@@ -13,7 +13,7 @@ paste = "1.0.15"
 anyhow = "1.0.104"
 pico-args = "0.5.0"
 typed-index-collections = "3.5.0"
-derive_more = { version = "2", features = ["from", "into", "display"] }
+derive_more = { version = "2", features = ["from", "into", "display", "from_str"] }
 similar = { version = "3", features = ["inline"], optional = true }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]

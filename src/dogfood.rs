@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     fmt::Write as fmtWrite,
     fs,
     io::{BufRead, BufReader, Write},
@@ -10,10 +10,11 @@ use std::{
 use anyhow::{bail, Context, Result};
 use similar::{TextDiff, ChangeTag};
 
-use crate::{FOOTLE_FILE_EXTENSION, core, codegen, codegen::{assembler, scheduler, Signature, Pool}};
+use crate::{FOOTLE_FILE_EXTENSION, core};
+use crate::codegen::{self, assembler, scheduler, Signature, Pool};
 use crate::core::{Styleable, join_format};
 use crate::ast;
-use crate::vir;
+use crate::vir::{self, TypeInfo};
 use crate::runtime;
 
 
@@ -131,34 +132,36 @@ fn find_tests(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
 
 
 struct DogfoodEater {
-    expected:               HashMap<String, Vec<String>>,
-    unchecked:              Vec<String>,
-    section:                &'static str,
+    expected:               BTreeMap<Section, Vec<String>>,
+    unchecked:              Vec<Section>,
+    input:                  Section,
     had_mismatches:         bool,
     safe_to_run:            bool,
-    signature:              String,
+    signature:              Vec<TypeInfo>,
+    assembly:               Vec<String>,
 }
 
 impl DogfoodEater {
-    fn new(expected: HashMap<String, Vec<String>>, unchecked: Vec<String>) -> Self {
-        Self{expected, unchecked, section: "", had_mismatches: false, safe_to_run: true, signature: String::new() }
+    fn new(expected: BTreeMap<Section, Vec<String>>, unchecked: Vec<Section>) -> Self {
+        Self{ expected, unchecked, input: Section::Source, had_mismatches: false,
+            safe_to_run: true, signature: vec![], assembly: vec![] }
     }
 
-    fn test(&mut self, key: &str, extra_passes: &[&str], required: bool, lines: &[String]) {
-        let expected = match self.expected.get(key) {
-            Some(expected) => Some(expected.as_slice()),
-            None if required => Some(&[][..]),
+    fn test(&mut self, section: &Section, extra_inputs: &[Section], required: bool, lines: &[String]) {
+        let expected = match self.expected.get(section) {
+            Some(expected)      => Some(expected.as_slice()),
+            None if required    => Some(&[][..]),
             None => None,
         };
-        if (self.section == "source" || (extra_passes.contains(&self.section))) &&
+        if (self.input == Section::Source || (extra_inputs.contains(&self.input))) &&
             let Some(expected) = expected {
-            self.unchecked.retain(|e| e != key);
-            if let Err(e) = compare_lines(lines, expected, self.section, key) {
+            self.unchecked.retain(|e| e != section);
+            if let Err(e) = compare_lines(lines, expected, &self.input, section) {
                 eprintln!("\n{e:#}");
                 self.had_mismatches = true;
             }
         }
-        self.expected.insert(key.into(), lines.to_vec());
+        self.expected.insert(section.clone(), lines.to_vec());
     }
 
     fn close(&self) -> Result<()> {
@@ -166,39 +169,33 @@ impl DogfoodEater {
         Ok(())
     }
 
-    fn schedule_key() -> String {
-        format!("schedule {}", std::env::consts::ARCH)
-    }
-
-    fn assembly_key(&self, stage: &str) -> String {
-        let key = format!("{stage} {}", std::env::consts::ARCH);
-        if self.signature.is_empty() { key } else { format!("{key} {}", self.signature) }
-    }
+    fn schedule_section()       -> Section { Section::Schedule(Arch::HOST) }
+    fn assembly_section(&self)  -> Section { Section::Assembly(Arch::HOST, self.signature.clone()) }
 }
 
 impl runtime::Observer for DogfoodEater {
     fn stmts(&mut self, stmts: &[ast::Stmt]) {
-        self.test("statements", &["statements"], false,
+        self.test(&Section::Statements, &[Section::Statements], false,
             &stmts.iter().flat_map(block_to_strings).collect::<Vec<_>>());
     }
     fn vir(&mut self, vir: &vir::Block) {
-        self.test("vir", &["statements", "vir"], false, &block_to_strings(vir));
+        self.test(&Section::Vir, &[Section::Statements, Section::Vir], false, &block_to_strings(vir));
     }
     fn signature(&mut self, signature: &[vir::TypeInfo]) {
-        self.signature = join_format(signature, " ");
+        self.signature = signature.to_vec();
     }
     fn schedule(&mut self, block: &scheduler::Block, signature: &Signature, pool: &Pool) {
-        self.test(&Self::schedule_key(), &[], true, &block_to_strings(&(block, signature, pool)));
+        self.test(&Self::schedule_section(), &[], true, &block_to_strings(&(block, signature, pool)));
     }
     fn assembly(&mut self, block: &assembler::Block, pool: &Pool) {
         let assembly = block_to_strings(&(block, pool));
-        self.test(&self.assembly_key("assembly"), &[], true, &assembly);
-        self.expected.insert(self.assembly_key("disassembly"), assembly);
+        self.test(&self.assembly_section(), &[], true, &assembly);
+        self.assembly = assembly;
     }
     fn func(&mut self, func: &codegen::CompiledFn) {
         let disassembly = codegen::disassemble(func);
-        let expected_disassembly = &self.expected[&self.assembly_key("disassembly")][0..func.instr_words()];
-        let check = compare_lines(&disassembly, expected_disassembly, self.section, "disassembly");
+        let expected_disassembly = &self.assembly[0..func.instr_words()];
+        let check = compare_lines(&disassembly, expected_disassembly, &self.input, "disassembly");
         self.safe_to_run = check.is_ok();
         if let Err(e) = check {
             eprintln!("\n{e:#}");
@@ -240,58 +237,119 @@ fn run_test(path: &Path) -> Result<()> {
     let (expected, sections) = read_test_file(path)?;
     let mut eater = DogfoodEater::new(expected, sections);
 
-    for key in ["source", "statements", "vir"] {
-        eater.section = key;
-        let stop = if let Some(source) = eater.expected.get(key) {
-            test_lines(&path.to_string_lossy(), key, &source.join("\n"), &mut eater)?
+    for input in [Section::Source, Section::Statements, Section::Vir] {
+        eater.input = input.clone();
+        let stop = if let Some(source) = eater.expected.get(&input) {
+            test_lines(&path.to_string_lossy(), &input, &source.join("\n"), &mut eater)?
         } else { false };
         eater.close()?;
         if stop { break }
     }
     if !eater.unchecked.is_empty() {
-        bail!("unchecked sections: {}", eater.unchecked.join(", "));
+        bail!("unchecked sections: {}", join_format(&eater.unchecked, ", "));
     }
     Ok(())
 }
 
-const ARCHITECTURES: [&str; 2] = ["aarch64", "riscv64"];
 
-fn check_mode_for_arch(mode: String) -> Option<String> {
-    let mut words = mode.split_whitespace();
-    match (words.next(), words.next()) {
-        (Some("schedule" | "assembly"), Some(arch))
-            if arch != std::env::consts::ARCH && ARCHITECTURES.contains(&arch) => None,
-        _ => Some(mode)
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, derive_more::Display, derive_more::FromStr)]
+enum Arch {
+    #[display("aarch64")] AArch64,
+    #[display("riscv64")] RiscV64
+}
+
+impl Arch {
+    #[cfg(target_arch = "aarch64")] const HOST: Self = Self::AArch64;
+    #[cfg(target_arch = "riscv64")] const HOST: Self = Self::RiscV64;
+}
+
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Section { Source, Errors, Statements, Vir, Schedule(Arch), Assembly(Arch, Vec<TypeInfo>), Results}
+
+impl Section {
+    fn is_for_host(&self) -> bool {
+        use Section::*;
+        match self {
+            Source | Errors | Statements | Vir | Results    => true,
+            Schedule(arch) | Assembly(arch, ..)             => *arch == Arch::HOST
+        }
+    }
+}
+
+impl std::str::FromStr for Section {
+    type Err = anyhow::Error;
+    fn from_str(header: &str) -> anyhow::Result<Self> {
+        let mut words = header.split_whitespace();
+        match words.next().context("missing expected output section name")?.to_lowercase().as_str() {
+            "errors"                    => Ok(Self::Errors),
+            "statements"                => Ok(Self::Statements),
+            "vir"                       => Ok(Self::Vir),
+            "results"                   => Ok(Self::Results),
+            "schedule" => {
+                Ok(Self::Schedule(words.next()
+                    .context("missing expected output section architecture")?
+                    .parse::<Arch>()?))
+            }
+            "assembly" => {
+                let arch = words.next()
+                    .context("missing expected output section architecture")?
+                    .parse::<Arch>()?;
+                let signature = words.map(str::parse).collect::<Result<Vec<TypeInfo>, _>>()?;
+                Ok(Self::Assembly(arch, signature))
+            }
+            _                           => bail!("unknown expected output section: '{header}'")
+        }
+    }
+}
+
+impl std::fmt::Display for Section {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Source                => write!(f, "source"),
+            Self::Errors                => write!(f, "errors"),
+            Self::Statements            => write!(f, "statements"),
+            Self::Vir                   => write!(f, "vir"),
+            Self::Results               => write!(f, "results"),
+            Self::Schedule(arch)        => write!(f, "schedule {arch}"),
+            Self::Assembly(arch, signature) => {
+                write!(f, "assembly {arch}")?;
+                for s in signature { write!(f, " {s}")?; }
+                Ok(())
+            }
+        }
     }
 }
 
 
 #[allow(clippy::type_complexity)]
-fn read_test_file(path: &Path) -> Result<(HashMap<String, Vec<String>>, Vec<String>)> {
+fn read_test_file(path: &Path) -> Result<(BTreeMap<Section, Vec<String>>, Vec<Section>)> {
     let file =
         fs::File::open(path)
             .with_context(|| format!("couldn't open '{}'", path.display()))?;
 
     // Read the file, putting all the bits into the right buffers.
-    let mut expected = HashMap::<String, Vec<String>>::new();
+    let mut expected = BTreeMap::<Section, Vec<String>>::new();
     let mut sections = vec![];
-    let mut mode = Some("source".to_string());
+    let mut reading = Some(Section::Source);
 
     for line in BufReader::new(file).lines().map_while(Result::ok) {
         if let Some(header) = line.strip_prefix("#( expected") {
-            mode = check_mode_for_arch(header.trim().to_lowercase());
-            if let Some(m) = &mode {
-                if sections.contains(m) { bail!("Repeated expected section '{m}'"); }
-                sections.push(m.clone());
-                expected.entry(m.clone()).or_default();
+            let section = header.parse::<Section>()?;
+            if expected.insert(section.clone(), vec![]).is_some() {
+                bail!("Repeated expected section '{section}'");
             }
-        } else if line.starts_with("#)") && mode.as_deref() != Some("source") {
-            mode = None;
-        } else if mode.as_deref() == Some("source") {
-            expected.entry("source".into()).or_default().push(line);
-        } else if let Some(m) = &mode && !line.is_empty() {
+            if section.is_for_host() { sections.push(section.clone()) }
+            reading = Some(section);
+        } else if line.starts_with("#)") && reading != Some(Section::Source) {
+            reading = None;
+        } else if reading == Some(Section::Source) {
+            expected.entry(Section::Source).or_default().push(line);
+        } else if let Some(section) = &reading && !line.is_empty() {
             let line = line.strip_prefix("  ").unwrap_or(&line);
-            expected.entry(m.clone()).or_default().push(line.to_string());
+            expected.entry(section.clone()).or_default().push(line.to_string());
+        } else if reading.is_none() && !line.is_empty() {
+            bail!("text betwen expected sections: '{line}'")
         }
     }
     Ok((expected, sections))
@@ -300,19 +358,19 @@ fn read_test_file(path: &Path) -> Result<(HashMap<String, Vec<String>>, Vec<Stri
 
 fn test_lines(
     file_name:              &str,
-    section:                &str,
+    input:                  &Section,
     source:                 &str,
     eater:                  &mut DogfoodEater,
 ) -> Result<bool> {
     let mut block = match runtime::load(file_name, source.into(), eater) {
         Err(diagnostics) => {
             let error_strings: Vec<_> = diagnostics.errors.iter().map(|e| format!("{e}")).collect();
-            eater.unchecked.retain(|e| e != "errors");
-            compare_lines(&error_strings, eater.expected.get("errors").unwrap_or(&vec![]), section, "errors")?;
+            eater.unchecked.retain(|e| *e != Section::Errors);
+            compare_lines(&error_strings, eater.expected.get(&Section::Errors).unwrap_or(&vec![]), input, "errors")?;
             return Ok(true);
         }
         Ok(block) => {
-            if eater.expected.contains_key("errors") { bail!("did not get expected errors") }
+            if eater.expected.contains_key(&Section::Errors) { bail!("did not get expected errors") }
             block
         },
     };
@@ -322,9 +380,9 @@ fn test_lines(
     // can't feed the output of the codegen passes back into the compiler), and we only do it if
     // the expected results are present (because the compiler is being implemented bit by bit and
     // if we run something NYI, we get an NYI and a panic.)
-    if section == "source" && eater.expected.contains_key("results") {
-        let all_args = parse_expected_results(&eater.expected["results"])?;
-        eater.unchecked.retain(|e| e != "results");
+    if *input == Section::Source && eater.expected.contains_key(&Section::Results) {
+        let all_args = parse_expected_results(&eater.expected[&Section::Results])?;
+        eater.unchecked.retain(|e| *e != Section::Results);
         let mut obtained_lines = vec![];
         for args in all_args {
             let outcome = match block.call(&args, eater) {
@@ -341,7 +399,7 @@ fn test_lines(
             // Trim the start of the line - If there are no arguments, start at the "->"
             obtained_lines.push(line.trim_start().to_string());
         }
-        if let Err(e) = compare_lines(&obtained_lines, &eater.expected["results"], section, "results") {
+        if let Err(e) = compare_lines(&obtained_lines, &eater.expected[&Section::Results], input, "results") {
             eprintln!("\n{e:#}");
             eater.had_mismatches = true;
         }
@@ -366,13 +424,17 @@ fn parse_expected_results(expected: &[String]) -> Result<Vec<Vec<runtime::Value>
 }
 
 
-fn compare_lines(actual: &[String], expected: &[String], input: &str, output: &str) -> Result<()> {
-    if actual != expected {
-        let diff_text = format_diff(expected, actual);
+fn compare_lines(
+    obtained:           &[String],
+    expected:           &[String],
+    input:              &Section,
+    output:             impl std::fmt::Display) -> Result<()> {
+    if obtained != expected {
+        let diff_text = format_diff(expected, obtained);
         bail!(
             "Mismatch between expected and obtained {output} from {input}:\n\n\
             {diff_text}\nTest output:\n#( expected {output}\n\n  {}\n\n#)",
-            actual.join("\n  "))
+            obtained.join("\n  "))
     }
     Ok(())
 }
