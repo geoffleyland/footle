@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeSet, BTreeMap},
     fmt::Write as fmtWrite,
     fs,
     io::{BufRead, BufReader, Write},
@@ -69,30 +69,30 @@ impl runtime::Observer for Printer {
 
 //-------------------------------------------------------------------------------------------------
 
-pub fn run_tests(dir_path: &PathBuf) -> Result<()> {
+pub fn run_tests(path: &PathBuf) -> Result<()> {
     let mut paths = vec![];
-    if dir_path.is_dir() {
-        find_tests(dir_path, &mut paths)?;
-        println!("Testing {} files in '{}' ...", paths.len(), dir_path.display());
+    if path.is_dir() {
+        find_tests(path, &mut paths)?;
+        println!("Testing {} files in '{}' ...", paths.len(), path.display());
     } else {
-        if let Some(e) = dir_path.extension() && e == FOOTLE_FILE_EXTENSION {
-            paths.push(dir_path.clone());
+        if let Some(e) = path.extension() && e == FOOTLE_FILE_EXTENSION {
+            paths.push(path.clone());
         }
         if paths.is_empty() {
             bail!("No files.");
         }
-        println!("Testing '{}' ...", dir_path.display());
+        println!("Testing '{}' ...", path.display());
     }
 
     let max_filename_width = paths.iter().map(|p|
-        p.strip_prefix(dir_path).unwrap_or(p).as_os_str().len()).max().unwrap_or(0);
+        p.strip_prefix(path).unwrap_or(p).as_os_str().len()).max().unwrap_or(0);
     let filename_width = (max_filename_width / 4 + 1) * 4;
 
     let mut tests = 0;
     let mut fails = 0;
     for p in paths {
         tests += 1;
-        print!("  {:filename_width$}", p.strip_prefix(dir_path).unwrap_or(&p).display());
+        print!("  {:filename_width$}", p.strip_prefix(path).unwrap_or(&p).display());
         std::io::stdout().flush()?;
         match run_test(&p) {
             Ok(()) => {
@@ -131,78 +131,55 @@ fn find_tests(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
 }
 
 
+type Sections = BTreeMap<Section, Vec<String>>;
+
+#[derive(Default)]
 struct DogfoodEater {
-    expected:               BTreeMap<Section, Vec<String>>,
-    unchecked:              Vec<Section>,
+    obtained:               BTreeMap<Section, Sections>,
     input:                  Section,
-    had_mismatches:         bool,
-    safe_to_run:            bool,
     signature:              Vec<TypeInfo>,
-    assembly:               Vec<String>,
 }
 
 impl DogfoodEater {
-    fn new(expected: BTreeMap<Section, Vec<String>>, unchecked: Vec<Section>) -> Self {
-        Self{ expected, unchecked, input: Section::Source, had_mismatches: false,
-            safe_to_run: true, signature: vec![], assembly: vec![] }
+    fn obtained_lines(&self, input: &Section, section: &Section) -> &[String] {
+        self.obtained.get(input).and_then(|sections| sections.get(section)).map_or(&[], Vec::as_slice)
     }
 
-    fn test(&mut self, section: &Section, extra_inputs: &[Section], required: bool, lines: &[String]) {
-        let expected = match self.expected.get(section) {
-            Some(expected)      => Some(expected.as_slice()),
-            None if required    => Some(&[][..]),
-            None => None,
-        };
-        if (self.input == Section::Source || (extra_inputs.contains(&self.input))) &&
-            let Some(expected) = expected {
-            self.unchecked.retain(|e| e != section);
-            if let Err(e) = compare_lines(lines, expected, &self.input, section) {
-                eprintln!("\n{e:#}");
-                self.had_mismatches = true;
-            }
-        }
-        self.expected.insert(section.clone(), lines.to_vec());
+    fn insert_obtained(&mut self, section: &Section, lines: impl IntoIterator<Item = String>) {
+        self.obtained.entry(self.input.clone()).or_default()
+            .insert(section.clone(), lines.into_iter().collect());
     }
 
-    fn close(&self) -> Result<()> {
-        if self.had_mismatches { bail!("")}
-        Ok(())
-    }
-
-    fn schedule_section()       -> Section { Section::Schedule(Arch::HOST) }
-    fn assembly_section(&self)  -> Section { Section::Assembly(Arch::HOST, self.signature.clone()) }
+    fn schedule_section()           -> Section { Section::Schedule(Arch::HOST) }
+    fn assembly_section(&self)      -> Section { Section::Assembly(Arch::HOST, self.signature.clone()) }
+    fn disassembly_section(&self)   -> Section { Section::Disassembly(Arch::HOST, self.signature.clone()) }
 }
 
 impl runtime::Observer for DogfoodEater {
     fn stmts(&mut self, stmts: &[ast::Stmt]) {
-        self.test(&Section::Statements, &[Section::Statements], false,
-            &stmts.iter().flat_map(block_to_strings).collect::<Vec<_>>());
+        self.insert_obtained(&Section::Statements, stmts.iter().flat_map(to_lines));
     }
     fn vir(&mut self, vir: &vir::Block) {
-        self.test(&Section::Vir, &[Section::Statements, Section::Vir], false, &block_to_strings(vir));
+        self.insert_obtained(&Section::Vir, to_lines(vir));
     }
     fn signature(&mut self, signature: &[vir::TypeInfo]) {
         self.signature = signature.to_vec();
     }
     fn schedule(&mut self, block: &scheduler::Block, signature: &Signature, pool: &Pool) {
-        self.test(&Self::schedule_section(), &[], true, &block_to_strings(&(block, signature, pool)));
+        self.insert_obtained(&Self::schedule_section(), to_lines(&(block, signature, pool)));
     }
     fn assembly(&mut self, block: &assembler::Block, pool: &Pool) {
-        let assembly = block_to_strings(&(block, pool));
-        self.test(&self.assembly_section(), &[], true, &assembly);
-        self.assembly = assembly;
+        self.insert_obtained(&self.assembly_section(), to_lines(&(block, pool)));
     }
     fn func(&mut self, func: &codegen::CompiledFn) {
-        let disassembly = codegen::disassemble(func);
-        let expected_disassembly = &self.assembly[0..func.instr_words()];
-        let check = compare_lines(&disassembly, expected_disassembly, &self.input, "disassembly");
-        self.safe_to_run = check.is_ok();
-        if let Err(e) = check {
-            eprintln!("\n{e:#}");
-            self.had_mismatches = true;
-        }
+        let mut disassembly = codegen::disassemble(func);
+        disassembly.resize(func.instr_words(), "(not decoded)".to_string());
+        self.insert_obtained(&self.disassembly_section(), disassembly);
     }
-    fn safe_to_run(&self) -> bool { self.safe_to_run }
+    fn safe_to_run(&self) -> bool {
+        let sections = &self.obtained[&Section::Source];
+        sections[&self.assembly_section()].starts_with(&sections[&self.disassembly_section()])
+    }
 }
 
 
@@ -234,20 +211,66 @@ impl runtime::Observer for DogfoodEater {
 /// compiler with the source, statements and vir as inputs all produce the same vir, then what
 /// follows should be the same in all cases.
 fn run_test(path: &Path) -> Result<()> {
-    let (expected, sections) = read_test_file(path)?;
-    let mut eater = DogfoodEater::new(expected, sections);
+    let mut expected = read_test_file(path)?;
+    expected.entry(Section::Errors).or_default();
+    let mut eater = DogfoodEater::default();
 
-    for input in [Section::Source, Section::Statements, Section::Vir] {
-        eater.input = input.clone();
-        let stop = if let Some(source) = eater.expected.get(&input) {
-            test_lines(&path.to_string_lossy(), &input, &source.join("\n"), &mut eater)?
-        } else { false };
-        eater.close()?;
-        if stop { break }
+    for input_section in [Section::Source, Section::Statements, Section::Vir] {
+        let input_text = match input_section {
+            Section::Source => expected.get(&input_section),
+            _               => eater.obtained.get(&Section::Source)
+                                .and_then(|sections| sections.get(&input_section)),
+        };
+        let Some(input_text) = input_text.map(|lines| lines.join("\n")) else { continue };
+        eater.input = input_section.clone();
+        compile_input(&path.to_string_lossy(), &input_text, &mut eater, &expected)?;
+
+        if !eater.obtained_lines(&input_section, &Section::Errors).is_empty() { break }
     }
-    if !eater.unchecked.is_empty() {
-        bail!("unchecked sections: {}", join_format(&eater.unchecked, ", "));
+
+    copy_assembly_to_expected_disassembly(&eater, &mut expected);
+    report_mismatches(&eater, &expected)
+}
+
+
+fn copy_assembly_to_expected_disassembly(eater: &DogfoodEater, expected: &mut Sections) {
+    if let Some(sections) = eater.obtained.get(&Section::Source) {
+        for (section, disassembly) in sections {
+            if let Section::Disassembly(arch, signature) = section {
+                let listing = &sections[&Section::Assembly(*arch, signature.clone())];
+                expected.insert(section.clone(), listing[..disassembly.len()].to_vec());
+            }
+        }
     }
+}
+
+
+fn report_mismatches(eater: &DogfoodEater, expected: &Sections) -> Result<()> {
+    let source_output = eater.obtained.get(&Section::Source);
+    let compile_failed = !eater.obtained_lines(&Section::Source, &Section::Errors).is_empty();
+    let sections_to_compare: BTreeSet<&Section> = if compile_failed {
+        BTreeSet::from([&Section::Errors])
+    } else {
+        expected.keys()
+            .chain(source_output.into_iter()
+                .flat_map(|sections| sections.keys())
+                .filter(|s| s.is_compulsory()))
+            .collect()
+    };
+
+    let mut failed = false;
+    for (input, obtained_sections) in &eater.obtained {
+        for section in &sections_to_compare {
+            let Some(reference) = compare_with(input, section) else { continue };
+            let obtained_lines = obtained_sections.get(section).map_or(&[][..], Vec::as_slice);
+            let expected_lines = expected.get(&reference).map_or(&[][..], Vec::as_slice);
+            if let Err(e) = compare_lines(obtained_lines, expected_lines, input, section) {
+                eprintln!("\n{e:#}");
+                failed = true;
+            }
+        }
+    }
+    if failed { bail!("") }
     Ok(())
 }
 
@@ -264,22 +287,43 @@ impl Arch {
 }
 
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-enum Section { Source, Errors, Statements, Vir, Schedule(Arch), Assembly(Arch, Vec<TypeInfo>), Results}
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
+enum Section { #[default] Source, Statements, Vir, Errors, Schedule(Arch),
+    Assembly(Arch, Vec<TypeInfo>), Disassembly(Arch, Vec<TypeInfo>), Results}
 
 impl Section {
     fn is_for_host(&self) -> bool {
         use Section::*;
         match self {
             Source | Errors | Statements | Vir | Results    => true,
-            Schedule(arch) | Assembly(arch, ..)             => *arch == Arch::HOST
+            Schedule(arch) | Assembly(arch, ..) |
+                Disassembly(arch, ..)                       => *arch == Arch::HOST
         }
     }
+    fn is_compulsory(&self) -> bool {
+        matches!(self, Self::Schedule(..) | Self::Assembly(..))
+    }
 }
+
+fn compare_with(input: &Section, section: &Section) -> Option<Section> {
+    use Section::*;
+    match (input, section) {
+        (_, _) if !section.is_for_host()                        => None,
+        (Source, Source) | (Vir, Statements)                    => None,
+        // FIXME: This is the correct line for Vir once we've fixed up the statement writer
+        // (Vir, Statements)                                       => Some(Vir),
+        (Source, _) |
+            (Statements, Statements | Vir | Errors) |
+            (Vir, Vir | Errors)                                 => Some(section.clone()),
+        _                                                       => None,
+    }
+}
+
 
 impl std::str::FromStr for Section {
     type Err = anyhow::Error;
     fn from_str(header: &str) -> anyhow::Result<Self> {
+        let header = header.trim();
         let mut words = header.split_whitespace();
         match words.next().context("missing expected output section name")?.to_lowercase().as_str() {
             "errors"                    => Ok(Self::Errors),
@@ -317,20 +361,23 @@ impl std::fmt::Display for Section {
                 for s in signature { write!(f, " {s}")?; }
                 Ok(())
             }
+            Self::Disassembly(arch, signature) => {
+                write!(f, "disassembly {arch}")?;
+                for s in signature { write!(f, " {s}")?; }
+                Ok(())
+            }
         }
     }
 }
 
 
-#[allow(clippy::type_complexity)]
-fn read_test_file(path: &Path) -> Result<(BTreeMap<Section, Vec<String>>, Vec<Section>)> {
+fn read_test_file(path: &Path) -> Result<Sections> {
     let file =
         fs::File::open(path)
             .with_context(|| format!("couldn't open '{}'", path.display()))?;
 
     // Read the file, putting all the bits into the right buffers.
     let mut expected = BTreeMap::<Section, Vec<String>>::new();
-    let mut sections = vec![];
     let mut reading = Some(Section::Source);
 
     for line in BufReader::new(file).lines().map_while(Result::ok) {
@@ -339,7 +386,6 @@ fn read_test_file(path: &Path) -> Result<(BTreeMap<Section, Vec<String>>, Vec<Se
             if expected.insert(section.clone(), vec![]).is_some() {
                 bail!("Repeated expected section '{section}'");
             }
-            if section.is_for_host() { sections.push(section.clone()) }
             reading = Some(section);
         } else if line.starts_with("#)") && reading != Some(Section::Source) {
             reading = None;
@@ -352,37 +398,27 @@ fn read_test_file(path: &Path) -> Result<(BTreeMap<Section, Vec<String>>, Vec<Se
             bail!("text betwen expected sections: '{line}'")
         }
     }
-    Ok((expected, sections))
+    Ok(expected)
 }
 
 
-fn test_lines(
+fn compile_input(
     file_name:              &str,
-    input:                  &Section,
     source:                 &str,
     eater:                  &mut DogfoodEater,
-) -> Result<bool> {
-    let mut block = match runtime::load(file_name, source.into(), eater) {
-        Err(diagnostics) => {
-            let error_strings: Vec<_> = diagnostics.errors.iter().map(|e| format!("{e}")).collect();
-            eater.unchecked.retain(|e| *e != Section::Errors);
-            compare_lines(&error_strings, eater.expected.get(&Section::Errors).unwrap_or(&vec![]), input, "errors")?;
-            return Ok(true);
-        }
-        Ok(block) => {
-            if eater.expected.contains_key(&Section::Errors) { bail!("did not get expected errors") }
-            block
-        },
-    };
+    expected:               &Sections,
+) -> Result<()> {
+    let Ok(mut block) = runtime::load(file_name, source.into(), eater)
+        .inspect_err(|diagnostics| eater.insert_obtained(&Section::Errors, diagnostics.errors.iter().map(ToString::to_string)))
+    else { return Ok(()) };
 
     // Once we get to codegen and calling (with block.call), we only run for the original source
     // (since we've already proven that the other passes all give the same output, and because we
     // can't feed the output of the codegen passes back into the compiler), and we only do it if
     // the expected results are present (because the compiler is being implemented bit by bit and
     // if we run something NYI, we get an NYI and a panic.)
-    if *input == Section::Source && eater.expected.contains_key(&Section::Results) {
-        let all_args = parse_expected_results(&eater.expected[&Section::Results])?;
-        eater.unchecked.retain(|e| *e != Section::Results);
+    if eater.input == Section::Source && expected.contains_key(&Section::Results) {
+        let all_args = parse_arguments(&expected[&Section::Results])?;
         let mut obtained_lines = vec![];
         for args in all_args {
             let outcome = match block.call(&args, eater) {
@@ -399,16 +435,13 @@ fn test_lines(
             // Trim the start of the line - If there are no arguments, start at the "->"
             obtained_lines.push(line.trim_start().to_string());
         }
-        if let Err(e) = compare_lines(&obtained_lines, &eater.expected[&Section::Results], input, "results") {
-            eprintln!("\n{e:#}");
-            eater.had_mismatches = true;
-        }
+        eater.insert_obtained(&Section::Results, obtained_lines);
     }
-    Ok(false)
+    Ok(())
 }
 
 
-fn parse_expected_results(expected: &[String]) -> Result<Vec<Vec<runtime::Value>>> {
+fn parse_arguments(expected: &[String]) -> Result<Vec<Vec<runtime::Value>>> {
     let mut all_args = vec![];
     for line in expected {
         let Some((args_str, _)) = line.split_once("->") else {
@@ -428,12 +461,12 @@ fn compare_lines(
     obtained:           &[String],
     expected:           &[String],
     input:              &Section,
-    output:             impl std::fmt::Display) -> Result<()> {
+    section:            impl std::fmt::Display) -> Result<()> {
     if obtained != expected {
         let diff_text = format_diff(expected, obtained);
         bail!(
-            "Mismatch between expected and obtained {output} from {input}:\n\n\
-            {diff_text}\nTest output:\n#( expected {output}\n\n  {}\n\n#)",
+            "Mismatch between expected and obtained {section} from {input}:\n\n\
+            {diff_text}\nTest output:\n#( expected {section}\n\n  {}\n\n#)",
             obtained.join("\n  "))
     }
     Ok(())
@@ -492,7 +525,7 @@ fn split_label(line: &str) -> (&str, &str) {
 ///
 /// The thing can return multiple lines so we format the whole lot and split on
 /// newlines to get a flat list of non-empty lines for comparison.
-fn block_to_strings<S: core::Styleable>(block: &S) -> Vec<String> {
+fn to_lines<S: core::Styleable>(block: &S) -> Vec<String> {
     let style = core::IndentedStyle::new(2);
     format!("{}", block.styled(0, &style))
         .lines()
