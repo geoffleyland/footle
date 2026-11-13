@@ -87,6 +87,10 @@ case $1 in
         RUST_BACKTRACE=1 cargo run -q --features dogfood -- -v $F "$@"
         ;;
 
+    bless)
+        RUST_BACKTRACE=1 cargo run -q --features dogfood -- -t -b ${2:-$TEST_DIR}
+        ;;
+
     watch)
         shift
         export NO_TTY=1 CARGO_TERM_COLOR=always       # colour survives the pipe to tee

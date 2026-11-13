@@ -45,8 +45,11 @@ fn run(mut command_line: pico_args::Arguments) -> Result<()> {
     }
 
     #[cfg(feature = "dogfood")]
-    let (verbose, test) = (command_line.contains(["-v", "--verbose"]),
-        command_line.contains(["-t", "--test"]));
+    let (verbose, test, bless) = (
+        command_line.contains(["-v", "--verbose"]),
+        command_line.contains(["-t", "--test"]),
+        command_line.contains(["-b", "--bless"]),
+    );
 
     let Some(file_or_dir): Option<PathBuf> = command_line.opt_free_from_str()? else { return Ok(()); };
     if !file_or_dir.try_exists()? {
@@ -54,7 +57,7 @@ fn run(mut command_line: pico_args::Arguments) -> Result<()> {
     }
 
     #[cfg(feature = "dogfood")]
-    if test { return dogfood::run_tests(&file_or_dir); }
+    if test { return dogfood::run_tests(&file_or_dir, bless); }
 
     let args = parse_args(command_line)?;
 
@@ -84,6 +87,7 @@ Usage: {name} [-v] [<file> [<arguments...>]]
 
 Options:
   -t, --test     check all the files in dogfood mode
+  -b, --bless    with -t, update expected output when every failure is blessable
   -v, --verbose  show more output when running a file
   -h, --help     display usage information
 ");

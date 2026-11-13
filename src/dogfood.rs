@@ -69,7 +69,7 @@ impl runtime::Observer for Printer {
 
 //-------------------------------------------------------------------------------------------------
 
-pub fn run_tests(path: &PathBuf) -> Result<()> {
+pub fn run_tests(path: &PathBuf, do_bless: bool) -> Result<()> {
     let mut paths = vec![];
     if path.is_dir() {
         find_tests(path, &mut paths)?;
@@ -90,28 +90,67 @@ pub fn run_tests(path: &PathBuf) -> Result<()> {
 
     let mut tests = 0;
     let mut fails = 0;
+    let mut bless_ok = true;
+    let mut blessable = vec![];
     for p in paths {
         tests += 1;
         print!("  {:filename_width$}", p.strip_prefix(path).unwrap_or(&p).display());
         std::io::stdout().flush()?;
         match run_test(&p) {
-            Ok(()) => {
+            Ok((Outcome::Pass, _)) => {
                 println!("\x1b[1;32m\u{2713}\x1b[0m");
+            }
+            Ok((Outcome::Blessable, messages)) => {
+                println!("\x1b[1;33m\u{2248}\x1b[0m");
+                for m in messages { println!("{m}"); }
+                fails += 1;
+                blessable.push(p);
+            }
+            Ok((Outcome::Fail, messages)) => {
+                println!("\x1b[1;31m\u{2718}\x1b[0m");
+                for m in messages { println!("{m}"); }
+                fails += 1;
+                bless_ok = false;
             }
             Err(e) => {
                 println!("\x1b[1;31m\u{2718}\x1b[0m");
                 eprintln!("{e:#}");
                 fails += 1;
+                bless_ok = false;
             }
         }
     }
 
+
     if fails > 0 {
         println!("\ntest result: \x1b[31mFAILED\x1b[0m. {} passed; {fails} failed", tests - fails);
-        bail!("tests failed")
+    } else {
+        println!("\ntest result: \x1b[32mok\x1b[0m. {tests} passed; 0 failed");
     }
 
-    println!("\ntest result: \x1b[32mok\x1b[0m. {tests} passed; 0 failed");
+    if do_bless && bless_ok && !blessable.is_empty() {
+        println!("blessing {} file(s)", blessable.len());
+        for path in blessable {
+            fs::rename(path.with_added_extension("bless"), path)?;
+        }
+        return Ok(())
+    }
+
+    match (do_bless, bless_ok, blessable.is_empty()) {
+        (true, false, _) => {
+            println!("not blessing: {} failure(s) (\x1b[1;31m\u{2718}\x1b[0m) can't be blessed",
+                fails - blessable.len());
+        }
+        (true,  _, true) => {
+            println!("nothing to bless");
+        }
+        (false, true, false) => {
+            println!("{fails} file(s) (\x1b[1;33m\u{2248}\x1b[0m) can be blessed: run `./admin bless`");
+        }
+        _ => {}
+    }
+
+    if fails > 0 { bail!("tests failed") }
     Ok(())
 }
 
@@ -210,7 +249,7 @@ impl runtime::Observer for DogfoodEater {
 /// The remaining codegen passes are only checked once, though, on the first pass - if running the
 /// compiler with the source, statements and vir as inputs all produce the same vir, then what
 /// follows should be the same in all cases.
-fn run_test(path: &Path) -> Result<()> {
+fn run_test(path: &Path) -> Result<(Outcome, Vec<String>)> {
     let mut expected = read_test_file(path)?;
     expected.entry(Section::Errors).or_default();
     let mut eater = DogfoodEater::default();
@@ -229,7 +268,19 @@ fn run_test(path: &Path) -> Result<()> {
     }
 
     copy_assembly_to_expected_disassembly(&eater, &mut expected);
-    report_mismatches(&eater, &expected)
+    Ok(match report_mismatches(&eater, &expected) {
+        (Outcome::Blessable, _) if path.extension().is_some_and(|e| e == "bless") => (Outcome::Fail, vec![]),
+        (Outcome::Blessable, messages) => {
+            let mut sections = expected;
+            sections.extend(eater.obtained.remove(&Section::Source).unwrap_or_default());
+            write_whole_file(path, sections)?;
+            match run_test(&path.with_added_extension("bless")) {
+                Ok((Outcome::Pass, _))  => (Outcome::Blessable, messages),
+                _                       => (Outcome::Fail, messages)
+            }
+        }
+        other                           => other,
+    })
 }
 
 
@@ -245,7 +296,10 @@ fn copy_assembly_to_expected_disassembly(eater: &DogfoodEater, expected: &mut Se
 }
 
 
-fn report_mismatches(eater: &DogfoodEater, expected: &Sections) -> Result<()> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Outcome { Pass, Blessable, Fail }
+
+fn report_mismatches(eater: &DogfoodEater, expected: &Sections) -> (Outcome, Vec<String>) {
     let source_output = eater.obtained.get(&Section::Source);
     let compile_failed = !eater.obtained_lines(&Section::Source, &Section::Errors).is_empty();
     let sections_to_compare: BTreeSet<&Section> = if compile_failed {
@@ -258,20 +312,21 @@ fn report_mismatches(eater: &DogfoodEater, expected: &Sections) -> Result<()> {
             .collect()
     };
 
-    let mut failed = false;
+    let mut outcome = Outcome::Pass;
+    let mut messages = vec![];
     for (input, obtained_sections) in &eater.obtained {
+        let expected_sections = if *input == Section::Source { expected } else { source_output.unwrap() };
         for section in &sections_to_compare {
             let Some(reference) = compare_with(input, section) else { continue };
             let obtained_lines = obtained_sections.get(section).map_or(&[][..], Vec::as_slice);
-            let expected_lines = expected.get(&reference).map_or(&[][..], Vec::as_slice);
+            let expected_lines = expected_sections.get(&reference).map_or(&[][..], Vec::as_slice);
             if let Err(e) = compare_lines(obtained_lines, expected_lines, input, section) {
-                eprintln!("\n{e:#}");
-                failed = true;
+                messages.push(format!("\n{e:#}"));
+                outcome = outcome.max(section.mismatch_outcome(expected_lines, obtained_lines));
             }
         }
     }
-    if failed { bail!("") }
-    Ok(())
+    (outcome, messages)
 }
 
 
@@ -302,6 +357,14 @@ impl Section {
     }
     fn is_compulsory(&self) -> bool {
         matches!(self, Self::Schedule(..) | Self::Assembly(..))
+    }
+    fn mismatch_outcome(&self, expected: &[String], obtained: &[String]) -> Outcome {
+        match self {
+            Self::Results | Self::Disassembly(..)               => Outcome::Fail,
+            Self::Errors if expected.is_empty() || obtained.is_empty()
+                                                                => Outcome::Fail,
+            _                                                   => Outcome::Blessable,
+        }
     }
 }
 
@@ -466,8 +529,7 @@ fn compare_lines(
         let diff_text = format_diff(expected, obtained);
         bail!(
             "Mismatch between expected and obtained {section} from {input}:\n\n\
-            {diff_text}\nTest output:\n#( expected {section}\n\n  {}\n\n#)",
-            obtained.join("\n  "))
+            {diff_text}\n")
     }
     Ok(())
 }
@@ -532,6 +594,29 @@ fn to_lines<S: core::Styleable>(block: &S) -> Vec<String> {
         .filter(|l| !l.is_empty())
         .map(str::to_string)
         .collect::<Vec<_>>()
+}
+
+
+//-------------------------------------------------------------------------------------------------
+
+fn write_whole_file(path: &Path, sections: BTreeMap<Section, Vec<String>>) -> Result<()> {
+    let temp_path = path.with_added_extension("bless");
+    let mut f = fs::File::create(&temp_path)?;
+
+    let mut was_expected = false;
+
+    for (section, lines) in sections {
+        if section == Section::Source {
+            for l in &lines { writeln!(f, "{l}")?; }
+        } else if !matches!(section, Section::Disassembly(..)) && !lines.is_empty() {
+            if was_expected { writeln!(f)?; }
+            write!(f, "#( expected {section}\n\n")?;
+            for l in lines { writeln!(f, "  {l}")?; }
+            writeln!(f, "\n#)")?;
+            was_expected = true;
+        }
+    }
+    Ok(())
 }
 
 
